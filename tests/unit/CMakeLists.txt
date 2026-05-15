@@ -1,6 +1,7 @@
 # Unit Tests for ReXGlue core components
 
 add_executable(unit_tests
+    audio/audio_system_test.cpp
     memory/heap_allocation_test.cpp
     kernel/object_table_test.cpp
     core/cvar_test.cpp
@@ -9,6 +10,7 @@ add_executable(unit_tests
     core/stream_test.cpp
     core/byte_order_test.cpp
     core/chrono_test.cpp
+    kernel/xam_xmp_test.cpp
     codegen/config_test.cpp
     codegen/jump_table_discovery_test.cpp
     codegen/template_registry_test.cpp

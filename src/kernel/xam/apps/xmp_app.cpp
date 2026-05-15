@@ -22,6 +22,12 @@ using namespace rex::system::xam;
 namespace apps {
 using namespace rex::system;
 
+X_HRESULT HandleUnsupportedXmpCaptureOutput() {
+  // Titles can use this as an availability probe; fail it without trapping.
+  REXKRNL_DEBUG("XMPCaptureOutput(...)");
+  return X_E_FAIL;
+}
+
 XmpApp::XmpApp(KernelState* kernel_state)
     : App(kernel_state, 0xFA),
       state_(State::kIdle),
@@ -461,10 +467,7 @@ X_HRESULT XmpApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
       return X_E_SUCCESS;
     }
     case 0x0007003D: {
-      // XMPCaptureOutput - not sure how this works :/
-      REXKRNL_DEBUG("XMPCaptureOutput(...)");
-      assert_always("XMP output not unimplemented");
-      return X_E_FAIL;
+      return HandleUnsupportedXmpCaptureOutput();
     }
   }
   REXKRNL_ERROR(

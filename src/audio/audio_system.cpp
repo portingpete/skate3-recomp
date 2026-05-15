@@ -42,6 +42,26 @@ REXCVAR_DEFINE_INT32(
 
 namespace rex::audio {
 
+namespace {
+
+class SilentAudioDriver final : public AudioDriver {
+ public:
+  SilentAudioDriver(memory::Memory* memory, rex::thread::Semaphore* semaphore)
+      : AudioDriver(memory), semaphore_(semaphore) {}
+
+  void SubmitFrame(uint32_t samples_ptr) override {
+    (void)samples_ptr;
+    if (semaphore_) {
+      semaphore_->Release(1, nullptr);
+    }
+  }
+
+ private:
+  rex::thread::Semaphore* semaphore_;
+};
+
+}  // namespace
+
 AudioSystem::AudioSystem(runtime::FunctionDispatcher* function_dispatcher)
     : memory_(function_dispatcher->memory()),
       function_dispatcher_(function_dispatcher),
@@ -180,6 +200,21 @@ int AudioSystem::FindFreeClient() {
   return -1;
 }
 
+void AudioSystem::DestroyClientDriver(size_t index) {
+  auto& client = clients_[index];
+  if (!client.driver) {
+    return;
+  }
+
+  if (client.silent_driver) {
+    delete client.driver;
+  } else {
+    DestroyDriver(client.driver);
+  }
+  client.driver = nullptr;
+  client.silent_driver = false;
+}
+
 void AudioSystem::Initialize() {}
 
 void AudioSystem::Shutdown() {
@@ -206,11 +241,11 @@ void AudioSystem::Shutdown() {
   // callback threads) before the semaphores they reference are destroyed.
   for (size_t i = 0; i < kMaximumClientCount; i++) {
     if (clients_[i].in_use) {
-      DestroyDriver(clients_[i].driver);
+      DestroyClientDriver(i);
       if (clients_[i].wrapped_callback_arg) {
         memory()->SystemHeapFree(clients_[i].wrapped_callback_arg);
       }
-      clients_[i] = {nullptr, 0, 0, 0, false};
+      clients_[i] = {};
     }
   }
 }
@@ -226,20 +261,32 @@ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg, s
                queued_frames_);
 
   auto client_semaphore = client_semaphores_[index].get();
-  auto ret = client_semaphore->Release(queued_frames_, nullptr);
-  assert_true(ret);
 
-  AudioDriver* driver;
+  AudioDriver* driver = nullptr;
+  bool silent_driver = false;
   auto result = CreateDriver(index, client_semaphore, &driver);
   if (XFAILED(result)) {
-    return result;
+    REXAPU_WARN(
+        "AudioSystem::RegisterClient: CreateDriver failed for index={} status={:08X}; using "
+        "silent fallback",
+        index, result);
+    driver = new SilentAudioDriver(memory_, client_semaphore);
+    silent_driver = true;
   }
   assert_not_null(driver);
 
   uint32_t ptr = memory()->SystemHeapAlloc(0x4);
   memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
 
-  clients_[index] = {driver, callback, callback_arg, ptr, true};
+  clients_[index] = {driver, callback, callback_arg, ptr, true, silent_driver};
+
+  auto ret = client_semaphore->Release(queued_frames_, nullptr);
+  if (!ret) {
+    DestroyClientDriver(index);
+    memory()->SystemHeapFree(ptr);
+    clients_[index] = {};
+    return X_STATUS_UNSUCCESSFUL;
+  }
 
   if (out_index) {
     *out_index = index;
@@ -269,9 +316,9 @@ void AudioSystem::UnregisterClient(size_t index) {
 
   auto global_lock = global_critical_region_.Acquire();
   assert_true(index < kMaximumClientCount);
-  DestroyDriver(clients_[index].driver);
+  DestroyClientDriver(index);
   memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
-  clients_[index] = {nullptr, 0, 0, 0, false};
+  clients_[index] = {};
 
   // Drain the semaphore of its count.
   auto client_semaphore = client_semaphores_[index].get();
@@ -328,28 +375,33 @@ bool AudioSystem::Restore(stream::ByteStream* stream) {
       UnregisterClient(id);
     }
 
-    client.callback = stream->Read<uint32_t>();
-    client.callback_arg = stream->Read<uint32_t>();
-    client.wrapped_callback_arg = stream->Read<uint32_t>();
-
-    client.in_use = true;
+    auto callback = stream->Read<uint32_t>();
+    auto callback_arg = stream->Read<uint32_t>();
+    auto wrapped_callback_arg = stream->Read<uint32_t>();
 
     auto client_semaphore = client_semaphores_[id].get();
-    auto ret = client_semaphore->Release(queued_frames_, nullptr);
-    assert_true(ret);
 
     AudioDriver* driver = nullptr;
+    bool silent_driver = false;
     auto status = CreateDriver(id, client_semaphore, &driver);
     if (XFAILED(status)) {
-      REXAPU_ERROR(
+      REXAPU_WARN(
           "AudioSystem::Restore - Call to CreateDriver failed with status "
-          "{:08X}",
+          "{:08X}; using silent fallback",
           status);
-      return false;
+      driver = new SilentAudioDriver(memory_, client_semaphore);
+      silent_driver = true;
     }
 
     assert_not_null(driver);
-    client.driver = driver;
+    client = {driver, callback, callback_arg, wrapped_callback_arg, true, silent_driver};
+
+    auto ret = client_semaphore->Release(queued_frames_, nullptr);
+    if (!ret) {
+      DestroyClientDriver(id);
+      client = {};
+      return false;
+    }
   }
 
   return true;

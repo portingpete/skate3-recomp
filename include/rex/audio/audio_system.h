@@ -84,9 +84,11 @@ class AudioSystem : public system::IAudioSystem {
     uint32_t callback_arg;
     uint32_t wrapped_callback_arg;
     bool in_use;
+    bool silent_driver;
   } clients_[kMaximumClientCount];
 
   int FindFreeClient();
+  void DestroyClientDriver(size_t index);
 
   std::unique_ptr<rex::thread::Semaphore> client_semaphores_[kMaximumClientCount];
   // Event is always there in case we have no clients.
