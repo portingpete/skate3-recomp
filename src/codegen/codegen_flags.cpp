@@ -75,7 +75,7 @@ REXCVAR_DEFINE_UINT32(backward_scan_limit, 64, "Codegen",
     .lifecycle(rex::cvar::Lifecycle::kInitOnly)
     .range(1, 10000);
 
-REXCVAR_DEFINE_UINT32(max_jump_table_entries, 512, "Codegen",
+REXCVAR_DEFINE_UINT32(max_jump_table_entries, 4096, "Codegen",
                       "Max entries per detected jump table")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly)
     .range(1, 100000);

@@ -10,6 +10,7 @@ add_executable(unit_tests
     core/byte_order_test.cpp
     core/chrono_test.cpp
     codegen/config_test.cpp
+    codegen/jump_table_discovery_test.cpp
     codegen/template_registry_test.cpp
     ppc/import_function_test.cpp
     ppc/stack_test.cpp
