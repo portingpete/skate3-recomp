@@ -32,6 +32,12 @@
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
 
+namespace {
+
+constexpr u32 kStatusInvalidDeviceRequest = 0xC0000010u;
+
+}  // namespace
+
 struct CreateOptions {
   // https://processhacker.sourceforge.io/doc/ntioapi_8h.html
   static const uint32_t FILE_DIRECTORY_FILE = 0x00000001;
@@ -739,6 +745,48 @@ u32 IoDismountVolumeByName_entry(ppc_ptr_t<X_ANSI_STRING> name) {
   return X_STATUS_SUCCESS;
 }
 
+u32 IoDismountVolume_entry(mapped_void device_object) {
+  REXKRNL_IMPORT_TRACE("IoDismountVolume", "device={:#x}", device_object.guest_address());
+  return X_STATUS_SUCCESS;
+}
+
+u32 IoInvalidDeviceRequest_entry(mapped_void device_object, mapped_void irp) {
+  REXKRNL_IMPORT_TRACE("IoInvalidDeviceRequest", "device={:#x} irp={:#x}",
+                       device_object.guest_address(), irp.guest_address());
+  return kStatusInvalidDeviceRequest;
+}
+
+u32 IoCheckShareAccess_entry(u32 desired_access, u32 desired_share_access,
+                             mapped_void file_object, mapped_void share_access, u32 update) {
+  REXKRNL_IMPORT_TRACE("IoCheckShareAccess",
+                       "access={:#x} share={:#x} file={:#x} state={:#x} update={}",
+                       uint32_t(desired_access), uint32_t(desired_share_access),
+                       file_object.guest_address(), share_access.guest_address(),
+                       uint32_t(update));
+  return X_STATUS_SUCCESS;
+}
+
+void IoSetShareAccess_entry(u32 desired_access, u32 desired_share_access,
+                            mapped_void file_object, mapped_void share_access) {
+  REXKRNL_IMPORT_TRACE("IoSetShareAccess", "access={:#x} share={:#x} file={:#x} state={:#x}",
+                       uint32_t(desired_access), uint32_t(desired_share_access),
+                       file_object.guest_address(), share_access.guest_address());
+}
+
+void IoRemoveShareAccess_entry(mapped_void file_object, mapped_void share_access) {
+  REXKRNL_IMPORT_TRACE("IoRemoveShareAccess", "file={:#x} state={:#x}",
+                       file_object.guest_address(), share_access.guest_address());
+}
+
+void IoCompleteRequest_entry(mapped_void irp, u32 priority_boost) {
+  REXKRNL_IMPORT_TRACE("IoCompleteRequest", "irp={:#x} boost={:#x}", irp.guest_address(),
+                       uint32_t(priority_boost));
+}
+
+void IoDeleteDevice_entry(mapped_void device_object) {
+  REXKRNL_IMPORT_TRACE("IoDeleteDevice", "device={:#x}", device_object.guest_address());
+}
+
 u32 IoSynchronousDeviceIoControlRequest_entry(u32 ioctl, mapped_void device_object,
                                               mapped_void input_buffer, u32 input_length,
                                               mapped_void output_buffer, u32 output_length,
@@ -785,6 +833,13 @@ REX_EXPORT(__imp__IoSynchronousDeviceIoControlRequest,
            rex::kernel::xboxkrnl::IoSynchronousDeviceIoControlRequest_entry)
 REX_EXPORT(__imp__StfsCreateDevice, rex::kernel::xboxkrnl::StfsCreateDevice_entry)
 REX_EXPORT(__imp__StfsControlDevice, rex::kernel::xboxkrnl::StfsControlDevice_entry)
+REX_EXPORT(__imp__IoCheckShareAccess, rex::kernel::xboxkrnl::IoCheckShareAccess_entry)
+REX_EXPORT(__imp__IoCompleteRequest, rex::kernel::xboxkrnl::IoCompleteRequest_entry)
+REX_EXPORT(__imp__IoDeleteDevice, rex::kernel::xboxkrnl::IoDeleteDevice_entry)
+REX_EXPORT(__imp__IoDismountVolume, rex::kernel::xboxkrnl::IoDismountVolume_entry)
+REX_EXPORT(__imp__IoInvalidDeviceRequest, rex::kernel::xboxkrnl::IoInvalidDeviceRequest_entry)
+REX_EXPORT(__imp__IoRemoveShareAccess, rex::kernel::xboxkrnl::IoRemoveShareAccess_entry)
+REX_EXPORT(__imp__IoSetShareAccess, rex::kernel::xboxkrnl::IoSetShareAccess_entry)
 
 REX_EXPORT_STUB(__imp__IoAcquireDeviceObjectLock);
 REX_EXPORT_STUB(__imp__IoAllocateIrp);
@@ -792,19 +847,12 @@ REX_EXPORT_STUB(__imp__IoBuildAsynchronousFsdRequest);
 REX_EXPORT_STUB(__imp__IoBuildDeviceIoControlRequest);
 REX_EXPORT_STUB(__imp__IoBuildSynchronousFsdRequest);
 REX_EXPORT_STUB(__imp__IoCallDriver);
-REX_EXPORT_STUB(__imp__IoCheckShareAccess);
-REX_EXPORT_STUB(__imp__IoCompleteRequest);
 REX_EXPORT_STUB(__imp__IoCreateFile);
-REX_EXPORT_STUB(__imp__IoDeleteDevice);
-REX_EXPORT_STUB(__imp__IoDismountVolume);
 REX_EXPORT_STUB(__imp__IoFreeIrp);
 REX_EXPORT_STUB(__imp__IoInitializeIrp);
-REX_EXPORT_STUB(__imp__IoInvalidDeviceRequest);
 REX_EXPORT_STUB(__imp__IoQueueThreadIrp);
 REX_EXPORT_STUB(__imp__IoReleaseDeviceObjectLock);
-REX_EXPORT_STUB(__imp__IoRemoveShareAccess);
 REX_EXPORT_STUB(__imp__IoSetIoCompletion);
-REX_EXPORT_STUB(__imp__IoSetShareAccess);
 REX_EXPORT_STUB(__imp__IoStartNextPacket);
 REX_EXPORT_STUB(__imp__IoStartNextPacketByKey);
 REX_EXPORT_STUB(__imp__IoStartPacket);
