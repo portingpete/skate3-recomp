@@ -83,7 +83,7 @@ if(REXGLUE_ENABLE_PERF_COUNTERS)
 endif()
 
 if(WIN32)
-    target_link_libraries(rexruntime PRIVATE ws2_32)
+    target_link_libraries(rexruntime PRIVATE ws2_32 oldnames)
     target_compile_definitions(rexruntime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 

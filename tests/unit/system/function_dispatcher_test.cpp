@@ -11,24 +11,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <rex/logging.h>
+#include "../test_memory.h"
+
 #include <rex/ppc/context.h>
 #include <rex/system/export_resolver.h>
 #include <rex/system/function_dispatcher.h>
-#include <rex/system/xmemory.h>
 
 namespace {
 
-rex::memory::Memory& GetTestMemory() {
-  static rex::memory::Memory memory;
-  static bool initialized = false;
-  if (!initialized) {
-    rex::InitLogging();
-    REQUIRE(memory.Initialize());
-    initialized = true;
-  }
-  return memory;
-}
+using rex::test::GetTestMemory;
 
 void DummyFn(PPCContext&, uint8_t*) {}
 

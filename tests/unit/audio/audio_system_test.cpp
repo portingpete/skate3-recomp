@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "../test_memory.h"
+
 #include <chrono>
 
 #include <rex/audio/audio_driver.h>
@@ -7,8 +9,6 @@
 #include <rex/system/export_resolver.h>
 #include <rex/system/function_dispatcher.h>
 #include <rex/thread.h>
-
-#include "../test_memory.h"
 
 namespace {
 
@@ -49,8 +49,7 @@ class TestAudioSystem final : public rex::audio::AudioSystem {
 };
 
 struct TestAudioRuntime {
-  TestAudioRuntime()
-      : memory(rex::test::GetTestMemory()), dispatcher(&memory, &export_resolver) {}
+  TestAudioRuntime() : memory(rex::test::GetTestMemory()), dispatcher(&memory, &export_resolver) {}
 
   rex::memory::Memory& memory;
   rex::runtime::ExportResolver export_resolver;

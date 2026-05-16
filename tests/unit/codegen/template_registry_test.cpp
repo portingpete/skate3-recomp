@@ -65,9 +65,13 @@ TEST_CASE("TemplateRegistry: render with simple CLI data", "[TemplateRegistry]")
   std::string json = R"({
     "names": {"snake_case": "test_app"},
     "sdk_version": "1.0.0",
+    "sdk_version_full": "1.0.0-test",
+    "generated_on": "2026-05-16T00:00:00Z",
     "include_stamp": false,
+    "game_root": "",
     "xex_path": "assets/default.xex",
-    "out_directory_path": "generated/default"
+    "out_directory_path": "generated/default",
+    "modules": []
   })";
   std::string result = registry.render("init/manifest_toml", json);
 
@@ -85,6 +89,8 @@ TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
     "code_base": "0x82010000",
     "code_size": "0x100000",
     "rexcrt_heap": 1,
+    "has_dll_modules": false,
+    "is_dll": false,
     "config_flags": {},
     "functions": [],
     "imports": []
@@ -190,7 +196,7 @@ TEST_CASE("Template: manifest_toml emits sdk_version when include_stamp is true"
           "[TemplateRegistry][manifest]") {
   rex::codegen::TemplateRegistry registry;
   std::string json =
-      R"({"names": {"snake_case": "mygame", "pascal_case": "Mygame", "upper_case": "MYGAME"}, "sdk_version": "0.8.0", "include_stamp": true})";
+      R"({"names": {"snake_case": "mygame", "pascal_case": "Mygame", "upper_case": "MYGAME"}, "sdk_version": "0.8.0", "sdk_version_full": "0.8.0-test", "generated_on": "2026-05-16T00:00:00Z", "include_stamp": true, "game_root": "", "xex_path": "default.xex", "out_directory_path": "generated/default", "modules": []})";
   std::string out = registry.render("init/manifest_toml", json);
   CHECK(out.find("sdk_version = \"0.8.0\"") != std::string::npos);
   CHECK(out.find("name = \"mygame\"") != std::string::npos);
@@ -200,7 +206,7 @@ TEST_CASE("Template: manifest_toml omits sdk_version when include_stamp is false
           "[TemplateRegistry][manifest]") {
   rex::codegen::TemplateRegistry registry;
   std::string json =
-      R"({"names": {"snake_case": "mygame", "pascal_case": "Mygame", "upper_case": "MYGAME"}, "sdk_version": "0.8.0", "include_stamp": false})";
+      R"({"names": {"snake_case": "mygame", "pascal_case": "Mygame", "upper_case": "MYGAME"}, "sdk_version": "0.8.0", "sdk_version_full": "0.8.0-test", "generated_on": "2026-05-16T00:00:00Z", "include_stamp": false, "game_root": "", "xex_path": "default.xex", "out_directory_path": "generated/default", "modules": []})";
   std::string out = registry.render("init/manifest_toml", json);
   CHECK(out.find("sdk_version") == std::string::npos);
   CHECK(out.find("name = \"mygame\"") != std::string::npos);

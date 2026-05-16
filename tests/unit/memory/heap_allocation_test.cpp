@@ -11,24 +11,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "../test_memory.h"
+
 #include <rex/cvar.h>
-#include <rex/logging.h>
-#include <rex/system/xmemory.h>
 
 namespace {
 
-// Shared memory instance - expensive to create, reuse across tests
-rex::memory::Memory& GetTestMemory() {
-  static rex::memory::Memory memory;
-  static bool initialized = false;
-  if (!initialized) {
-    rex::InitLogging();
-    bool result = memory.Initialize();
-    REQUIRE(result);
-    initialized = true;
-  }
-  return memory;
-}
+using rex::test::GetTestMemory;
 
 // Helper to cast away const for heap operations
 rex::memory::BaseHeap* MutableHeap(const rex::memory::BaseHeap* heap) {

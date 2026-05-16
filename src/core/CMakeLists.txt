@@ -26,6 +26,7 @@ add_library(rex::core ALIAS rexcore)
 
 # Platform-specific sources
 if(WIN32)
+    target_link_libraries(rexcore PUBLIC ws2_32)
     target_sources(rexcore PRIVATE
         atomic_win.cpp
         clock_win.cpp
@@ -103,4 +104,3 @@ if(REXGLUE_ENABLE_PERF_COUNTERS)
     target_compile_definitions(rexcore PUBLIC
         $<$<NOT:$<CONFIG:Release>>:REXGLUE_ENABLE_PERF_COUNTERS>)
 endif()
-

@@ -37,8 +37,8 @@ add_custom_command(
            ${PPC_GEN_DIR}/ppc_test_decls.h
     COMMAND $<TARGET_FILE:rexglue> recompile-tests
             --output=${PPC_GEN_DIR}
-            --bin_dir=${PPC_BIN_DIR}
-            --asm_dir=${CMAKE_CURRENT_SOURCE_DIR}/asm
+            --bin-dir=${PPC_BIN_DIR}
+            --asm-dir=${CMAKE_CURRENT_SOURCE_DIR}/asm
     DEPENDS ${TEST_BINS} ${TEST_MAPS} ${ASM_FILES} rexglue
     COMMENT "Generating Catch2 test code with rexglue"
     VERBATIM
