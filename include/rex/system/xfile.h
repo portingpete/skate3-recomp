@@ -10,6 +10,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstddef>
 #include <string>
 #include <filesystem>
 #include <mutex>
@@ -66,6 +67,10 @@ class X_FILE_DIRECTORY_INFORMATION {
   }
 };
 
+inline constexpr size_t XFileDirectoryInformationSize(size_t file_name_length) {
+  return offsetof(X_FILE_DIRECTORY_INFORMATION, file_name) + file_name_length;
+}
+
 class XFile : public XObject {
  public:
   static const XObject::Type kObjectType = XObject::Type::File;
@@ -85,7 +90,8 @@ class XFile : public XObject {
   void set_position(uint64_t value);
 
   X_STATUS QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info, size_t length,
-                          const std::string_view file_name, bool restart);
+                          const std::string_view file_name, bool restart,
+                          size_t* out_bytes_written = nullptr);
 
   // Don't do within the global critical region because invalidation callbacks
   // may be triggered (as per the usual rule of not doing I/O within the global

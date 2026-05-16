@@ -51,9 +51,13 @@ void XFile::set_position(uint64_t value) {
 }
 
 X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info, size_t length,
-                               const std::string_view file_name, bool restart) {
+                               const std::string_view file_name, bool restart,
+                               size_t* out_bytes_written) {
   std::lock_guard<std::mutex> lock(file_lock_);
   assert_not_null(out_info);
+  if (out_bytes_written) {
+    *out_bytes_written = 0;
+  }
 
   rex::filesystem::Entry* entry = nullptr;
 
@@ -82,7 +86,8 @@ X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info, size_t le
 
   auto end = reinterpret_cast<uint8_t*>(out_info) + length;
   const auto& entry_name = entry->name();
-  if (reinterpret_cast<uint8_t*>(&out_info->file_name[0]) + entry_name.size() > end) {
+  const size_t bytes_written = XFileDirectoryInformationSize(entry_name.size());
+  if (reinterpret_cast<uint8_t*>(out_info) + bytes_written > end) {
     assert_always("Buffer overflow?");
     return X_STATUS_NO_SUCH_FILE;
   }
@@ -98,6 +103,9 @@ X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info, size_t le
   out_info->attributes = entry->attributes();
   out_info->file_name_length = static_cast<uint32_t>(entry_name.size());
   std::memcpy(out_info->file_name, entry_name.data(), entry_name.size());
+  if (out_bytes_written) {
+    *out_bytes_written = bytes_written;
+  }
 
   return X_STATUS_SUCCESS;
 }

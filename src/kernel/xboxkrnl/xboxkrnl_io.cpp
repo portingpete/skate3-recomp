@@ -577,9 +577,10 @@ u32 NtQueryDirectoryFile_entry(u32 file_handle, u32 event_handle, u32 apc_routin
 
   if (file) {
     // X_FILE_DIRECTORY_INFORMATION dir_info = {0};
-    result = file->QueryDirectory(file_info_ptr, length, name, restart_scan != 0);
+    size_t bytes_written = 0;
+    result = file->QueryDirectory(file_info_ptr, length, name, restart_scan != 0, &bytes_written);
     if (XSUCCEEDED(result)) {
-      info = length;
+      info = static_cast<uint32_t>(bytes_written);
     }
   } else {
     result = X_STATUS_NO_SUCH_FILE;
