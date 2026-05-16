@@ -578,6 +578,39 @@ u32 NetDll_XNetXnAddrToInAddr_entry(u32 caller, ppc_ptr_t<XNADDR> xn_addr, mappe
   return 1;
 }
 
+u32 NetDll_XNetTsAddrToInAddr_entry(u32 caller, mapped_void ts_addr, mapped_void xid,
+                                    mapped_void in_addr) {
+  (void)caller;
+  (void)ts_addr;
+  (void)xid;
+  if (in_addr) {
+    std::memset(in_addr, 0, sizeof(uint32_t));
+  }
+  return 1;
+}
+
+u32 NetDll_XNetServerToInAddr_entry(u32 caller, mapped_void server, mapped_void xid,
+                                    mapped_void in_addr) {
+  (void)caller;
+  (void)server;
+  (void)xid;
+  if (in_addr) {
+    std::memset(in_addr, 0, sizeof(uint32_t));
+  }
+  return 1;
+}
+
+u32 NetDll_XNetInAddrToServer_entry(u32 caller, mapped_void in_addr, mapped_void xid,
+                                    mapped_void server) {
+  (void)caller;
+  (void)in_addr;
+  (void)xid;
+  if (server) {
+    std::memset(server, 0, sizeof(uint32_t));
+  }
+  return 1;
+}
+
 // Does the reverse of the above.
 // FIXME: Arguments may not be correct.
 u32 NetDll_XNetInAddrToXnAddr_entry(u32 caller, mapped_void in_addr, ppc_ptr_t<XNADDR> xn_addr,
@@ -619,6 +652,14 @@ struct XEthernetStatus {
 };
 
 u32 NetDll_XNetGetEthernetLinkStatus_entry(u32 caller) {
+  return 0;
+}
+
+u32 NetDll_XNetGetBroadcastVersionStatus_entry(u32 caller, mapped_u32 status_ptr) {
+  (void)caller;
+  if (status_ptr) {
+    *status_ptr = 0;
+  }
   return 0;
 }
 
@@ -673,6 +714,54 @@ u32 NetDll_XNetQosRelease_entry(u32 caller, ppc_ptr_t<XNQOS> qos) {
 u32 NetDll_XNetQosListen_entry(u32 caller, mapped_void id, mapped_void data, u32 data_size, u32 r7,
                                u32 flags) {
   return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 NetDll_XNetQosLookup_entry(u32 caller, u32 xnaddr_count, mapped_void xnaddr_ptrs,
+                               mapped_void xnkid_ptrs, mapped_void xnkey_ptrs,
+                               u32 inaddr_count, mapped_void inaddr_ptrs, mapped_void ports,
+                               u32 probe_count, u32 bits_per_second, u32 flags,
+                               u32 event_handle, mapped_u32 qos_out) {
+  (void)caller;
+  (void)xnaddr_count;
+  (void)xnaddr_ptrs;
+  (void)xnkid_ptrs;
+  (void)xnkey_ptrs;
+  (void)inaddr_count;
+  (void)inaddr_ptrs;
+  (void)ports;
+  (void)probe_count;
+  (void)bits_per_second;
+  (void)flags;
+
+  auto* kernel_state = rex::system::kernel_state();
+  if (qos_out) {
+    if (kernel_state && kernel_state->memory()) {
+      auto qos_guest = kernel_state->memory()->SystemHeapAlloc(sizeof(XNQOS));
+      auto qos = kernel_state->memory()->TranslateVirtual<XNQOS*>(qos_guest);
+      qos->count = 0;
+      qos->count_pending = 0;
+      *qos_out = qos_guest;
+    } else {
+      *qos_out = 0;
+    }
+  }
+  if (event_handle && kernel_state && kernel_state->object_table()) {
+    auto ev = kernel_state->object_table()->LookupObject<XEvent>(event_handle);
+    if (ev) {
+      ev->Set(0, false);
+    }
+  }
+  return 0;
+}
+
+u32 NetDll_XNetQosGetListenStats_entry(u32 caller, mapped_void id, mapped_void stats_ptr,
+                                       u32 stats_size) {
+  (void)caller;
+  (void)id;
+  if (stats_ptr && stats_size) {
+    std::memset(stats_ptr, 0, stats_size);
+  }
+  return 0;
 }
 
 u32 NetDll_inet_addr_entry(mapped_string addr_ptr) {
@@ -1148,20 +1237,25 @@ REX_EXPORT(__imp__NetDll_XNetConnect, rex::kernel::xam::NetDll_XNetConnect_entry
 REX_EXPORT(__imp__NetDll_XNetCreateKey, rex::kernel::xam::NetDll_XNetCreateKey_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseLookup);
 REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseRelease);
-REX_EXPORT_STUB(__imp__NetDll_XNetGetBroadcastVersionStatus);
+REX_EXPORT(__imp__NetDll_XNetGetBroadcastVersionStatus,
+           rex::kernel::xam::NetDll_XNetGetBroadcastVersionStatus_entry)
 REX_EXPORT(__imp__NetDll_XNetGetConnectStatus,
            rex::kernel::xam::NetDll_XNetGetConnectStatus_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetGetSystemLinkPort);
 REX_EXPORT_STUB(__imp__NetDll_XNetGetXnAddrPlatform);
-REX_EXPORT_STUB(__imp__NetDll_XNetInAddrToServer);
-REX_EXPORT_STUB(__imp__NetDll_XNetQosGetListenStats);
-REX_EXPORT_STUB(__imp__NetDll_XNetQosLookup);
+REX_EXPORT(__imp__NetDll_XNetInAddrToServer,
+           rex::kernel::xam::NetDll_XNetInAddrToServer_entry)
+REX_EXPORT(__imp__NetDll_XNetQosGetListenStats,
+           rex::kernel::xam::NetDll_XNetQosGetListenStats_entry)
+REX_EXPORT(__imp__NetDll_XNetQosLookup, rex::kernel::xam::NetDll_XNetQosLookup_entry)
 REX_EXPORT(__imp__NetDll_XNetRegisterKey, rex::kernel::xam::NetDll_XNetRegisterKey_entry)
 REX_EXPORT(__imp__NetDll_XNetReplaceKey, rex::kernel::xam::NetDll_XNetReplaceKey_entry)
-REX_EXPORT_STUB(__imp__NetDll_XNetServerToInAddr);
+REX_EXPORT(__imp__NetDll_XNetServerToInAddr,
+           rex::kernel::xam::NetDll_XNetServerToInAddr_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetSetOpt);
 REX_EXPORT_STUB(__imp__NetDll_XNetStartupEx);
-REX_EXPORT_STUB(__imp__NetDll_XNetTsAddrToInAddr);
+REX_EXPORT(__imp__NetDll_XNetTsAddrToInAddr,
+           rex::kernel::xam::NetDll_XNetTsAddrToInAddr_entry)
 REX_EXPORT(__imp__NetDll_XNetUnregisterInAddr,
            rex::kernel::xam::NetDll_XNetUnregisterInAddr_entry)
 REX_EXPORT(__imp__NetDll_XNetUnregisterKey, rex::kernel::xam::NetDll_XNetUnregisterKey_entry)

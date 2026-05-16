@@ -37,6 +37,20 @@ u32 NetDll_XNetUnregisterKey_entry(u32 caller, mapped_void key_id);
 u32 NetDll_XNetConnect_entry(u32 caller, u32 in_addr);
 u32 NetDll_XNetGetConnectStatus_entry(u32 caller, u32 in_addr);
 u32 NetDll_XNetUnregisterInAddr_entry(u32 caller, u32 in_addr);
+u32 NetDll_XNetServerToInAddr_entry(u32 caller, mapped_void server, mapped_void xid,
+                                    mapped_void in_addr);
+u32 NetDll_XNetInAddrToServer_entry(u32 caller, mapped_void in_addr, mapped_void xid,
+                                    mapped_void server);
+u32 NetDll_XNetTsAddrToInAddr_entry(u32 caller, mapped_void ts_addr, mapped_void xid,
+                                    mapped_void in_addr);
+u32 NetDll_XNetGetBroadcastVersionStatus_entry(u32 caller, mapped_u32 status_ptr);
+u32 NetDll_XNetQosGetListenStats_entry(u32 caller, mapped_void id, mapped_void stats_ptr,
+                                       u32 stats_size);
+u32 NetDll_XNetQosLookup_entry(u32 caller, u32 xnaddr_count, mapped_void xnaddr_ptrs,
+                               mapped_void xnkid_ptrs, mapped_void xnkey_ptrs,
+                               u32 inaddr_count, mapped_void inaddr_ptrs, mapped_void ports,
+                               u32 probe_count, u32 bits_per_second, u32 flags,
+                               u32 event_handle, mapped_u32 qos_out);
 }  // namespace rex::kernel::xam
 
 namespace {
@@ -109,6 +123,60 @@ TEST_CASE("XNet key registration helpers are deterministic no-op successes",
             kCaller, mapped_void(nullptr), mapped_void(nullptr)) == 0);
   CHECK(rex::kernel::xam::NetDll_XNetUnregisterKey_entry(
             kCaller, mapped_void(key_id.data(), 0x40002000)) == 0);
+}
+
+TEST_CASE("XNet address conversion helpers keep offline outputs deterministic",
+          "[kernel][xam_net]") {
+  std::array<uint8_t, 4> output{};
+  output.fill(0xCD);
+
+  CHECK(rex::kernel::xam::NetDll_XNetServerToInAddr_entry(
+            1, mapped_void(nullptr), mapped_void(nullptr),
+            mapped_void(output.data(), 0x40003000)) == 1);
+  CHECK(ReadBe32(output.data(), 0) == 0);
+
+  output.fill(0xCD);
+  CHECK(rex::kernel::xam::NetDll_XNetInAddrToServer_entry(
+            1, mapped_void(nullptr), mapped_void(nullptr),
+            mapped_void(output.data(), 0x40003000)) == 1);
+  CHECK(ReadBe32(output.data(), 0) == 0);
+
+  output.fill(0xCD);
+  CHECK(rex::kernel::xam::NetDll_XNetTsAddrToInAddr_entry(
+            1, mapped_void(nullptr), mapped_void(nullptr),
+            mapped_void(output.data(), 0x40003000)) == 1);
+  CHECK(ReadBe32(output.data(), 0) == 0);
+}
+
+TEST_CASE("XNet status and listen-stat helpers report offline zero state",
+          "[kernel][xam_net]") {
+  constexpr u32 kStatus = 0x10;
+  constexpr u32 kStats = 0x20;
+  std::array<uint8_t, 0x60> storage{};
+  WriteBe32(storage.data(), kStatus, 0xDEADBEEF);
+  std::fill(storage.begin() + kStats, storage.begin() + kStats + 0x20, uint8_t{0xCD});
+
+  CHECK(rex::kernel::xam::NetDll_XNetGetBroadcastVersionStatus_entry(
+            1, mapped_u32(reinterpret_cast<rex::be_u32*>(storage.data() + kStatus),
+                          kStatus)) == 0);
+  CHECK(ReadBe32(storage.data(), kStatus) == 0);
+
+  CHECK(rex::kernel::xam::NetDll_XNetQosGetListenStats_entry(
+            1, mapped_void(nullptr), mapped_void(storage.data() + kStats, kStats),
+            0x20) == 0);
+  CHECK(std::all_of(storage.begin() + kStats, storage.begin() + kStats + 0x20,
+                    [](uint8_t value) { return value == 0; }));
+}
+
+TEST_CASE("XNetQosLookup reports an empty offline result without kernel state",
+          "[kernel][xam_net]") {
+  rex::be_u32 qos_handle = 0xDEADBEEF;
+
+  CHECK(rex::kernel::xam::NetDll_XNetQosLookup_entry(
+            1, 0, mapped_void(nullptr), mapped_void(nullptr), mapped_void(nullptr), 0,
+            mapped_void(nullptr), mapped_void(nullptr), 0, 0, 0, 0,
+            mapped_u32(&qos_handle, 0x40004000)) == 0);
+  CHECK(u32(qos_handle) == 0);
 }
 
 TEST_CASE("WSARecvFrom marks offline overlapped receives pending", "[kernel][xam_net]") {
