@@ -12,6 +12,7 @@ add_executable(unit_tests
     core/byte_order_test.cpp
     core/chrono_test.cpp
     kernel/xam_xmp_test.cpp
+    kernel/xam_ui_test.cpp
     codegen/config_test.cpp
     codegen/function_graph_test.cpp
     codegen/function_node_emit_test.cpp

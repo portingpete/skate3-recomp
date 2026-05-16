@@ -546,6 +546,98 @@ u32 XamShowCommunitySessionsUI_entry(u32 r3, u32 r4) {
   return X_ERROR_FUNCTION_FAILED;
 }
 
+u32 XamShowAchievementsUI_entry(u32 user_index, u32 title_id) {
+  (void)user_index;
+  (void)title_id;
+  REXKRNL_WARN("XamShowAchievementsUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowFriendsUI_entry(u32 user_index) {
+  (void)user_index;
+  REXKRNL_WARN("XamShowFriendsUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowGamerCardUIForXUID_entry(u32 user_index, u64 xuid) {
+  (void)user_index;
+  (void)xuid;
+  REXKRNL_WARN("XamShowGamerCardUIForXUID no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowFriendRequestUI_entry() {
+  REXKRNL_WARN("XamShowFriendRequestUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowGameInviteUI_entry() {
+  REXKRNL_WARN("XamShowGameInviteUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMarketplaceUI_entry() {
+  REXKRNL_WARN("XamShowMarketplaceUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMarketplaceUIEx_entry() {
+  REXKRNL_WARN("XamShowMarketplaceUIEx no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMarketplaceDownloadItemsUI_entry() {
+  REXKRNL_WARN("XamShowMarketplaceDownloadItemsUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMessageComposeUI_entry() {
+  REXKRNL_WARN("XamShowMessageComposeUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMessagesUI_entry() {
+  REXKRNL_WARN("XamShowMessagesUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowMessagesUIEx_entry() {
+  REXKRNL_WARN("XamShowMessagesUIEx no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowPlayerReviewUI_entry() {
+  REXKRNL_WARN("XamShowPlayerReviewUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowPlayersUI_entry() {
+  REXKRNL_WARN("XamShowPlayersUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowQuickChatUI_entry() {
+  REXKRNL_WARN("XamShowQuickChatUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowQuickChatUIp_entry() {
+  REXKRNL_WARN("XamShowQuickChatUIp no-op");
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowSigninUIp_entry() {
+  REXKRNL_WARN("XamShowSigninUIp no-op");
+  REX_KERNEL_STATE()->BroadcastNotification(0x0000000A, 1);
+  REX_KERNEL_STATE()->BroadcastNotification(0x00000009, 0);
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamShowVoiceMailUI_entry() {
+  REXKRNL_WARN("XamShowVoiceMailUI no-op");
+  return X_ERROR_SUCCESS;
+}
+
 uint32_t XamShowMessageBoxUIEx_entry() {
   // TODO(tomc): implement properly
   static bool warned = false;
@@ -568,6 +660,27 @@ REX_EXPORT(__imp__XamShowDirtyDiscErrorUI, rex::kernel::xam::XamShowDirtyDiscErr
 REX_EXPORT(__imp__XamShowPartyUI, rex::kernel::xam::XamShowPartyUI_entry)
 REX_EXPORT(__imp__XamShowCommunitySessionsUI, rex::kernel::xam::XamShowCommunitySessionsUI_entry)
 REX_EXPORT(__imp__XamShowMessageBoxUIEx, rex::kernel::xam::XamShowMessageBoxUIEx_entry)
+REX_EXPORT(__imp__XamShowAchievementsUI, rex::kernel::xam::XamShowAchievementsUI_entry)
+REX_EXPORT(__imp__XamShowFriendsUI, rex::kernel::xam::XamShowFriendsUI_entry)
+REX_EXPORT(__imp__XamShowGamerCardUIForXUID,
+           rex::kernel::xam::XamShowGamerCardUIForXUID_entry)
+REX_EXPORT(__imp__XamShowFriendRequestUI,
+           rex::kernel::xam::XamShowFriendRequestUI_entry)
+REX_EXPORT(__imp__XamShowGameInviteUI, rex::kernel::xam::XamShowGameInviteUI_entry)
+REX_EXPORT(__imp__XamShowMarketplaceUI, rex::kernel::xam::XamShowMarketplaceUI_entry)
+REX_EXPORT(__imp__XamShowMarketplaceUIEx, rex::kernel::xam::XamShowMarketplaceUIEx_entry)
+REX_EXPORT(__imp__XamShowMarketplaceDownloadItemsUI,
+           rex::kernel::xam::XamShowMarketplaceDownloadItemsUI_entry)
+REX_EXPORT(__imp__XamShowMessageComposeUI,
+           rex::kernel::xam::XamShowMessageComposeUI_entry)
+REX_EXPORT(__imp__XamShowMessagesUI, rex::kernel::xam::XamShowMessagesUI_entry)
+REX_EXPORT(__imp__XamShowMessagesUIEx, rex::kernel::xam::XamShowMessagesUIEx_entry)
+REX_EXPORT(__imp__XamShowPlayerReviewUI, rex::kernel::xam::XamShowPlayerReviewUI_entry)
+REX_EXPORT(__imp__XamShowPlayersUI, rex::kernel::xam::XamShowPlayersUI_entry)
+REX_EXPORT(__imp__XamShowQuickChatUI, rex::kernel::xam::XamShowQuickChatUI_entry)
+REX_EXPORT(__imp__XamShowQuickChatUIp, rex::kernel::xam::XamShowQuickChatUIp_entry)
+REX_EXPORT(__imp__XamShowSigninUIp, rex::kernel::xam::XamShowSigninUIp_entry)
+REX_EXPORT(__imp__XamShowVoiceMailUI, rex::kernel::xam::XamShowVoiceMailUI_entry)
 
 REX_EXPORT_STUB(__imp__XamIsGuideDisabled);
 REX_EXPORT_STUB(__imp__XamIsMessageBoxActive);
@@ -579,7 +692,6 @@ REX_EXPORT_STUB(__imp__XamNavigate);
 REX_EXPORT_STUB(__imp__XamNavigateBack);
 REX_EXPORT_STUB(__imp__XamOverrideHudOpenType);
 REX_EXPORT_STUB(__imp__XamShowAchievementDetailsUI);
-REX_EXPORT_STUB(__imp__XamShowAchievementsUI);
 REX_EXPORT_STUB(__imp__XamShowAchievementsUIEx);
 REX_EXPORT_STUB(__imp__XamShowAndWaitForMessageBoxEx);
 REX_EXPORT_STUB(__imp__XamShowAvatarAwardGamesUI);
@@ -604,13 +716,9 @@ REX_EXPORT_STUB(__imp__XamShowFitnessWarnAboutPrivacyUI);
 REX_EXPORT_STUB(__imp__XamShowFitnessWarnAboutTimeUI);
 REX_EXPORT_STUB(__imp__XamShowFofUI);
 REX_EXPORT_STUB(__imp__XamShowForcedNameChangeUI);
-REX_EXPORT_STUB(__imp__XamShowFriendRequestUI);
-REX_EXPORT_STUB(__imp__XamShowFriendsUI);
 REX_EXPORT_STUB(__imp__XamShowFriendsUIp);
-REX_EXPORT_STUB(__imp__XamShowGameInviteUI);
 REX_EXPORT_STUB(__imp__XamShowGameVoiceChannelUI);
 REX_EXPORT_STUB(__imp__XamShowGamerCardUI);
-REX_EXPORT_STUB(__imp__XamShowGamerCardUIForXUID);
 REX_EXPORT_STUB(__imp__XamShowGamerCardUIForXUIDp);
 REX_EXPORT_STUB(__imp__XamShowGamesUI);
 REX_EXPORT_STUB(__imp__XamShowGenericOnlineAppUI);
@@ -624,16 +732,10 @@ REX_EXPORT_STUB(__imp__XamShowKeyboardUIMessenger);
 REX_EXPORT_STUB(__imp__XamShowLiveSignupUI);
 REX_EXPORT_STUB(__imp__XamShowLiveUpsellUI);
 REX_EXPORT_STUB(__imp__XamShowLiveUpsellUIEx);
-REX_EXPORT_STUB(__imp__XamShowMarketplaceDownloadItemsUI);
 REX_EXPORT_STUB(__imp__XamShowMarketplaceGetOrderReceipts);
 REX_EXPORT_STUB(__imp__XamShowMarketplacePurchaseOrderUI);
 REX_EXPORT_STUB(__imp__XamShowMarketplacePurchaseOrderUIEx);
-REX_EXPORT_STUB(__imp__XamShowMarketplaceUI);
-REX_EXPORT_STUB(__imp__XamShowMarketplaceUIEx);
 REX_EXPORT_STUB(__imp__XamShowMessageBox);
-REX_EXPORT_STUB(__imp__XamShowMessageComposeUI);
-REX_EXPORT_STUB(__imp__XamShowMessagesUI);
-REX_EXPORT_STUB(__imp__XamShowMessagesUIEx);
 REX_EXPORT_STUB(__imp__XamShowMessengerUI);
 REX_EXPORT_STUB(__imp__XamShowMultiplayerUpgradeUI);
 REX_EXPORT_STUB(__imp__XamShowNetworkStorageSyncUI);
@@ -667,17 +769,12 @@ REX_EXPORT_STUB(__imp__XamShowPasscodeVerifyUI);
 REX_EXPORT_STUB(__imp__XamShowPasscodeVerifyUIEx);
 REX_EXPORT_STUB(__imp__XamShowPaymentOptionsUI);
 REX_EXPORT_STUB(__imp__XamShowPersonalizationUI);
-REX_EXPORT_STUB(__imp__XamShowPlayerReviewUI);
-REX_EXPORT_STUB(__imp__XamShowPlayersUI);
 REX_EXPORT_STUB(__imp__XamShowPrivateChatInviteUI);
-REX_EXPORT_STUB(__imp__XamShowQuickChatUI);
-REX_EXPORT_STUB(__imp__XamShowQuickChatUIp);
 REX_EXPORT_STUB(__imp__XamShowQuickLaunchUI);
 REX_EXPORT_STUB(__imp__XamShowRecentMessageUI);
 REX_EXPORT_STUB(__imp__XamShowRecentMessageUIEx);
 REX_EXPORT_STUB(__imp__XamShowReputationUI);
 REX_EXPORT_STUB(__imp__XamShowSigninUIEx);
-REX_EXPORT_STUB(__imp__XamShowSigninUIp);
 REX_EXPORT_STUB(__imp__XamShowSignupCreditCardUI);
 REX_EXPORT_STUB(__imp__XamShowSocialPostUI);
 REX_EXPORT_STUB(__imp__XamShowStorePickerUI);
@@ -686,7 +783,6 @@ REX_EXPORT_STUB(__imp__XamShowTermsOfUseUI);
 REX_EXPORT_STUB(__imp__XamShowUpdaterUI);
 REX_EXPORT_STUB(__imp__XamShowVideoChatInviteUI);
 REX_EXPORT_STUB(__imp__XamShowVideoRichPresenceUI);
-REX_EXPORT_STUB(__imp__XamShowVoiceMailUI);
 REX_EXPORT_STUB(__imp__XamShowVoiceSettingsUI);
 REX_EXPORT_STUB(__imp__XamShowWhatsOnUI);
 REX_EXPORT_STUB(__imp__XamShowWordRegisterUI);
