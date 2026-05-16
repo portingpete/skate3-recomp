@@ -474,6 +474,36 @@ u32 XamContentDeleteInternal_entry(mapped_void content_data_ptr, mapped_void ove
   }
 }
 
+u32 XamContentInstall_entry() {
+  REXKRNL_DEBUG("XamContentInstall - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 XamContentInstallInternal_entry() {
+  REXKRNL_DEBUG("XamContentInstallInternal - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 XamContentLaunchImage_entry() {
+  REXKRNL_DEBUG("XamContentLaunchImage - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 XamContentLaunchImageFromFileInternal_entry() {
+  REXKRNL_DEBUG("XamContentLaunchImageFromFileInternal - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 XamContentLaunchImageInternal_entry() {
+  REXKRNL_DEBUG("XamContentLaunchImageInternal - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
+u32 XamContentLaunchImageInternalEx_entry() {
+  REXKRNL_DEBUG("XamContentLaunchImageInternalEx - unsupported offline content transition");
+  return X_ERROR_FUNCTION_FAILED;
+}
+
 }  // namespace xam
 }  // namespace kernel
 }  // namespace rex
@@ -492,6 +522,15 @@ REX_EXPORT(__imp__XamContentGetThumbnail, rex::kernel::xam::XamContentGetThumbna
 REX_EXPORT(__imp__XamContentSetThumbnail, rex::kernel::xam::XamContentSetThumbnail_entry)
 REX_EXPORT(__imp__XamContentDelete, rex::kernel::xam::XamContentDelete_entry)
 REX_EXPORT(__imp__XamContentDeleteInternal, rex::kernel::xam::XamContentDeleteInternal_entry)
+REX_EXPORT(__imp__XamContentInstall, rex::kernel::xam::XamContentInstall_entry)
+REX_EXPORT(__imp__XamContentInstallInternal, rex::kernel::xam::XamContentInstallInternal_entry)
+REX_EXPORT(__imp__XamContentLaunchImage, rex::kernel::xam::XamContentLaunchImage_entry)
+REX_EXPORT(__imp__XamContentLaunchImageFromFileInternal,
+           rex::kernel::xam::XamContentLaunchImageFromFileInternal_entry)
+REX_EXPORT(__imp__XamContentLaunchImageInternal,
+           rex::kernel::xam::XamContentLaunchImageInternal_entry)
+REX_EXPORT(__imp__XamContentLaunchImageInternalEx,
+           rex::kernel::xam::XamContentLaunchImageInternalEx_entry)
 
 REX_EXPORT_STUB(__imp__XamContentClosePackageFile);
 REX_EXPORT_STUB(__imp__XamContentCopyInternal);
@@ -508,13 +547,7 @@ REX_EXPORT_STUB(__imp__XamContentGetLocalizedString);
 REX_EXPORT_STUB(__imp__XamContentGetMetaDataInternal);
 REX_EXPORT_STUB(__imp__XamContentGetMountedPackageByRootName);
 REX_EXPORT_STUB(__imp__XamContentGetOnlineCreator);
-REX_EXPORT_STUB(__imp__XamContentInstall);
-REX_EXPORT_STUB(__imp__XamContentInstallInternal);
 REX_EXPORT_STUB(__imp__XamContentIsGameInstalledToHDD);
-REX_EXPORT_STUB(__imp__XamContentLaunchImage);
-REX_EXPORT_STUB(__imp__XamContentLaunchImageFromFileInternal);
-REX_EXPORT_STUB(__imp__XamContentLaunchImageInternal);
-REX_EXPORT_STUB(__imp__XamContentLaunchImageInternalEx);
 REX_EXPORT_STUB(__imp__XamContentLockUnlockPackageHeaders);
 REX_EXPORT_STUB(__imp__XamContentMountInstalledGame);
 REX_EXPORT_STUB(__imp__XamContentMountPackage);

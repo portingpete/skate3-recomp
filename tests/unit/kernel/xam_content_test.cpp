@@ -16,6 +16,12 @@ std::string BuildXamContentResolvePath(const rex::system::xam::XCONTENT_DATA& co
                                        uint64_t xuid, uint32_t title_id);
 u32 XamContentResolve_entry(u32 user_index, mapped_void content_data_ptr, mapped_void buffer_ptr,
                             u32 buffer_size, u32 unk1, u32 unk2, u32 unk3);
+u32 XamContentInstall_entry();
+u32 XamContentInstallInternal_entry();
+u32 XamContentLaunchImage_entry();
+u32 XamContentLaunchImageFromFileInternal_entry();
+u32 XamContentLaunchImageInternal_entry();
+u32 XamContentLaunchImageInternalEx_entry();
 }  // namespace rex::kernel::xam
 
 TEST_CASE("Content resolve builds paths for disc and profile content", "[kernel][xam_content]") {
@@ -68,4 +74,16 @@ TEST_CASE("Content resolve validates arguments before runtime state", "[kernel][
   CHECK(rex::kernel::xam::XamContentResolve_entry(
             0, mapped_void(&content_data, 0x40002000), mapped_void(buffer.data(), 0x40001000),
             static_cast<u32>(buffer.size()), 0, 0, 0) == X_ERROR_DEVICE_NOT_CONNECTED);
+}
+
+TEST_CASE("Unsupported content install and launch helpers fail deterministically",
+          "[kernel][xam_content]") {
+  constexpr u32 kFunctionFailed = 0x65B;
+
+  CHECK(rex::kernel::xam::XamContentInstall_entry() == kFunctionFailed);
+  CHECK(rex::kernel::xam::XamContentInstallInternal_entry() == kFunctionFailed);
+  CHECK(rex::kernel::xam::XamContentLaunchImage_entry() == kFunctionFailed);
+  CHECK(rex::kernel::xam::XamContentLaunchImageFromFileInternal_entry() == kFunctionFailed);
+  CHECK(rex::kernel::xam::XamContentLaunchImageInternal_entry() == kFunctionFailed);
+  CHECK(rex::kernel::xam::XamContentLaunchImageInternalEx_entry() == kFunctionFailed);
 }
