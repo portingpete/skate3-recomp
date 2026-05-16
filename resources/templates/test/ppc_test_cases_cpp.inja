@@ -18,13 +18,23 @@ static rex::memory::Memory& get_memory() {
         if (!memory.Initialize()) {
             throw std::runtime_error("Failed to initialize memory");
         }
-        // Allocate test memory region starting after null guard page (0x10000)
+        // Allocate test memory region starting after null guard page (0x10000).
+        // Newer runtime startup reserves 0x10000..0x70000, so fall back to
+        // allocating the remaining high range instead of silently leaving test
+        // addresses uncommitted.
         auto* heap = memory.LookupHeap(0x10000);
         if (heap) {
-            // Allocate from end of guard page (0x10000) up to cover test addresses
-            heap->AllocFixed(0x10000, 0x10000000, 0x1000,
+            bool allocated = heap->AllocFixed(0x10000, 0x10000000, 0x1000,
                 rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
                 rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite);
+            if (!allocated) {
+                allocated = heap->AllocFixed(0x70000, 0x0FFA0000, 0x1000,
+                    rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
+                    rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite);
+            }
+            if (!allocated) {
+                throw std::runtime_error("Failed to allocate PPC test memory");
+            }
         }
         initialized = true;
     }

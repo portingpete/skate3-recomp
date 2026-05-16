@@ -53,6 +53,51 @@ using namespace rex::literals;
 
 uint32_t next_xthread_id_ = 0;
 
+namespace {
+
+struct GuestThreadEntryResult {
+  bool completed = false;
+  int exit_code = 0;
+  uint32_t exception_code = 0;
+  uintptr_t exception_address = 0;
+};
+
+GuestThreadEntryResult RunGuestThreadEntry(PPCFunc* func, PPCContext* ctx, uint8_t* base) {
+  GuestThreadEntryResult result{};
+#if REX_PLATFORM_WIN32
+  __try {
+    func(*ctx, base);
+    result.completed = true;
+    result.exit_code = static_cast<int>(ctx->r3.u32);
+  } __except (::rex::platform::seh_thread_boundary_filter(GetExceptionCode(),
+                                                          GetExceptionInformation())) {
+    const auto& seh_state = ::rex::platform::seh_thread_state();
+    result.completed = false;
+    result.exception_code = seh_state.code;
+    result.exception_address = seh_state.info[1];
+    result.exit_code = static_cast<int>(seh_state.code);
+  }
+#else
+  try {
+    func(*ctx, base);
+    result.completed = true;
+    result.exit_code = static_cast<int>(ctx->r3.u32);
+  } catch (const ::rex::SehException&) {
+    const auto& seh_state = ::rex::platform::seh_thread_state();
+    if (!seh_state.raised_by_runtime) {
+      throw;
+    }
+    result.completed = false;
+    result.exception_code = seh_state.code;
+    result.exception_address = seh_state.info[1];
+    result.exit_code = static_cast<int>(seh_state.code);
+  }
+#endif
+  return result;
+}
+
+}  // namespace
+
 XThread::XThread(KernelState* kernel_state)
     : XObject(kernel_state, kObjectType), guest_thread_(true) {}
 
@@ -628,9 +673,17 @@ void XThread::Execute() {
 
   // Execute the function
   REXSYS_NOISY_DEBUG("XThread::Execute - Calling function at {:08X}", address);
-  func(*ctx, base);
+  const auto entry_result = RunGuestThreadEntry(func, ctx, base);
+  if (!entry_result.completed) {
+    REXSYS_WARN("XThread::Execute - guest exception escaped thread boundary "
+                "(thid={}, code=0x{:08X}, address=0x{:08X})",
+                thread_id_, entry_result.exception_code,
+                static_cast<uint32_t>(entry_result.exception_address));
+    Exit(entry_result.exit_code);
+    return;
+  }
 
-  exit_code = static_cast<int>(ctx->r3.u32);
+  exit_code = entry_result.exit_code;
 
   // If we got here it means the execute completed without an exit being called.
   // Treat the return code as an implicit exit code (if desired).

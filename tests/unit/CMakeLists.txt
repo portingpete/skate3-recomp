@@ -6,12 +6,16 @@ add_executable(unit_tests
     kernel/object_table_test.cpp
     core/cvar_test.cpp
     core/fiber_test.cpp
+    core/platform_exceptions_test.cpp
     core/sha256_test.cpp
     core/stream_test.cpp
     core/byte_order_test.cpp
     core/chrono_test.cpp
     kernel/xam_xmp_test.cpp
     codegen/config_test.cpp
+    codegen/function_graph_test.cpp
+    codegen/function_node_emit_test.cpp
+    codegen/function_pointer_discovery_test.cpp
     codegen/jump_table_discovery_test.cpp
     codegen/template_registry_test.cpp
     ppc/import_function_test.cpp
@@ -63,5 +67,35 @@ catch_discover_tests(unit_tests
     TEST_PREFIX "unit."
     PROPERTIES
         LABELS "unit"
+        TIMEOUT 60
+)
+
+add_executable(runtime_unit_tests
+    kernel/rtl_raise_exception_test.cpp
+)
+
+target_include_directories(runtime_unit_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(runtime_unit_tests PRIVATE
+    rexruntime
+    Catch2::Catch2WithMain
+)
+
+target_compile_options(runtime_unit_tests PRIVATE
+    -UTRACY_ENABLE -UREXGLUE_ENABLE_PROFILING
+    -UREXGLUE_ENABLE_PERF_COUNTERS -UREXGLUE_PROFILE_GUEST_FUNCTIONS
+)
+
+set_target_properties(runtime_unit_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:rexruntime>
+)
+
+catch_discover_tests(runtime_unit_tests
+    TEST_PREFIX "runtime."
+    PROPERTIES
+        LABELS "unit;runtime"
         TIMEOUT 60
 )

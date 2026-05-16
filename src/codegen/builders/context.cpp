@@ -167,6 +167,30 @@ const CallTarget* BuilderContext::findCallTarget(uint32_t site) const {
   return nullptr;
 }
 
+TargetKind BuilderContext::classify_branch_target(uint32_t target, bool isCallInstruction) const {
+  if (graph().isImport(target)) {
+    return TargetKind::Import;
+  }
+
+  if (findCallTarget(base)) {
+    return TargetKind::Function;
+  }
+
+  if (target == fn.base()) {
+    return isCallInstruction ? TargetKind::Function : TargetKind::InternalLabel;
+  }
+
+  if (fn.containsAddress(target)) {
+    return TargetKind::InternalLabel;
+  }
+
+  if (graph().isEntryPoint(target)) {
+    return TargetKind::Function;
+  }
+
+  return TargetKind::Unknown;
+}
+
 void BuilderContext::emit_function_call(uint32_t address) {
   const auto& cfg = config();
 
@@ -251,9 +275,7 @@ void BuilderContext::emit_function_call(uint32_t address) {
 void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
   uint32_t target = insn.operands[1];
 
-  // Use classifyTarget for consistent branch classification
-  // false = branch instruction (not a call), so own-base means loop back
-  auto kind = graph().classifyTarget(target, base, false);
+  auto kind = classify_branch_target(target, false);
 
   switch (kind) {
     case TargetKind::InternalLabel:

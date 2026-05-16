@@ -67,6 +67,7 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
   tls_seh_state.code = static_cast<uint32_t>(code);
   tls_seh_state.info[0] = 0;
   tls_seh_state.info[1] = address;
+  tls_seh_state.raised_by_runtime = false;
 
   // Use libunwind to throw from signal context
   // This works because libunwind can unwind through signal frames
@@ -74,8 +75,16 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
 }
 
 [[noreturn]] void seh_rethrow() {
-  // Map stored code back to signal and re-raise
-  uint32_t code = tls_seh_state.code;
+  seh_raise(tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1], 2);
+}
+
+[[noreturn]] void seh_raise(uint32_t code, uintptr_t info0, uintptr_t info1,
+                            uint32_t /*info_count*/) {
+  tls_seh_state.code = code;
+  tls_seh_state.info[0] = info0;
+  tls_seh_state.info[1] = info1;
+  tls_seh_state.raised_by_runtime = true;
+
   int sig;
   switch (code) {
     case SehException::ACCESS_VIOLATION:
@@ -92,7 +101,7 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
       sig = SIGILL;
       break;
     default:
-      abort();
+      throw SehException(static_cast<SehException::Code>(code), info1);
   }
   // Restore default handler and re-raise
   signal(sig, SIG_DFL);
@@ -118,6 +127,10 @@ void seh_initialize() {
 
 bool& seh_active() {
   return tls_seh_active;
+}
+
+int seh_thread_boundary_filter(uint32_t /*code*/, void* /*exception_pointers*/) {
+  return tls_seh_state.raised_by_runtime ? 1 : 0;
 }
 
 }  // namespace rex::platform

@@ -180,12 +180,17 @@ bool Memory::Initialize() {
   heaps_.vE0000000.Initialize(this, virtual_membase_, memory::HeapType::kGuestPhysical, 0xE0000000,
                               0x1FD00000, 4096, &heaps_.physical);
 
-  // Protect the first and last 64kb of memory.
+  // Protect the first 64KB and keep the rest of the low 0x70000 range out of
+  // title allocations. Xenia's startup heap layout leaves this area occupied
+  // before games request their first large 4KB virtual arena.
   heaps_.v00000000.AllocFixed(0x00000000, 0x10000, 0x10000,
                               memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
                               !REXCVAR_GET(protect_zero)
                                   ? memory::kMemoryProtectRead | memory::kMemoryProtectWrite
                                   : memory::kMemoryProtectNoAccess);
+  heaps_.v00000000.AllocFixed(0x00010000, 0x60000, 0x10000,
+                              memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
+                              memory::kMemoryProtectRead | memory::kMemoryProtectWrite);
   heaps_.physical.AllocFixed(0x1FFF0000, 0x10000, 0x10000, memory::kMemoryAllocationReserve,
                              memory::kMemoryProtectNoAccess);
 
@@ -1048,22 +1053,57 @@ bool BaseHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t alloc
 
 bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignment,
                           uint32_t allocation_type, uint32_t protect) {
+  const uint32_t requested_base_address = base_address;
+  const uint32_t requested_size = size;
+  const uint64_t heap_start = heap_base_;
+  const uint64_t heap_end = heap_start + heap_size_;
+  if (uint64_t(base_address) < heap_start || uint64_t(base_address) >= heap_end) {
+    REXSYS_ERROR("BaseHeap::AllocFixed passed out of range base address {:08X}", base_address);
+    return false;
+  }
+
   alignment = rex::round_up(alignment, page_size_);
   if (base_address % alignment != 0) {
     if (base_address % page_size_ != 0) {
-      REXSYS_ERROR(
-          "BaseHeap::AllocFixed invalid base alignment: base={:08X} page_size={:08X} "
-          "requested_alignment={:08X} heap={:08X}-{:08X}",
-          base_address, page_size_, alignment, heap_base_, heap_base_ + (heap_size_ - 1));
-      return false;
+      const uint32_t system_page_size = uint32_t(rex::memory::page_size());
+      if (!system_page_size || (base_address % system_page_size) != 0) {
+        REXSYS_ERROR(
+            "BaseHeap::AllocFixed invalid base alignment: base={:08X} page_size={:08X} "
+            "requested_alignment={:08X} heap={:08X}-{:08X}",
+            base_address, page_size_, alignment, heap_base_, heap_base_ + (heap_size_ - 1));
+        return false;
+      }
+
+      const uint64_t relative_start = uint64_t(base_address) - heap_start;
+      const uint64_t relative_end = relative_start + std::max(size, 1u);
+      const uint64_t aligned_relative_start = relative_start - (relative_start % page_size_);
+      const uint64_t aligned_relative_end = rex::round_up(relative_end, uint64_t(page_size_));
+      if (aligned_relative_end > heap_size_ || aligned_relative_end <= aligned_relative_start ||
+          aligned_relative_end - aligned_relative_start > UINT32_MAX) {
+        REXSYS_ERROR(
+            "BaseHeap::AllocFixed expanded fixed range out of bounds: base={:08X} size={:08X} "
+            "page_size={:08X} heap={:08X}-{:08X}",
+            base_address, size, page_size_, heap_base_, heap_base_ + (heap_size_ - 1));
+        return false;
+      }
+
+      base_address = uint32_t(heap_start + aligned_relative_start);
+      size = uint32_t(aligned_relative_end - aligned_relative_start);
+      alignment = page_size_;
+      REXSYS_DEBUG(
+          "BaseHeap::AllocFixed expanded sub-page fixed allocation: requested_base={:08X} "
+          "requested_size={:08X} expanded_base={:08X} expanded_size={:08X} page_size={:08X}",
+          requested_base_address, requested_size, base_address, size, page_size_);
     }
-    // Fixed allocations can only be guaranteed page-aligned. If callers provide
-    // a stricter alignment for an already-fixed address, fall back to page size.
-    REXSYS_WARN(
-        "BaseHeap::AllocFixed clamping alignment from {:08X} to page size {:08X} for "
-        "base={:08X}",
-        alignment, page_size_, base_address);
-    alignment = page_size_;
+    if (base_address % alignment != 0) {
+      // Fixed allocations can only be guaranteed page-aligned. If callers provide
+      // a stricter alignment for an already-fixed address, fall back to page size.
+      REXSYS_DEBUG(
+          "BaseHeap::AllocFixed clamping alignment from {:08X} to page size {:08X} for "
+          "base={:08X}",
+          alignment, page_size_, base_address);
+      alignment = page_size_;
+    }
   }
   size = rex::align(size, alignment);
   uint32_t page_count = get_page_count(size, page_size_, page_size_shift_);
@@ -1076,6 +1116,31 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
 
   std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
 
+  const bool reserve_requested = (allocation_type & memory::kMemoryAllocationReserve) != 0;
+  const bool commit_requested = (allocation_type & memory::kMemoryAllocationCommit) != 0;
+  bool any_reserved_page = false;
+  bool any_unreserved_page = false;
+  for (uint32_t page_number = start_page_number; page_number <= end_page_number; ++page_number) {
+    uint32_t state = page_table_[page_number].state;
+    any_reserved_page |= state != 0;
+    any_unreserved_page |= state == 0;
+  }
+  if (reserve_requested && any_reserved_page) {
+    if (commit_requested && !any_unreserved_page) {
+      // Treat reserve+commit on an already reserved fixed range as an
+      // idempotent commit/protect operation. This matches real-world stack
+      // growth probes that ask to ensure a page is writable without knowing
+      // whether the coarse heap page has already been reserved.
+      allocation_type &= ~memory::kMemoryAllocationReserve;
+    } else {
+      REXSYS_DEBUG(
+          "BaseHeap::AllocFixed duplicate reserve rejected: requested_base={:08X} "
+          "requested_size={:08X} base={:08X} size={:08X}",
+          requested_base_address, requested_size, base_address, size);
+      return false;
+    }
+  }
+
   // - If we are reserving the entire range requested must not be already
   //   reserved.
   // - If we are committing it's ok for pages within the range to already be
@@ -1084,9 +1149,10 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
     uint32_t state = page_table_[page_number].state;
     if ((allocation_type == memory::kMemoryAllocationReserve) && state) {
       // Already reserved.
-      REXSYS_ERROR(
-          "BaseHeap::AllocFixed attempting to reserve an already reserved "
-          "range");
+      REXSYS_DEBUG(
+          "BaseHeap::AllocFixed duplicate reserve rejected: requested_base={:08X} "
+          "requested_size={:08X} base={:08X} size={:08X}",
+          requested_base_address, requested_size, base_address, size);
       return false;
     }
     if ((allocation_type == memory::kMemoryAllocationCommit) &&
@@ -1640,9 +1706,17 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
   // Given the address we've reserved in the parent heap, pin that here.
   // Shouldn't be possible for it to be allocated already.
   uint32_t address = heap_base_ + parent_address - parent_heap_start;
+  if ((address + host_address_offset_) % alignment != 0) {
+    REXSYS_ERROR(
+        "PhysicalHeap::Alloc translated address {:08X} misaligned "
+        "(alignment {:08X}, physical base offset {:08X})",
+        address, alignment, parent_heap_start);
+    parent_heap_->Release(parent_address);
+    return false;
+  }
   if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
     REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
-    // TODO(benvanik): don't leak parent memory.
+    parent_heap_->Release(parent_address);
     return false;
   }
   *out_address = address;
@@ -1670,9 +1744,17 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
   // Given the address we've reserved in the parent heap, pin that here.
   // Shouldn't be possible for it to be allocated already.
   uint32_t address = heap_base_ + parent_base_address - GetPhysicalAddress(heap_base_);
-  if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
-    REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
-    // TODO(benvanik): don't leak parent memory.
+  if ((address + host_address_offset_) % alignment != 0) {
+    REXSYS_ERROR(
+        "PhysicalHeap::AllocFixed translated address {:08X} misaligned "
+        "(alignment {:08X}, physical base offset {:08X})",
+        address, alignment, GetPhysicalAddress(heap_base_));
+    parent_heap_->Release(parent_base_address);
+    return false;
+  }
+  if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
+    REXSYS_ERROR("PhysicalHeap::AllocFixed unable to pin physical memory in physical heap");
+    parent_heap_->Release(parent_base_address);
     return false;
   }
 
@@ -1705,9 +1787,17 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
   // Given the address we've reserved in the parent heap, pin that here.
   // Shouldn't be possible for it to be allocated already.
   uint32_t address = heap_base_ + parent_address - GetPhysicalAddress(heap_base_);
-  if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
-    REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
-    // TODO(benvanik): don't leak parent memory.
+  if ((address + host_address_offset_) % alignment != 0) {
+    REXSYS_ERROR(
+        "PhysicalHeap::AllocRange translated address {:08X} misaligned "
+        "(alignment {:08X}, physical base offset {:08X})",
+        address, alignment, GetPhysicalAddress(heap_base_));
+    parent_heap_->Release(parent_address);
+    return false;
+  }
+  if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
+    REXSYS_ERROR("PhysicalHeap::AllocRange unable to pin physical memory in physical heap");
+    parent_heap_->Release(parent_address);
     return false;
   }
   *out_address = address;
@@ -1736,6 +1826,21 @@ bool PhysicalHeap::Decommit(uint32_t address, uint32_t size) {
 
 bool PhysicalHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
   auto global_lock = global_critical_region_.Acquire();
+
+  HeapAllocationInfo region_info = {};
+  if (!QueryRegionInfo(base_address, &region_info) ||
+      !(region_info.state & memory::kMemoryAllocationReserve) ||
+      region_info.allocation_base != base_address) {
+    if (out_region_size) {
+      *out_region_size = 0;
+    }
+    REXSYS_DEBUG(
+        "PhysicalHeap::Release ignored interior physical address {:08X} "
+        "(allocation_base={:08X} size={:08X} state={:X})",
+        base_address, region_info.allocation_base, region_info.allocation_size,
+        region_info.state);
+    return false;
+  }
 
   uint32_t parent_base_address = GetPhysicalAddress(base_address);
   if (!parent_heap_->Release(parent_base_address, out_region_size)) {

@@ -27,9 +27,7 @@ namespace rex::codegen {
 bool build_b(BuilderContext& ctx) {
   uint32_t target = ctx.insn.operands[0];
 
-  // Use graph to classify the target - handles thunks that branch to nearby functions
-  // false = branch instruction (not a call), so own-base means loop back
-  auto kind = ctx.graph().classifyTarget(target, ctx.base, false);
+  auto kind = ctx.classify_branch_target(target, false);
 
   switch (kind) {
     case TargetKind::InternalLabel:
@@ -65,9 +63,7 @@ bool build_bl(BuilderContext& ctx) {
   if (!ctx.config().skipLr)
     ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
 
-  // Use graph to classify the target
-  // true = call instruction, so own-base means recursive call (not loop back)
-  auto kind = ctx.graph().classifyTarget(target, ctx.base, true);
+  auto kind = ctx.classify_branch_target(target, true);
 
   switch (kind) {
     case TargetKind::InternalLabel:
@@ -138,7 +134,10 @@ bool build_bctr(BuilderContext& ctx) {
         continue;
       }
 
-      auto kind = ctx.graph().classifyTarget(label, ctx.base, false);
+      auto kind = ctx.classify_branch_target(label, false);
+      if (label != ctx.fn.base() && ctx.graph().isEntryPoint(label)) {
+        kind = TargetKind::Function;
+      }
       switch (kind) {
         case TargetKind::InternalLabel:
           ctx.println("\t\tgoto loc_{:X};", label);

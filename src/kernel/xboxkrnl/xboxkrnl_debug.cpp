@@ -12,9 +12,12 @@
 // Disable warnings about unused parameters for kernel functions
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+#include <algorithm>
+
 #include <rex/dbg.h>
 #include <rex/kernel/xboxkrnl/private.h>
 #include <rex/logging.h>
+#include <rex/platform/seh.h>
 #include <rex/hook.h>
 #include <rex/types.h>
 #include <rex/system/kernel_state.h>
@@ -63,7 +66,7 @@ void HandleSetThreadName(ppc_ptr_t<X_EXCEPTION_RECORD> record) {
   std::replace_if(name.begin(), name.end(), [](auto c) { return c < 32 || c > 127; }, '?');
 
   object_ref<XThread> thread;
-  if (thread_info->thread_id == -1) {
+  if (static_cast<uint32_t>(thread_info->thread_id) == 0xFFFFFFFFu) {
     // Current thread.
     thread = retain_object(XThread::GetCurrentThread());
   } else {
@@ -117,11 +120,13 @@ void HandleCppException(ppc_ptr_t<X_EXCEPTION_RECORD> record) {
   auto thrown_ptr = record->exception_information[1];
   auto thrown = REX_KERNEL_MEMORY()->TranslateVirtual(thrown_ptr);
   auto vftable_ptr = *reinterpret_cast<rex::be<uint32_t>*>(thrown);
+  (void)vftable_ptr;
 
   auto throw_info_ptr = record->exception_information[2];
   auto throw_info = REX_KERNEL_MEMORY()->TranslateVirtual<x_s__ThrowInfo*>(throw_info_ptr);
   auto catchable_types = REX_KERNEL_MEMORY()->TranslateVirtual<x_s__CatchableTypeArray*>(
       throw_info->catchable_type_array_ptr);
+  (void)catchable_types;
 
   rex::debug::Break();
 }
@@ -138,9 +143,19 @@ void RtlRaiseException_entry(ppc_ptr_t<X_EXCEPTION_RECORD> record) {
     }
   }
 
-  // TODO(benvanik): unwinding.
-  // This is going to suck.
-  rex::debug::Break();
+  const uint32_t parameter_count = std::min<uint32_t>(record->number_parameters, 2u);
+  const uintptr_t info0 =
+      parameter_count > 0 ? static_cast<uint32_t>(record->exception_information[0]) : 0u;
+  const uintptr_t info1 =
+      parameter_count > 1 ? static_cast<uint32_t>(record->exception_information[1]) : 0u;
+  REXKRNL_DEBUG("RtlRaiseException: raising guest exception code=0x{:08X} flags=0x{:08X} "
+                "address=0x{:08X} params={} info0=0x{:08X} info1=0x{:08X}",
+                static_cast<uint32_t>(record->code),
+                static_cast<uint32_t>(record->exception_flags),
+                static_cast<uint32_t>(record->exception_address),
+                static_cast<uint32_t>(record->number_parameters), static_cast<uint32_t>(info0),
+                static_cast<uint32_t>(info1));
+  rex::platform::seh_raise(record->code, info0, info1, parameter_count);
 }
 
 void KeBugCheckEx_entry(u32 code, u32 param1, u32 param2, u32 param3, u32 param4) {

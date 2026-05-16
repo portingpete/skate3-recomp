@@ -13,6 +13,7 @@
 #include "decoded_binary.h"
 #include <rex/codegen/function_scanner.h>
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <unordered_set>
@@ -189,6 +190,237 @@ void discoverFunction(CodegenContext& ctx, uint32_t funcAddr,
   }
 }
 
+bool IsRawCodePointerTableSection(const SectionView& section) {
+  if (section.executable) {
+    return false;
+  }
+
+  return section.name == ".rdata" || section.name == ".data" || section.name == "rdata" ||
+         section.name == "data";
+}
+
+bool IsInCodeRegion(const std::vector<CodeRegion>& codeRegions, uint32_t addr) {
+  auto it = std::upper_bound(
+      codeRegions.begin(), codeRegions.end(), addr,
+      [](uint32_t value, const CodeRegion& region) { return value < region.start; });
+  if (it == codeRegions.begin()) {
+    return false;
+  }
+
+  --it;
+  return it->contains(addr);
+}
+
+bool IsPotentialRawCodePointerTarget(const BinaryView& binary, const DecodedBinary& decoded,
+                                     const std::vector<CodeRegion>& codeRegions,
+                                     uint32_t target) {
+  if ((target & 0x3) != 0 || binary.isInImportExportRange(target) ||
+      !binary.isExecutable(target)) {
+    return false;
+  }
+
+  if (!IsInCodeRegion(codeRegions, target)) {
+    return false;
+  }
+
+  const auto* targetInsn = decoded.get(target);
+  return targetInsn && !isInvalid(*targetInsn);
+}
+
+bool IsDiscoveredBlockInterior(const FunctionGraph& graph, uint32_t target) {
+  if (graph.isEntryPoint(target)) {
+    return false;
+  }
+
+  const auto* owner = graph.getFunctionContaining(target);
+  if (!owner) {
+    return false;
+  }
+
+  for (const auto& block : owner->blocks()) {
+    if (block.contains(target)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool TryDecodeReturnedCodePointer(const DecodedInsn& lisInsn, const DecodedInsn& combineInsn,
+                                  uint32_t& target) {
+  constexpr uint32_t kReturnRegister = 3;
+  const uint32_t sourceReg = lisInsn.D.RT;
+  const uint32_t high = static_cast<uint32_t>(static_cast<int16_t>(lisInsn.D.d)) << 16;
+
+  if (combineInsn.D.RT != kReturnRegister || combineInsn.D.RA != sourceReg) {
+    return false;
+  }
+
+  if (combineInsn.opcode == Opcode::addi) {
+    target = high + static_cast<uint32_t>(static_cast<int16_t>(combineInsn.D.d));
+    return true;
+  }
+
+  if (combineInsn.opcode == Opcode::ori) {
+    target = high | static_cast<uint32_t>(static_cast<uint16_t>(combineInsn.D.d));
+    return true;
+  }
+
+  return false;
+}
+
+size_t scanRawCodePointerTables(CodegenContext& ctx) {
+  if (!ctx.hasDecoded()) {
+    return 0;
+  }
+
+  constexpr size_t kMinTableSlots = 3;
+
+  auto& graph = ctx.graph;
+  auto& binary = ctx.binary();
+  auto& decoded = ctx.decoded();
+  std::vector<CodeRegion> codeRegions = ctx.scan.codeRegions;
+  std::sort(codeRegions.begin(), codeRegions.end(),
+            [](const CodeRegion& lhs, const CodeRegion& rhs) { return lhs.start < rhs.start; });
+
+  std::vector<uint32_t> targets;
+  std::unordered_set<uint32_t> queuedTargets;
+  size_t tableCount = 0;
+
+  for (const auto& section : binary.sections()) {
+    if (!IsRawCodePointerTableSection(section)) {
+      continue;
+    }
+
+    for (uint32_t offset = 0; offset + sizeof(uint32_t) <= section.size;) {
+      const uint32_t runStartOffset = offset;
+      const uint32_t runStartAddr = section.baseAddress + offset;
+      std::vector<uint32_t> runTargets;
+
+      while (offset + sizeof(uint32_t) <= section.size) {
+        const uint32_t target = load_and_swap<uint32_t>(section.data + offset);
+        if (!IsPotentialRawCodePointerTarget(binary, decoded, codeRegions, target)) {
+          break;
+        }
+
+        runTargets.push_back(target);
+        offset += sizeof(uint32_t);
+      }
+
+      if (runTargets.size() >= kMinTableSlots) {
+        ++tableCount;
+
+        const bool hasCallableAnchor =
+            std::any_of(runTargets.begin(), runTargets.end(), [&](uint32_t candidate) {
+              return graph.isEntryPoint(candidate) || graph.isImport(candidate) ||
+                     !IsDiscoveredBlockInterior(graph, candidate);
+            });
+
+        for (uint32_t target : runTargets) {
+          if (graph.isEntryPoint(target) || graph.isImport(target)) {
+            continue;
+          }
+
+          const bool isInteriorEntry = IsDiscoveredBlockInterior(graph, target);
+          if (isInteriorEntry && !hasCallableAnchor) {
+            continue;
+          }
+
+          if (!queuedTargets.insert(target).second) {
+            continue;
+          }
+
+          targets.push_back(target);
+          REXCODEGEN_TRACE("Analyze: raw code pointer table 0x{:08X} references 0x{:08X}",
+                           runStartAddr, target);
+        }
+      }
+
+      offset = runTargets.empty() ? runStartOffset + sizeof(uint32_t) : offset;
+    }
+  }
+
+  for (uint32_t target : targets) {
+    graph.addFunction(target, 4, FunctionAuthority::VTABLE, true);
+  }
+
+  REXCODEGEN_INFO("Analyze: raw code pointer table scan found {} tables, {} new functions",
+                  tableCount, targets.size());
+  return targets.size();
+}
+
+}  // anonymous namespace
+
+size_t scanReturnedCodePointerThunks(CodegenContext& ctx) {
+  if (!ctx.hasDecoded()) {
+    return 0;
+  }
+
+  auto& graph = ctx.graph;
+  auto& binary = ctx.binary();
+  auto& decoded = ctx.decoded();
+
+  std::vector<uint32_t> targets;
+  std::unordered_set<uint32_t> queuedTargets;
+
+  for (const auto& [funcAddr, node] : graph.functions()) {
+    if (!node->isDiscovered() || node->isImport()) {
+      continue;
+    }
+
+    const auto instructions = node->instructions();
+    if (instructions.size() < 3) {
+      continue;
+    }
+
+    for (size_t i = 0; i + 2 < instructions.size(); i++) {
+      const auto* lisInsn = instructions[i];
+      const auto* combineInsn = instructions[i + 1];
+      const auto* returnInsn = instructions[i + 2];
+      if (!lisInsn || !combineInsn || !returnInsn) {
+        continue;
+      }
+
+      if (!isLis(*lisInsn) || !isReturn(*returnInsn)) {
+        continue;
+      }
+
+      uint32_t target = 0;
+      if (!TryDecodeReturnedCodePointer(*lisInsn, *combineInsn, target)) {
+        continue;
+      }
+
+      if ((target & 0x3) != 0 || graph.isEntryPoint(target) ||
+          binary.isInImportExportRange(target)) {
+        continue;
+      }
+
+      const auto* targetInsn = decoded.get(target);
+      if (!targetInsn || isInvalid(*targetInsn) || !decoded.regionContaining(target)) {
+        continue;
+      }
+
+      if (!queuedTargets.insert(target).second) {
+        continue;
+      }
+
+      targets.push_back(target);
+      REXCODEGEN_TRACE(
+          "Analyze: returned code pointer 0x{:08X} from function 0x{:08X} at 0x{:08X}",
+          target, funcAddr, combineInsn->address);
+    }
+  }
+
+  for (uint32_t target : targets) {
+    graph.addFunction(target, 4, FunctionAuthority::DISCOVERED, true);
+  }
+
+  REXCODEGEN_INFO("Analyze: returned code pointer scan found {} new functions", targets.size());
+  return targets.size();
+}
+
+namespace {
+
 void discoverAllFunctions(CodegenContext& ctx) {
   REXCODEGEN_TRACE("Analyze: starting iterative discovery...");
 
@@ -264,13 +496,55 @@ void discoverAllFunctions(CodegenContext& ctx) {
   }
 
   REXCODEGEN_TRACE("Analyze: {} total functions after vtable scan", graph.functionCount());
+
+  const size_t rawPointerFunctions = scanRawCodePointerTables(ctx);
+  if (rawPointerFunctions > 0) {
+    size_t rawPointerIteration = 0;
+    while (rawPointerIteration < maxIterations) {
+      rawPointerIteration++;
+
+      auto knownFunctions = buildKnownFunctions(graph);
+      if (discoverPendingFunctions(ctx, knownFunctions) == 0) {
+        break;
+      }
+
+      if (graph.functionCount() == lastFunctionCount) {
+        break;
+      }
+      lastFunctionCount = graph.functionCount();
+    }
+  }
+
+  REXCODEGEN_TRACE("Analyze: {} total functions after raw code pointer table scan",
+                   graph.functionCount());
+
+  const size_t returnedPointerFunctions = scanReturnedCodePointerThunks(ctx);
+  if (returnedPointerFunctions > 0) {
+    size_t returnedPointerIteration = 0;
+    while (returnedPointerIteration < maxIterations) {
+      returnedPointerIteration++;
+
+      auto knownFunctions = buildKnownFunctions(graph);
+      if (discoverPendingFunctions(ctx, knownFunctions) == 0) {
+        break;
+      }
+
+      if (graph.functionCount() == lastFunctionCount) {
+        break;
+      }
+      lastFunctionCount = graph.functionCount();
+    }
+  }
+
+  REXCODEGEN_TRACE("Analyze: {} total functions after returned pointer scan",
+                   graph.functionCount());
 }
 
 //=============================================================================
 // Function Pointer Scan: find lis/addi pairs loading code addresses
 // TODO(tomc): THIS IS WIP AND PROB A BAD IDEA LOL LETS SEE
 //=============================================================================
-void functionPointerScan(CodegenContext& ctx) {
+[[maybe_unused]] void functionPointerScan(CodegenContext& ctx) {
   if (!ctx.hasDecoded()) {
     REXCODEGEN_WARN("functionPointerScan: DecodedBinary not initialized, skipping");
     return;

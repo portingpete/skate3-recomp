@@ -26,6 +26,24 @@ rex::memory::BaseHeap* MutableHeap(const rex::memory::BaseHeap* heap) {
 
 }  // namespace
 
+TEST_CASE("Memory initialization commits the low startup range", "[memory][heap]") {
+  auto& memory = GetTestMemory();
+  auto* heap = memory.LookupHeap(0x00010000);
+  REQUIRE(heap != nullptr);
+
+  rex::memory::HeapAllocationInfo info{};
+  REQUIRE(heap->QueryRegionInfo(0x00010000, &info));
+  CHECK(info.base_address == 0x00010000);
+  CHECK(info.allocation_base == 0x00010000);
+  CHECK(info.allocation_size == 0x00060000);
+  CHECK(info.protect == (rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite));
+
+  REQUIRE(heap->QueryRegionInfo(0x0006F000, &info));
+  CHECK(info.base_address == 0x0006F000);
+  CHECK(info.allocation_base == 0x00010000);
+  CHECK(info.allocation_size == 0x00060000);
+}
+
 // =============================================================================
 // Size and Alignment Rounding Tests
 // =============================================================================
@@ -207,6 +225,31 @@ TEST_CASE("AllocFixed allocates at exact address", "[memory][heap]") {
   CHECK(info.state != 0);  // Should be allocated
 
   heap->Release(target, nullptr);
+}
+
+TEST_CASE("AllocFixed expands sub-page fixed allocations on coarse heaps", "[memory][heap]") {
+  auto& memory = GetTestMemory();
+  auto* heap = MutableHeap(memory.LookupHeap(0x40000000));
+  REQUIRE(heap != nullptr);
+
+  const uint32_t target = 0x41001000;
+  const uint32_t expanded_base = 0x41000000;
+
+  bool result =
+      heap->AllocFixed(target, 4096, 4096,
+                       rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
+                       rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite);
+  REQUIRE(result);
+
+  rex::memory::HeapAllocationInfo info{};
+  REQUIRE(heap->QueryRegionInfo(target, &info));
+  CHECK(info.base_address == target);
+  CHECK(info.allocation_base == expanded_base);
+  CHECK(info.allocation_size == 65536);
+  CHECK(info.state == (rex::memory::kMemoryAllocationReserve |
+                       rex::memory::kMemoryAllocationCommit));
+
+  heap->Release(expanded_base, nullptr);
 }
 
 TEST_CASE("AllocFixed reserve-only fails on already-reserved region", "[memory][heap]") {
@@ -715,6 +758,79 @@ TEST_CASE("Physical heap vE0000000 (4KB pages, write-combine)", "[memory][physic
   CHECK((addr % 4096) == 0);
 
   heap->Release(addr, nullptr);
+}
+
+TEST_CASE("Physical heap rejects vE large-alignment allocations without leaking parent pages",
+          "[memory][physical]") {
+  rex::memory::VirtualHeap parent;
+  parent.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0x00000000,
+                    0x20000000, 4096);
+
+  rex::memory::PhysicalHeap heap;
+  heap.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0xE0000000,
+                  0x1FD00000, 4096, &parent);
+
+  const uint32_t parent_pages_before = parent.unreserved_page_count();
+  const uint32_t child_pages_before = heap.unreserved_page_count();
+
+  uint32_t addr = 0;
+  bool result = heap.Alloc(0x10000, 0x10000, rex::memory::kMemoryAllocationReserve,
+                           rex::memory::kMemoryProtectRead, false, &addr);
+
+  CHECK_FALSE(result);
+  CHECK(addr == 0);
+  CHECK(parent.unreserved_page_count() == parent_pages_before);
+  CHECK(heap.unreserved_page_count() == child_pages_before);
+}
+
+TEST_CASE("Physical heap rejects misaligned vE fixed allocations without leaking parent pages",
+          "[memory][physical]") {
+  rex::memory::VirtualHeap parent;
+  parent.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0x00000000,
+                    0x20000000, 4096);
+
+  rex::memory::PhysicalHeap heap;
+  heap.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0xE0000000,
+                  0x1FD00000, 4096, &parent);
+
+  const uint32_t parent_pages_before = parent.unreserved_page_count();
+  const uint32_t child_pages_before = heap.unreserved_page_count();
+
+  bool result = heap.AllocFixed(0xE0000000, 0x10000, 0x10000,
+                                rex::memory::kMemoryAllocationReserve,
+                                rex::memory::kMemoryProtectRead);
+
+  CHECK_FALSE(result);
+  CHECK(parent.unreserved_page_count() == parent_pages_before);
+  CHECK(heap.unreserved_page_count() == child_pages_before);
+}
+
+TEST_CASE("Physical heap interior releases fail quietly without freeing the containing region",
+          "[memory][physical]") {
+  rex::memory::VirtualHeap parent;
+  parent.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0x00000000,
+                    0x20000000, 4096);
+
+  rex::memory::PhysicalHeap heap;
+  heap.Initialize(nullptr, nullptr, rex::memory::HeapType::kGuestPhysical, 0xC0000000,
+                  0x20000000, 16 * 1024 * 1024, &parent);
+
+  uint32_t addr = 0;
+  REQUIRE(heap.AllocRange(0xC0000000, 0xDFFFFFFF, 0x1D000000, 16 * 1024 * 1024,
+                          rex::memory::kMemoryAllocationReserve,
+                          rex::memory::kMemoryProtectRead, true, &addr));
+  REQUIRE(addr != 0);
+  const uint32_t interior_addr = addr + 16 * 1024 * 1024;
+  const uint32_t parent_pages_before = parent.unreserved_page_count();
+  const uint32_t child_pages_before = heap.unreserved_page_count();
+
+  uint32_t released_size = 0xFFFFFFFFu;
+  CHECK_FALSE(heap.Release(interior_addr, &released_size));
+  CHECK(released_size == 0);
+  CHECK(parent.unreserved_page_count() == parent_pages_before);
+  CHECK(heap.unreserved_page_count() == child_pages_before);
+
+  CHECK(heap.Release(addr, nullptr));
 }
 
 TEST_CASE("LookupHeapByType selects correct heap", "[memory][heap]") {

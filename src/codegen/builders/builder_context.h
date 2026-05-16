@@ -216,6 +216,11 @@ struct BuilderContext {
   const CallTarget* findCallTarget(uint32_t site) const;
 
   /**
+   * @brief Classify a branch target relative to the function currently being emitted.
+   */
+  TargetKind classify_branch_target(uint32_t target, bool isCallInstruction) const;
+
+  /**
    * @brief Emit C++ code for a function call.
    * @param address Target function address
    *

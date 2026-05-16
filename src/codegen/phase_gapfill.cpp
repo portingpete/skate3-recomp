@@ -56,6 +56,9 @@ std::vector<CodeRegion> splitRegionOnTerminators(
     if (decoded.is_return()) {
       shouldSplit = true;
       reason = "blr";
+    } else if (decoded.opcode == Opcode::bcctr && !decoded.is_conditional()) {
+      shouldSplit = true;
+      reason = "bctr";
     } else if (decoded.opcode == Opcode::b && decoded.branch_target.has_value()) {
       uint32_t target = decoded.branch_target.value();
       // Don't split on tail recursion (branch to own segment start)
@@ -119,6 +122,26 @@ bool looksLikeExceptionData(const BinaryView& binary, const FunctionGraph& graph
   return false;
 }
 
+bool startsInsideKnownJumpTableData(const FunctionGraph& graph, uint32_t addr) {
+  for (const auto& [_, node] : graph.functions()) {
+    for (const auto& jt : node->jumpTables()) {
+      if (jt.tableAddress == 0 || jt.targets.empty()) {
+        continue;
+      }
+
+      const uint32_t tableEnd =
+          jt.tableAddress + static_cast<uint32_t>(jt.targets.size() * sizeof(uint32_t));
+      if (addr >= jt.tableAddress && addr < tableEnd) {
+        REXCODEGEN_TRACE("GapFill: skipping 0x{:08X} inside jump table 0x{:08X}-0x{:08X}", addr,
+                         jt.tableAddress, tableEnd);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 void gapFillCodeRegions(CodegenContext& ctx) {
   REXCODEGEN_TRACE("Analyze: checking for uncovered code regions...");
 
@@ -145,7 +168,11 @@ void gapFillCodeRegions(CodegenContext& ctx) {
         continue;
 
       // Skip if this segment's start is inside another function
-      if (auto* containingFunc = graph.getFunctionContaining(segment.start)) {
+      if (graph.getFunctionContaining(segment.start)) {
+        continue;
+      }
+
+      if (startsInsideKnownJumpTableData(graph, segment.start)) {
         continue;
       }
 
@@ -224,6 +251,14 @@ VoidResult GapFill(CodegenContext& ctx, ProgressReporter* reporter) {
   auto known = buildKnownFunctions(ctx.graph, /*excludeGapFill=*/true);
   size_t discovered = discoverPendingFunctions(ctx, known);
   REXCODEGEN_TRACE("Analyze: discovered blocks for {} gap-filled functions", discovered);
+
+  const size_t returnedPointerFunctions = scanReturnedCodePointerThunks(ctx);
+  if (returnedPointerFunctions > 0) {
+    auto knownAfterReturnedPointers = buildKnownFunctions(ctx.graph);
+    size_t discoveredReturnedPointers = discoverPendingFunctions(ctx, knownAfterReturnedPointers);
+    REXCODEGEN_TRACE("Analyze: discovered blocks for {} returned-pointer functions",
+                     discoveredReturnedPointers);
+  }
 
   cleanupAbsorbedGapFills(ctx);
 

@@ -38,4 +38,7 @@ inline std::unordered_set<uint32_t> buildKnownFunctions(const FunctionGraph& gra
 size_t discoverPendingFunctions(CodegenContext& ctx,
                                 const std::unordered_set<uint32_t>& knownFunctions);
 
+/// Register executable targets returned by tiny lis/addi-or-ori/blr helper thunks.
+size_t scanReturnedCodePointerThunks(CodegenContext& ctx);
+
 }  // namespace rex::codegen

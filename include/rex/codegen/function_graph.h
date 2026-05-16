@@ -13,6 +13,8 @@
 
 #include <rex/codegen/function_node.h>
 
+#include <unordered_set>
+
 namespace rex::codegen {
 
 //=============================================================================
@@ -195,8 +197,13 @@ class FunctionGraph {
   std::vector<std::pair<uint32_t, uint32_t>> chunks_;    // base, size pairs
   MemoryReader memoryReader_;
 
-  // Notify all PENDING functions that a new function was added
+  std::unordered_set<uint32_t> functionsWithUnresolvedJumps_;
+
+  // Notify functions with unresolved jumps that a new function was added
   void notifyFunctionAdded(FunctionNode* newFunction);
+
+  // True if any resolved call or tail-call edge still points at this node.
+  bool hasIncomingFunctionEdge(const FunctionNode* target) const;
 };
 
 }  // namespace rex::codegen

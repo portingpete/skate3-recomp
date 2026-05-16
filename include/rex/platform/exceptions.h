@@ -27,6 +27,10 @@
 #include <rex/platform/seh.h>
 #include <rex/types.h>
 
+#if REX_PLATFORM_WIN32
+#include <excpt.h>
+#endif
+
 namespace rex {
 
 //=============================================================================

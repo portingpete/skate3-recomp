@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <string_view>
 #include <unordered_set>
 
 #include <fmt/format.h>
@@ -59,6 +60,45 @@ const char* AuthorityName(FunctionAuthority auth) {
     default:
       return "unknown";
   }
+}
+
+void CollectReferencedGotoLabels(std::string_view body, std::unordered_set<size_t>& labels) {
+  constexpr std::string_view kNeedle = "goto loc_";
+  size_t pos = 0;
+  while ((pos = body.find(kNeedle, pos)) != std::string_view::npos) {
+    pos += kNeedle.size();
+
+    uint32_t label = 0;
+    bool foundDigit = false;
+    while (pos < body.size()) {
+      const char c = body[pos];
+      uint32_t digit = 0;
+      if (c >= '0' && c <= '9') {
+        digit = static_cast<uint32_t>(c - '0');
+      } else if (c >= 'A' && c <= 'F') {
+        digit = static_cast<uint32_t>(c - 'A' + 10);
+      } else if (c >= 'a' && c <= 'f') {
+        digit = static_cast<uint32_t>(c - 'a' + 10);
+      } else {
+        break;
+      }
+
+      label = (label << 4) | digit;
+      foundDigit = true;
+      ++pos;
+    }
+
+    if (foundDigit) {
+      labels.emplace(label);
+    }
+  }
+}
+
+std::string getFunctionCallName(const EmitContext& ctx, uint32_t address) {
+  if (auto* fn = ctx.graph.getFunction(address); fn != nullptr && !fn->name().empty()) {
+    return fn->name();
+  }
+  return fmt::format("sub_{:08X}", address);
 }
 
 //=============================================================================
@@ -146,6 +186,15 @@ void FunctionNode::addBlock(Block block) {
 }
 
 bool FunctionNode::containsAddress(uint32_t addr) const {
+  // Some Xbox 360 PDATA records describe alternate entries whose loop labels
+  // sit immediately before the callable entry address. Explicit blocks still
+  // own those labels even when they are below base_.
+  for (const auto& block : blocks_) {
+    if (block.contains(addr)) {
+      return true;
+    }
+  }
+
   // First check overall bounds
   if (addr < base_ || addr >= base_ + size_) {
     return false;
@@ -154,13 +203,6 @@ bool FunctionNode::containsAddress(uint32_t addr) const {
   // If no blocks defined, use linear range
   if (blocks_.empty()) {
     return true;
-  }
-
-  // Check individual blocks
-  for (const auto& block : blocks_) {
-    if (block.contains(addr)) {
-      return true;
-    }
   }
 
   // For CONFIG and PDATA functions, trust the declared size even if blocks don't cover it
@@ -381,10 +423,34 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
       REXCODEGEN_TRACE("Function 0x{:08X} has {} SEH scopes", base(), sehInfo->scopes.size());
     }
   }
+  const bool generateSeh =
+      sehInfo && !sehInfo->scopes.empty() && ctx.config.generateExceptionHandlers;
+  const bool generateSehExceptDispatch =
+      generateSeh && std::any_of(sehInfo->scopes.begin(), sehInfo->scopes.end(),
+                                 [](const SehScope& scope) {
+                                   return scope.filter != 0 && scope.handler != 0;
+                                 });
 
   // --- First pass: collect labels from all blocks ---
   std::unordered_set<size_t> labels;
   labels.reserve(64);
+  for (uint32_t label : this->labels()) {
+    labels.emplace(label);
+  }
+
+  if (generateSeh) {
+    for (const auto& scope : sehInfo->scopes) {
+      if (scope.tryStart != 0) {
+        labels.emplace(scope.tryStart);
+      }
+      if (scope.tryEnd != 0) {
+        labels.emplace(scope.tryEnd);
+      }
+      if (scope.filter != 0 && scope.handler != 0) {
+        labels.emplace(scope.handler);
+      }
+    }
+  }
 
   for (const auto& block : blocks()) {
     auto* blockData = reinterpret_cast<const uint32_t*>(ctx.binary.translate(block.base));
@@ -493,6 +559,19 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
 
   std::string body;
   body.reserve(4096);
+
+  if (generateSehExceptDispatch) {
+    emit_println(body, "\tif (seh_dispatch_target != 0) {{");
+    for (const auto& scope : sehInfo->scopes) {
+      if (scope.filter != 0 && scope.handler != 0) {
+        emit_println(body, "\t\tif (seh_dispatch_target == 0x{:08X}) goto loc_{:X};",
+                     scope.handler, scope.handler);
+      }
+    }
+    emit_println(body, "\t\tREX_FATAL(\"Unhandled SEH dispatch target in sub_{:08X}\");",
+                 base());
+    emit_println(body, "\t}}");
+  }
 
   ppc_insn insn;
   std::unordered_set<size_t> emittedLabels;
@@ -603,34 +682,176 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     }
   }
 
-  // --- Close function body (or SEH try block) ---
-  bool generateSeh = sehInfo && !sehInfo->scopes.empty() && ctx.config.generateExceptionHandlers;
-  if (generateSeh) {
-    emit_println(body, "\t\t}} SEH_CATCH_ALL {{");
-    emit_println(body, "\t\t\tREXLOG_WARN(\"SEH exception caught in sub_{:08X}\");", base());
+  std::unordered_set<size_t> referencedLabels;
+  CollectReferencedGotoLabels(body, referencedLabels);
+  labels.insert(referencedLabels.begin(), referencedLabels.end());
 
-    if (sehInfo->frameSize > 0) {
-      emit_println(body, "\t\t\tctx.r12.s64 = ctx.r31.s64 + {};  // Establisher frame pointer",
-                   sehInfo->frameSize);
+  for (size_t labelValue : referencedLabels) {
+    const auto label = static_cast<uint32_t>(labelValue);
+    if (emittedLabels.contains(labelValue) || !isWithinBounds(label)) {
+      continue;
     }
 
-    for (auto it = sehInfo->scopes.rbegin(); it != sehInfo->scopes.rend(); ++it) {
-      const auto& scope = *it;
-      if (scope.filter == 0 && scope.handler != 0) {
-        emit_println(body, "\t\t\tsub_{:08X}(ctx, base);  // __finally handler", scope.handler);
+    REXCODEGEN_WARN("Function 0x{:08X}: branch target 0x{:08X} has no emitted block", base(),
+                    label);
+    emit_println(body, "loc_{:X}:", label);
+    emit_println(body,
+                 "\tREX_FATAL(\"Branch target 0x{:08X} in sub_{:08X} has no emitted block\");",
+                 label, base());
+  }
+
+  // --- Close function body (or SEH try block) ---
+  if (generateSeh) {
+    if (generateSehExceptDispatch) {
+      emit_println(body, "\tbreak;");
+    }
+    emit_println(body, "\t\t}} SEH_CATCH_ALL {{");
+    emit_println(body, "\t\t\tconst auto& seh_state = ::rex::platform::seh_thread_state();");
+    emit_println(body,
+                 "\t\t\tREXLOG_DEBUG(\"SEH exception caught in sub_{:08X}: code=0x{{:08X}} "
+                 "info0=0x{{:X}} info1=0x{{:X}} lr=0x{{:08X}} r1=0x{{:08X}} "
+                 "r3=0x{{:08X}} r4=0x{{:08X}} r5=0x{{:08X}} r6=0x{{:08X}} "
+                 "r28=0x{{:08X}} r29=0x{{:08X}} r30=0x{{:08X}} r31=0x{{:08X}}\", "
+                 "seh_state.code, seh_state.info[0], seh_state.info[1], ctx.lr, ctx.r1.u32, "
+                 "ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r28.u32, ctx.r29.u32, "
+                 "ctx.r30.u32, ctx.r31.u32);",
+                 base());
+    emit_println(body,
+                 "\t\t\tREXLOG_DEBUG(\"SEH guest regs in sub_{:08X}: r7=0x{{:08X}} "
+                 "r8=0x{{:08X}} r9=0x{{:08X}} r10=0x{{:08X}} r11=0x{{:08X}} "
+                 "r12=0x{{:08X}}\", ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32, "
+                 "ctx.r11.u32, ctx.r12.u32);",
+                 base());
+
+    auto emitFinallyHandlers = [&]() {
+      for (auto it = sehInfo->scopes.rbegin(); it != sehInfo->scopes.rend(); ++it) {
+        const auto& scope = *it;
+        if (scope.filter == 0 && scope.handler != 0) {
+          if (sehInfo->frameSize > 0) {
+            emit_println(
+                body, "\t\t\tctx.r12.u64 = seh_establisher_frame;  // Establisher frame pointer");
+          }
+          emit_println(body, "\t\t\t{}(ctx, base);  // __finally handler",
+                       getFunctionCallName(ctx, scope.handler));
+        }
       }
+    };
+
+    if (generateSehExceptDispatch) {
+      for (auto it = sehInfo->scopes.rbegin(); it != sehInfo->scopes.rend(); ++it) {
+        const auto& scope = *it;
+        if (scope.filter == 0 || scope.handler == 0) {
+          continue;
+        }
+
+        if (sehInfo->frameSize > 0) {
+          emit_println(
+              body, "\t\t\tctx.r12.u64 = seh_establisher_frame;  // Establisher frame pointer");
+        }
+        emit_println(body, "\t\t\t{{");
+        emit_println(body, "\t\t\t\tconst uint32_t seh_saved_r1 = ctx.r1.u32;");
+        emit_println(body, "\t\t\t\tctx.r1.u32 = (ctx.r1.u32 - 0x700) & ~0xFu;");
+        emit_println(body,
+                     "\t\t\t\tconst uint32_t seh_exception_record = ctx.r1.u32 + 0x20;");
+        emit_println(body,
+                     "\t\t\t\tconst uint32_t seh_exception_pointers = ctx.r1.u32 + 0x70;");
+        emit_println(body,
+                     "\t\t\t\tconst uint32_t seh_context_record = ctx.r1.u32 + 0x100;");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x00, seh_state.code);");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x04, 0);");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x08, 0);");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x0C, ctx.lr);");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x10, 2);");
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x14, "
+                     "static_cast<uint32_t>(seh_state.info[0]));");
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_exception_record + 0x18, "
+                     "static_cast<uint32_t>(seh_state.info[1]));");
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_exception_pointers + 0x00, "
+                     "seh_exception_record);");
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_exception_pointers + 0x04, "
+                     "seh_context_record);");
+        emit_println(body, "\t\t\t\tconst PPCRegister* seh_fprs = &ctx.f14;");
+        emit_println(body, "\t\t\t\tfor (uint32_t i = 0; i < 18; ++i) {{");
+        emit_println(body,
+                     "\t\t\t\t\tREX_STORE_U64(seh_context_record + i * 8, seh_fprs[i].u64);");
+        emit_println(body, "\t\t\t\t}}");
+        emit_println(body, "\t\t\t\tconst PPCRegister* seh_gprs = &ctx.r13;");
+        emit_println(body, "\t\t\t\tfor (uint32_t i = 0; i < 19; ++i) {{");
+        emit_println(body,
+                     "\t\t\t\t\tREX_STORE_U64(seh_context_record + 152 + i * 8, "
+                     "seh_gprs[i].u64);");
+        emit_println(body, "\t\t\t\t}}");
+        emit_println(body, "\t\t\t\tconst PPCVRegister* seh_vectors = &ctx.v64;");
+        emit_println(body, "\t\t\t\tfor (uint32_t i = 0; i < 64; ++i) {{");
+        emit_println(body, "\t\t\t\t\tconst uint32_t ea = seh_context_record + 320 + i * 16;");
+        emit_println(body, "\t\t\t\t\tfor (uint32_t byte = 0; byte < 16; ++byte) {{");
+        emit_println(body, "\t\t\t\t\t\tREX_STORE_U8(ea + byte, seh_vectors[i].u8[15 - byte]);");
+        emit_println(body, "\t\t\t\t\t}}");
+        emit_println(body, "\t\t\t\t}}");
+        emit_println(body, "\t\t\t\tREX_STORE_U64(seh_context_record + 144, ctx.r1.u64);");
+        emit_println(body,
+                     "\t\t\t\tconst uint32_t seh_cr = (ctx.cr0.raw() << 28) | "
+                     "(ctx.cr1.raw() << 24) | (ctx.cr2.raw() << 20) | "
+                     "(ctx.cr3.raw() << 16) | (ctx.cr4.raw() << 12) | "
+                     "(ctx.cr5.raw() << 8) | (ctx.cr6.raw() << 4) | ctx.cr7.raw();");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_context_record + 304, seh_cr);");
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_context_record + 308, "
+                     "static_cast<uint32_t>(ctx.lr));");
+        emit_println(body, "\t\t\t\tREX_STORE_U32(seh_context_record + 312, 0);");
+        // Some title-local SEH filters stack-walk this record through compact
+        // return-address and stack-pointer slots instead of the
+        // RtlCaptureContext-style save area above.
+        emit_println(body,
+                     "\t\t\t\tREX_STORE_U32(seh_context_record + 8, "
+                     "static_cast<uint32_t>(ctx.lr));");
+        emit_println(body, "\t\t\t\tREX_STORE_U64(seh_context_record + 32, ctx.r1.u64);");
+        emit_println(body,
+                     "\t\t\t\tctx.r3.u64 = seh_exception_pointers;  // __except exception pointers");
+        emit_println(body, "\t\t\t\t{}(ctx, base);  // __except filter",
+                     getFunctionCallName(ctx, scope.filter));
+        emit_println(body, "\t\t\t\tctx.r1.u32 = seh_saved_r1;");
+        emit_println(body, "\t\t\t\tconst int32_t seh_filter_result = ctx.r3.s32;");
+        emit_println(body,
+                     "\t\t\t\tREXLOG_DEBUG(\"SEH filter result in sub_{:08X}: "
+                     "filter=0x{:08X} handler=0x{:08X} result={{}} r3=0x{{:08X}}\", "
+                     "seh_filter_result, ctx.r3.u32);",
+                     base(), scope.filter, scope.handler);
+        emit_println(body, "\t\t\t\tif (seh_filter_result > 0) {{");
+        emitFinallyHandlers();
+        emit_println(body, "\t\t\t\t\tseh_dispatch_target = 0x{:08X};", scope.handler);
+        emit_println(body, "\t\t\t\t\tcontinue;");
+        emit_println(body, "\t\t\t\t}}");
+        emit_println(body, "\t\t\t}}");
+      }
+    } else {
+      emitFinallyHandlers();
     }
 
     if (sehInfo->restoreHelper != 0) {
       auto* restoreFn = ctx.graph.getFunction(sehInfo->restoreHelper);
       if (restoreFn && !restoreFn->name().empty()) {
+        if (sehInfo->frameSize > 0) {
+          emit_println(
+              body,
+              "\t\t\tctx.r1.u64 = seh_establisher_frame;  // Restore caller stack pointer");
+        }
         emit_println(body, "\t\t\t{}(ctx, base);  // Restore caller registers", restoreFn->name());
       }
     }
 
     emit_println(body, "\t\t\tSEH_RETHROW;");
     emit_println(body, "\t\t}} SEH_END");
-    emit_println(body, "\t}}\n");
+    if (generateSehExceptDispatch) {
+      emit_println(body, "\t}}");
+      emit_println(body, "}}\n");
+    } else {
+      emit_println(body, "\t}}\n");
+    }
   } else {
     emit_println(body, "}}\n");
   }
@@ -671,10 +892,19 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(out, "\tPPCVRegister vTemp{{}};");
   if (localVariables.ea)
     emit_println(out, "\tuint32_t ea{{}};");
+  if (generateSeh && sehInfo->frameSize > 0)
+    emit_println(out, "\tuint32_t seh_establisher_frame = ctx.r1.u32;");
+  if (generateSehExceptDispatch)
+    emit_println(out, "\tuint32_t seh_dispatch_target = 0;");
 
   // If SEH, emit SEH_TRY and indent body
   if (generateSeh) {
-    emit_println(out, "\tSEH_TRY {{");
+    if (generateSehExceptDispatch) {
+      emit_println(out, "\tfor (;;) {{");
+      emit_println(out, "\t\tSEH_TRY {{");
+    } else {
+      emit_println(out, "\tSEH_TRY {{");
+    }
     std::string indentedBody;
     indentedBody.reserve(body.size() + body.size() / 20);
     for (size_t i = 0; i < body.size(); ++i) {
@@ -737,6 +967,7 @@ FunctionNode* FunctionGraph::addFunction(uint32_t base, uint32_t size, FunctionA
   auto it = functions_.find(base);
   if (it != functions_.end()) {
     FunctionNode* existing = it->second.get();
+    functionHasXrefs_[base] = functionHasXrefs_[base] || hasXrefs;
 
     // Higher authority wins
     if (existing->authority() >= authority) {
@@ -746,9 +977,14 @@ FunctionNode* FunctionGraph::addFunction(uint32_t base, uint32_t size, FunctionA
       return existing;
     }
 
-    // Replace with higher authority
-    REXCODEGEN_DEBUG("FunctionGraph: replacing 0x{:08X} ({}) with ({})", base,
+    // Upgrade in place so previously resolved CallTarget::ToFunction pointers
+    // remain valid after a speculative entry receives stronger evidence.
+    REXCODEGEN_DEBUG("FunctionGraph: upgrading 0x{:08X} ({}) to ({})", base,
                      AuthorityName(existing->authority()), AuthorityName(authority));
+    existing->authority_ = authority;
+    existing->size_ = std::max(existing->size_, size);
+    functionsByBase_[base] = existing;
+    return existing;
   }
 
   // Create new node
@@ -797,17 +1033,25 @@ bool FunctionGraph::removeFunction(uint32_t entryPoint) {
   if (it == functions_.end()) {
     return false;
   }
+  if (hasIncomingFunctionEdge(it->second.get())) {
+    REXCODEGEN_DEBUG("FunctionGraph: keeping 0x{:08X}; resolved edges still target it",
+                     entryPoint);
+    return false;
+  }
   REXCODEGEN_TRACE("FunctionGraph: removing absorbed function 0x{:08X}", entryPoint);
   functionsByBase_.erase(entryPoint);
   functions_.erase(it);
   functionHasXrefs_.erase(entryPoint);  // Clean up xref tracking
+  functionsWithUnresolvedJumps_.erase(entryPoint);
   return true;
 }
 
 FunctionNode* FunctionGraph::getFunctionContaining(uint32_t addr) {
-  // O(log f) lookup via sorted base index: find last function with base <= addr
+  // Find the nearest function whose entry is <= addr, then walk backward for
+  // overlapping ranges. A later tiny entry can hide an earlier wider PDATA or
+  // gap-fill owner if only the immediate predecessor is checked.
   auto it = functionsByBase_.upper_bound(addr);
-  if (it != functionsByBase_.begin()) {
+  while (it != functionsByBase_.begin()) {
     --it;
     if (it->second->containsAddress(addr)) {
       return it->second;
@@ -818,7 +1062,7 @@ FunctionNode* FunctionGraph::getFunctionContaining(uint32_t addr) {
 
 const FunctionNode* FunctionGraph::getFunctionContaining(uint32_t addr) const {
   auto it = functionsByBase_.upper_bound(addr);
-  if (it != functionsByBase_.begin()) {
+  while (it != functionsByBase_.begin()) {
     --it;
     if (it->second->containsAddress(addr)) {
       return it->second;
@@ -961,6 +1205,7 @@ void FunctionGraph::addUnresolvedJumpToFunction(uint32_t entry, uint32_t site, u
 
   // Not resolvable yet - add as unresolved
   node->addUnresolvedJump(site, target, isCall, conditional);
+  functionsWithUnresolvedJumps_.insert(entry);
   REXCODEGEN_TRACE("FunctionGraph: added unresolved {} 0x{:08X}->0x{:08X} to function 0x{:08X}",
                    isCall ? "call" : "jump", site, target, entry);
 }
@@ -1024,6 +1269,10 @@ size_t FunctionGraph::tryResolveFunction(uint32_t entry) {
     REXCODEGEN_TRACE("  0x{:08X}->0x{:08X}: still unresolved", jump.site, jump.target);
   }
 
+  if (node->unresolvedJumps().empty()) {
+    functionsWithUnresolvedJumps_.erase(entry);
+  }
+
   return resolved;
 }
 
@@ -1041,6 +1290,7 @@ bool FunctionGraph::trySealFunction(uint32_t entry) {
 
   if (node->canSeal()) {
     node->seal();
+    functionsWithUnresolvedJumps_.erase(entry);
     return true;
   }
   return false;
@@ -1053,6 +1303,7 @@ size_t FunctionGraph::sealAllReady() {
     if (node->isPending()) {
       if (node->canSeal()) {
         node->seal();
+        functionsWithUnresolvedJumps_.erase(base);
         sealed++;
       } else {
         couldNotSeal++;
@@ -1092,6 +1343,7 @@ void FunctionGraph::sealAll() {
     }
 
     node->seal();
+    functionsWithUnresolvedJumps_.erase(base);
   }
 
   if (!errors.empty()) {
@@ -1206,11 +1458,58 @@ TargetKind FunctionGraph::classifyTarget(uint32_t target, uint32_t callerAddr,
 }
 
 void FunctionGraph::notifyFunctionAdded(FunctionNode* newFunction) {
-  for (auto& [base, node] : functions_) {
-    if (node.get() != newFunction && node->isPending()) {
-      node->tryResolveAgainst(newFunction);
+  if (functionsWithUnresolvedJumps_.empty()) {
+    return;
+  }
+
+  std::vector<uint32_t> candidates(functionsWithUnresolvedJumps_.begin(),
+                                   functionsWithUnresolvedJumps_.end());
+  for (uint32_t base : candidates) {
+    auto it = functions_.find(base);
+    if (it == functions_.end()) {
+      functionsWithUnresolvedJumps_.erase(base);
+      continue;
+    }
+
+    FunctionNode* node = it->second.get();
+    if (node == newFunction) {
+      continue;
+    }
+
+    if (node->isSealed() || node->unresolvedJumps().empty()) {
+      functionsWithUnresolvedJumps_.erase(base);
+      continue;
+    }
+
+    node->tryResolveAgainst(newFunction);
+    if (node->unresolvedJumps().empty()) {
+      functionsWithUnresolvedJumps_.erase(base);
     }
   }
+}
+
+bool FunctionGraph::hasIncomingFunctionEdge(const FunctionNode* target) const {
+  if (!target) {
+    return false;
+  }
+
+  for (const auto& [_, node] : functions_) {
+    if (!node || node.get() == target) {
+      continue;
+    }
+    for (const auto& edge : node->calls()) {
+      if (edge.target.isFunction() && edge.target.asFunction() == target) {
+        return true;
+      }
+    }
+    for (const auto& edge : node->tailCalls()) {
+      if (edge.target.isFunction() && edge.target.asFunction() == target) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 }  // namespace rex::codegen

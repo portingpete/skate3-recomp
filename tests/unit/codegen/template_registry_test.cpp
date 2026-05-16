@@ -101,6 +101,28 @@ TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
   CHECK(result.find("test_proj") != std::string::npos);
 }
 
+TEST_CASE("Template: init cmake presets enable AMD64 baseline SIMD", "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string result = registry.render("init/cmake_presets", "{}");
+
+  CHECK(result.find("\"CMAKE_C_FLAGS\": \"-march=x86-64-v3\"") != std::string::npos);
+  CHECK(result.find("\"CMAKE_CXX_FLAGS\": \"-march=x86-64-v3\"") != std::string::npos);
+  CHECK(result.find("\"CMAKE_C_FLAGS\": \"-march=armv8-a\"") != std::string::npos);
+  CHECK(result.find("\"CMAKE_CXX_FLAGS\": \"-march=armv8-a\"") != std::string::npos);
+}
+
+TEST_CASE("Template: rexglue target setup exposes source-tree ImGui includes",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json =
+      R"({"sdk_version": "0.8.0", "entrypoint_out_dir": "generated", "names": {"snake_case": "mygame"}})";
+  std::string result = registry.render("init/rexglue_cmake", json);
+
+  CHECK(result.find("if(TARGET imgui)") != std::string::npos);
+  CHECK(result.find("$<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>") !=
+        std::string::npos);
+}
+
 TEST_CASE("TemplateRegistry: render unknown ID throws TemplateError", "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
   REQUIRE_THROWS_AS(registry.render("nonexistent/template_id", "{}"), rex::codegen::TemplateError);
@@ -135,6 +157,33 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);
+}
+
+TEST_CASE("TemplateRegistry: init_h includes SEH support for generated handlers",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "config_flags": {
+      "skip_lr": false,
+      "ctr_as_local": false,
+      "xer_as_local": false,
+      "reserved_as_local": false,
+      "skip_msr": false,
+      "cr_as_local": false,
+      "non_argument_as_local": false,
+      "non_volatile_as_local": false
+    },
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "thunk_reserve_size": "0x1000",
+    "rexcrt_heap": false,
+    "functions": [],
+    "imports": []
+  })";
+  std::string result = registry.render("codegen/init_h", json);
+  CHECK(result.find("#include <rex/platform/exceptions.h>") != std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial",
