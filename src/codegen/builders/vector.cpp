@@ -1324,9 +1324,9 @@ bool build_vpkd3d128(BuilderContext& ctx) {
       // NOTE: These combinations come from game traces (heuristic handling), not the official spec.
       // The spec only defines the encoding, not the exact semantics of y (mask) and z (shift) here.
       // Anyone reading this later should know it may need extending if new combos turn up in other
-      // games. Combinations observed so far: mask=2, shift=0 → write u16[3..0], zero u16[4..7]
-      // mask=2, shift=2 → write u16[7..4], zero u16[3..0] (first pass)
-      // mask=3, shift=0 → write u16[3..0] without zeroing (second pass, preserves the upper half)
+      // games.
+      // Correct current behavior: mask=2, shift=0 writes u16[3..0] and preserves u16[4..7];
+      // mask=2, shift=2 writes u16[7..4] and zeroes u16[3..0].
 
       uint32_t mask = ctx.insn.operands[3];
       uint32_t shift = ctx.insn.operands[4];
@@ -1343,14 +1343,11 @@ bool build_vpkd3d128(BuilderContext& ctx) {
         return true;
       }
 
-      // mask=2: before writing, clear the half that will NOT be written.
+      // mask=2, shift=2: before writing the upper half, clear the lower half.
       // Shift is guaranteed to be 0 or 2 at this point due to the guard above.
-      if (mask == 2) {
+      if (mask == 2 && shift == 2) {
         // Optimization: Emit a single u64 write instead of two u32 writes.
-        // shift=0 → clears upper half u64[1]
-        // shift=2 → clears lower half u64[0]
-        size_t clearU64Start = (shift == 0) ? 1 : 0;
-        ctx.println("\t{}.u64[{}] = 0;", ctx.v(ctx.insn.operands[0]), clearU64Start);
+        ctx.println("\t{}.u64[0] = 0;", ctx.v(ctx.insn.operands[0]));
       }
 
       // Invariant: dstIdx must stay under 8 (valid u16 lanes are 0..7).
