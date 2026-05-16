@@ -543,6 +543,97 @@ u32 NetDll_WSASetEvent_entry(u32 event_handle) {
   return 1;
 }
 
+u32 NetDll_WSACancelOverlappedIO_entry(u32 caller, u32 socket_handle) {
+  (void)caller;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+
+  SetWsaLastErrorIfInThread(0);
+  return 0;
+}
+
+u32 NetDll_WSAEventSelect_entry(u32 caller, u32 socket_handle, u32 event_handle,
+                                i32 network_events) {
+  (void)caller;
+  (void)event_handle;
+  (void)network_events;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+
+  SetWsaLastErrorIfInThread(0);
+  return 0;
+}
+
+u32 SumWsabufLengths(ppc_ptr_t<XWSABUF> buffers, u32 buffer_count) {
+  u32 total = 0;
+  for (u32 i = 0; i < buffer_count; ++i) {
+    total += buffers[i].len;
+  }
+  return total;
+}
+
+void MarkOverlappedSendComplete(mapped_u32 num_bytes_sent,
+                                ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr,
+                                u32 bytes_sent) {
+  if (num_bytes_sent) {
+    *num_bytes_sent = bytes_sent;
+  }
+  if (overlapped_ptr) {
+    overlapped_ptr->internal = X_ERROR_SUCCESS;
+    overlapped_ptr->internal_high = bytes_sent;
+  }
+}
+
+u32 NetDll_WSASend_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XWSABUF> buffers,
+                         u32 buffer_count, mapped_u32 num_bytes_sent, u32 flags,
+                         ppc_ptr_t<XWSAOVERLAPPED> overlapped, mapped_void completion_routine) {
+  (void)caller;
+  (void)completion_routine;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+  if (!buffers && buffer_count) {
+    return FailWsa(kWsaEFault);
+  }
+
+  const u32 requested_bytes = SumWsabufLengths(buffers, buffer_count);
+  if (requested_bytes == 0) {
+    MarkOverlappedSendComplete(num_bytes_sent, overlapped, 0);
+    SetWsaLastErrorIfInThread(0);
+    return 0;
+  }
+
+  std::vector<uint8_t> combined_buffer(requested_bytes);
+  u32 combined_offset = 0;
+  for (u32 i = 0; i < buffer_count; ++i) {
+    const u32 len = buffers[i].len;
+    if (!buffers[i].buf_ptr && len) {
+      return FailWsa(kWsaEFault);
+    }
+    std::memcpy(combined_buffer.data() + combined_offset,
+                REX_KERNEL_MEMORY()->TranslateVirtual(buffers[i].buf_ptr), len);
+    combined_offset += len;
+  }
+
+  const int ret = socket->Send(combined_buffer.data(), requested_bytes, flags);
+  if (ret < 0) {
+    SetNativeWsaLastErrorIfInThread();
+    return 0xFFFFFFFFu;
+  }
+
+  MarkOverlappedSendComplete(num_bytes_sent, overlapped, static_cast<u32>(ret));
+  SetWsaLastErrorIfInThread(0);
+  return 0;
+}
+
 struct XnAddrStatus {
   // Address acquisition is not yet complete
   static const uint32_t XNET_GET_XNADDR_PENDING = 0x00000000;
@@ -1274,6 +1365,10 @@ REX_EXPORT(__imp__NetDll_WSACreateEvent, rex::kernel::xam::NetDll_WSACreateEvent
 REX_EXPORT(__imp__NetDll_WSACloseEvent, rex::kernel::xam::NetDll_WSACloseEvent_entry)
 REX_EXPORT(__imp__NetDll_WSAResetEvent, rex::kernel::xam::NetDll_WSAResetEvent_entry)
 REX_EXPORT(__imp__NetDll_WSASetEvent, rex::kernel::xam::NetDll_WSASetEvent_entry)
+REX_EXPORT(__imp__NetDll_WSACancelOverlappedIO,
+           rex::kernel::xam::NetDll_WSACancelOverlappedIO_entry)
+REX_EXPORT(__imp__NetDll_WSAEventSelect, rex::kernel::xam::NetDll_WSAEventSelect_entry)
+REX_EXPORT(__imp__NetDll_WSASend, rex::kernel::xam::NetDll_WSASend_entry)
 REX_EXPORT(__imp__NetDll_XNetGetTitleXnAddr, rex::kernel::xam::NetDll_XNetGetTitleXnAddr_entry)
 REX_EXPORT(__imp__NetDll_XNetGetDebugXnAddr, rex::kernel::xam::NetDll_XNetGetDebugXnAddr_entry)
 REX_EXPORT(__imp__NetDll_XNetXnAddrToMachineId,
@@ -1322,9 +1417,6 @@ REX_EXPORT_STUB(__imp__NetDll_UpnpEventUnsubscribe);
 REX_EXPORT_STUB(__imp__NetDll_UpnpSearchCreate);
 REX_EXPORT_STUB(__imp__NetDll_UpnpSearchGetDevices);
 REX_EXPORT_STUB(__imp__NetDll_UpnpStartup);
-REX_EXPORT_STUB(__imp__NetDll_WSACancelOverlappedIO);
-REX_EXPORT_STUB(__imp__NetDll_WSAEventSelect);
-REX_EXPORT_STUB(__imp__NetDll_WSASend);
 REX_EXPORT_STUB(__imp__NetDll_WSAStartupEx);
 REX_EXPORT_STUB(__imp__NetDll_XHttpCloseHandle);
 REX_EXPORT_STUB(__imp__NetDll_XHttpConnect);

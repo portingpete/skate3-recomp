@@ -60,6 +60,12 @@ u32 NetDll_getsockname_entry(u32 caller, u32 socket_handle,
 u32 NetDll_getpeername_entry(u32 caller, u32 socket_handle,
                              ppc_ptr_t<rex::system::XSOCKADDR> name,
                              mapped_u32 namelen_ptr);
+u32 NetDll_WSACancelOverlappedIO_entry(u32 caller, u32 socket_handle);
+u32 NetDll_WSAEventSelect_entry(u32 caller, u32 socket_handle, u32 event_handle,
+                                i32 network_events);
+u32 NetDll_WSASend_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XWSABUF> buffers,
+                         u32 buffer_count, mapped_u32 num_bytes_sent, u32 flags,
+                         ppc_ptr_t<XWSAOVERLAPPED> overlapped, mapped_void completion_routine);
 }  // namespace rex::kernel::xam
 
 namespace {
@@ -198,6 +204,16 @@ TEST_CASE("socket query helpers fail deterministically for missing sockets",
   CHECK(rex::kernel::xam::NetDll_getpeername_entry(
             1, 0xBAD, ppc_ptr_t<rex::system::XSOCKADDR>(nullptr),
             mapped_u32(nullptr)) == kSocketError);
+}
+
+TEST_CASE("WSA socket operation helpers fail deterministically for missing sockets",
+          "[kernel][xam_net]") {
+  CHECK(rex::kernel::xam::NetDll_WSACancelOverlappedIO_entry(1, 0xBAD) == kSocketError);
+  CHECK(rex::kernel::xam::NetDll_WSAEventSelect_entry(1, 0xBAD, 0, 0) == kSocketError);
+  CHECK(rex::kernel::xam::NetDll_WSASend_entry(
+            1, 0xBAD, ppc_ptr_t<rex::kernel::xam::XWSABUF>(nullptr), 0,
+            mapped_u32(nullptr), 0, ppc_ptr_t<rex::kernel::xam::XWSAOVERLAPPED>(nullptr),
+            mapped_void(nullptr)) == kSocketError);
 }
 
 TEST_CASE("WSARecvFrom marks offline overlapped receives pending", "[kernel][xam_net]") {
