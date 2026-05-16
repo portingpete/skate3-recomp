@@ -36,6 +36,9 @@ namespace xam {
 using namespace rex::system;
 using namespace rex::system::xam;
 
+uint8_t xeXamGetOnlineCountryFromLocale(uint8_t id);
+uint8_t xeXamGetLocale();
+
 i32 XamUserGetXUID_entry(u32 user_index, u32 type_mask, mapped_u64 xuid_ptr) {
   assert_true(type_mask == 1 || type_mask == 2 || type_mask == 3 || type_mask == 4 ||
               type_mask == 7);
@@ -436,6 +439,20 @@ u32 XamUserGetMembershipTier_entry(u32 user_index) {
   return 6 /* 6 appears to be Gold */;
 }
 
+u32 XamUserGetMembershipTierFromXUID_entry(u64 xuid) {
+  if (!xuid) {
+    return 0;
+  }
+  return 6 /* 6 appears to be Gold */;
+}
+
+u32 XamUserGetOnlineCountryFromXUID_entry(u64 xuid) {
+  if (!xuid) {
+    return 0;
+  }
+  return xeXamGetOnlineCountryFromLocale(xeXamGetLocale());
+}
+
 u32 XamUserAreUsersFriends_entry(u32 user_index, u32 unk1, u32 unk2, mapped_u32 out_value,
                                  u32 overlapped_ptr) {
   uint32_t are_friends = 0;
@@ -716,6 +733,10 @@ REX_EXPORT(__imp__XamUserContentRestrictionCheckAccess,
            rex::kernel::xam::XamUserContentRestrictionCheckAccess_entry)
 REX_EXPORT(__imp__XamUserIsOnlineEnabled, rex::kernel::xam::XamUserIsOnlineEnabled_entry)
 REX_EXPORT(__imp__XamUserGetMembershipTier, rex::kernel::xam::XamUserGetMembershipTier_entry)
+REX_EXPORT(__imp__XamUserGetMembershipTierFromXUID,
+           rex::kernel::xam::XamUserGetMembershipTierFromXUID_entry)
+REX_EXPORT(__imp__XamUserGetOnlineCountryFromXUID,
+           rex::kernel::xam::XamUserGetOnlineCountryFromXUID_entry)
 REX_EXPORT(__imp__XamUserAreUsersFriends, rex::kernel::xam::XamUserAreUsersFriends_entry)
 REX_EXPORT(__imp__XamShowSigninUI, rex::kernel::xam::XamShowSigninUI_entry)
 REX_EXPORT(__imp__XamUserCreateAchievementEnumerator,
@@ -738,8 +759,6 @@ REX_EXPORT_STUB(__imp__XamUserGetAgeGroup);
 REX_EXPORT_STUB(__imp__XamUserGetCachedUserFlags);
 REX_EXPORT_STUB(__imp__XamUserGetDeviceId);
 REX_EXPORT_STUB(__imp__XamUserGetIndexFromXUID);
-REX_EXPORT_STUB(__imp__XamUserGetMembershipTierFromXUID);
-REX_EXPORT_STUB(__imp__XamUserGetOnlineCountryFromXUID);
 REX_EXPORT_STUB(__imp__XamUserGetOnlineLanguageFromXUID);
 REX_EXPORT_STUB(__imp__XamUserGetOnlineXUIDFromOfflineXUID);
 REX_EXPORT_STUB(__imp__XamUserGetReportingInfo);
