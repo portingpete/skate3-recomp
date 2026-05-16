@@ -11,6 +11,42 @@
 #include <rex/kernel/xam/private.h>
 #include <rex/logging.h>
 #include <rex/hook.h>
+#include <rex/system/xtypes.h>
+
+namespace rex::kernel::xam {
+
+u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_void item_data,
+                                             u32 flags, u32 item_count, mapped_u32 state_ptr,
+                                             mapped_u32 progress_ptr,
+                                             mapped_u32 result_ptr) {
+  if (state_ptr) {
+    *state_ptr = 0;
+  }
+  if (progress_ptr) {
+    *progress_ptr = 0;
+  }
+  if (result_ptr) {
+    *result_ptr = 0;
+  }
+
+  REXKRNL_IMPORT_RESULT(
+      "XamBackgroundDownloadItemGetStatus",
+      "{:#x} no active offline item (content={:#x} item={:#x} flags={:#x} count={})",
+      X_ERROR_SUCCESS, content_data.guest_address(), item_data.guest_address(), flags,
+      item_count);
+  return X_ERROR_SUCCESS;
+}
+
+u32 XamBackgroundDownloadItemGetHistoryStatus_entry(mapped_void content_data,
+                                                    mapped_void item_data, u32 flags) {
+  REXKRNL_IMPORT_RESULT(
+      "XamBackgroundDownloadItemGetHistoryStatus",
+      "{:#x} no offline history (content={:#x} item={:#x} flags={:#x})", X_ERROR_NOT_FOUND,
+      content_data.guest_address(), item_data.guest_address(), flags);
+  return X_ERROR_NOT_FOUND;
+}
+
+}  // namespace rex::kernel::xam
 
 // kinda gross but oh well
 REX_EXPORT_STUB(__imp__CancelWaitableTimer);
@@ -316,9 +352,11 @@ REX_EXPORT_STUB(__imp__XamBackgroundDownloadHistoryGetItem);
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadIsEnabled);
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadIsItemForThisConsole);
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemAdd);
-REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemGetHistoryStatus);
+REX_EXPORT(__imp__XamBackgroundDownloadItemGetHistoryStatus,
+           rex::kernel::xam::XamBackgroundDownloadItemGetHistoryStatus_entry)
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemGetHistoryStatusEx);
-REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemGetStatus);
+REX_EXPORT(__imp__XamBackgroundDownloadItemGetStatus,
+           rex::kernel::xam::XamBackgroundDownloadItemGetStatus_entry)
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemGetStatusAsync);
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemGetStatusEx);
 REX_EXPORT_STUB(__imp__XamBackgroundDownloadItemMakeFirst);

@@ -16,6 +16,7 @@ add_executable(unit_tests
     kernel/xboxkrnl_crypt_test.cpp
     kernel/xam_task_test.cpp
     kernel/xam_content_test.cpp
+    kernel/xam_misc_test.cpp
     kernel/xam_xmp_test.cpp
     kernel/xam_ui_test.cpp
     codegen/config_test.cpp
