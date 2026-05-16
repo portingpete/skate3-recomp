@@ -225,7 +225,8 @@ bool build_bctr(BuilderContext& ctx) {
     }
 
     ctx.println("\tdefault:");
-    ctx.println("\t\t__builtin_trap(); // Switch case out of range");
+    ctx.println("\t\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    ctx.println("\t\treturn;");
     ctx.println("\t}}");
 
     ctx.reset_switch_table();

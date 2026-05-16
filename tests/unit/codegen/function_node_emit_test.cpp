@@ -194,6 +194,46 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(eq_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of range",
+          "[codegen][FunctionNode]") {
+  constexpr std::array<uint8_t, 8> kBctrWithLocalTarget = {
+      0x4E, 0x80, 0x04, 0x20,  // bctr
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kBctrWithLocalTarget);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 4},
+                  rex::codegen::Block{.base = 0x1004, .size = 4}},
+                 {}, {0x1004});
+  graph.addJumpTableToFunction(0x1000, rex::codegen::JumpTable{
+      .bctrAddress = 0x1000,
+      .tableAddress = 0x2000,
+      .indexRegister = 3,
+      .targets = {0x1004},
+  });
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("switch (ctx.r3.u32)") != std::string::npos);
+  CHECK(cpp.find("case 0:") != std::string::npos);
+  CHECK(cpp.find("goto loc_1004;") != std::string::npos);
+  CHECK(cpp.find("default:") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(cpp.find("__builtin_trap(); // Switch case out of range") == std::string::npos);
+}
+
 TEST_CASE("FunctionNode SEH catch uses captured establisher frame",
           "[codegen][FunctionNode][SEH]") {
   constexpr std::array<uint8_t, 12> kFrameSetupAndReturn = {
