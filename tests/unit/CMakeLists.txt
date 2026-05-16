@@ -6,6 +6,7 @@ add_executable(unit_tests
     kernel/object_table_test.cpp
     kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp
+    kernel/xboxkrnl_usbcam_test.cpp
     core/cvar_test.cpp
     core/fiber_test.cpp
     core/platform_exceptions_test.cpp
