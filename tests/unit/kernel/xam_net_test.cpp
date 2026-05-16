@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -27,12 +28,22 @@ u32 NetDll_WSAGetOverlappedResult_entry(u32 caller, u32 socket,
                                         ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr,
                                         mapped_u32 num_bytes_transferred, u32 wait,
                                         mapped_u32 flags_ptr);
+u32 XNetLogonGetMachineID_entry(mapped_u64 machine_id_ptr);
+u32 XNetLogonGetTitleID_entry(u32 caller);
+u32 NetDll_XNetCreateKey_entry(u32 caller, mapped_void key_id, mapped_void key);
+u32 NetDll_XNetRegisterKey_entry(u32 caller, mapped_void key_id, mapped_void key);
+u32 NetDll_XNetReplaceKey_entry(u32 caller, mapped_void key_id, mapped_void key);
+u32 NetDll_XNetUnregisterKey_entry(u32 caller, mapped_void key_id);
+u32 NetDll_XNetConnect_entry(u32 caller, u32 in_addr);
+u32 NetDll_XNetGetConnectStatus_entry(u32 caller, u32 in_addr);
+u32 NetDll_XNetUnregisterInAddr_entry(u32 caller, u32 in_addr);
 }  // namespace rex::kernel::xam
 
 namespace {
 
 constexpr u32 kSocketError = 0xFFFFFFFFu;
 constexpr u32 kErrorIoPending = 0x000003E5u;
+constexpr u64 kOfflineMachineId = 0xFA00000002CCCCCCull;
 
 u32 ReadBe32(const uint8_t* data, size_t offset) {
   return (u32(data[offset]) << 24) | (u32(data[offset + 1]) << 16) |
@@ -47,6 +58,58 @@ void WriteBe32(uint8_t* data, size_t offset, u32 value) {
 }
 
 }  // namespace
+
+TEST_CASE("XNetLogonGetTitleID has a deterministic no-title fallback", "[kernel][xam_net]") {
+  CHECK(rex::kernel::xam::XNetLogonGetTitleID_entry(2) == 0);
+}
+
+TEST_CASE("XNetLogonGetMachineID reports a deterministic offline machine id",
+          "[kernel][xam_net]") {
+  rex::be_u64 machine_id1 = 0;
+  rex::be_u64 machine_id2 = 0;
+
+  CHECK(rex::kernel::xam::XNetLogonGetMachineID_entry(
+            mapped_u64(&machine_id1, 0x40001000)) == 0);
+  CHECK(rex::kernel::xam::XNetLogonGetMachineID_entry(
+            mapped_u64(&machine_id2, 0x40001008)) == 0);
+  CHECK(u64(machine_id1) == kOfflineMachineId);
+  CHECK(u64(machine_id2) == kOfflineMachineId);
+  CHECK(rex::kernel::xam::XNetLogonGetMachineID_entry(mapped_u64(nullptr)) != 0);
+}
+
+TEST_CASE("XNet connection helpers report deterministic offline status", "[kernel][xam_net]") {
+  constexpr u32 kCaller = 1;
+  constexpr u32 kLoopback = 0x7F000001;
+
+  CHECK(rex::kernel::xam::NetDll_XNetConnect_entry(kCaller, kLoopback) == 0);
+  CHECK(rex::kernel::xam::NetDll_XNetGetConnectStatus_entry(kCaller, kLoopback) == 0);
+  CHECK(rex::kernel::xam::NetDll_XNetUnregisterInAddr_entry(kCaller, kLoopback) == 0);
+}
+
+TEST_CASE("XNet key registration helpers are deterministic no-op successes",
+          "[kernel][xam_net]") {
+  constexpr u32 kCaller = 1;
+  std::array<uint8_t, 8> key_id{};
+  std::array<uint8_t, 16> key{};
+  key_id.fill(0x11);
+  key.fill(0x22);
+
+  CHECK(rex::kernel::xam::NetDll_XNetCreateKey_entry(
+            kCaller, mapped_void(key_id.data(), 0x40002000),
+            mapped_void(key.data(), 0x40002010)) == 0);
+  CHECK(std::all_of(key_id.begin(), key_id.end(), [](uint8_t value) {
+    return value == 0xBB;
+  }));
+  CHECK(std::all_of(key.begin(), key.end(), [](uint8_t value) {
+    return value == 0xBB;
+  }));
+  CHECK(rex::kernel::xam::NetDll_XNetRegisterKey_entry(
+            kCaller, mapped_void(nullptr), mapped_void(nullptr)) == 0);
+  CHECK(rex::kernel::xam::NetDll_XNetReplaceKey_entry(
+            kCaller, mapped_void(nullptr), mapped_void(nullptr)) == 0);
+  CHECK(rex::kernel::xam::NetDll_XNetUnregisterKey_entry(
+            kCaller, mapped_void(key_id.data(), 0x40002000)) == 0);
+}
 
 TEST_CASE("WSARecvFrom marks offline overlapped receives pending", "[kernel][xam_net]") {
   constexpr u32 kBytesRecv = 0x10;

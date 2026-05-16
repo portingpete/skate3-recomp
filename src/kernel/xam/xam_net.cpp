@@ -177,6 +177,8 @@ struct XNetStartupParams {
 };
 
 XNetStartupParams xnet_startup_params = {};
+constexpr size_t kXNetKeyIdSize = 8;
+constexpr size_t kXNetKeySize = 16;
 
 u32 NetDll_XNetStartup_entry(u32 caller, ppc_ptr_t<XNetStartupParams> params) {
   if (params) {
@@ -231,6 +233,38 @@ u32 NetDll_XNetRandom_entry(u32 caller, mapped_void buffer_ptr, u32 length) {
   // This makes replicating things easier.
   std::memset(buffer_ptr, 0xBB, length);
 
+  return 0;
+}
+
+u32 NetDll_XNetCreateKey_entry(u32 caller, mapped_void key_id, mapped_void key) {
+  (void)caller;
+
+  if (key_id) {
+    std::memset(key_id, 0xBB, kXNetKeyIdSize);
+  }
+  if (key) {
+    std::memset(key, 0xBB, kXNetKeySize);
+  }
+  return 0;
+}
+
+u32 NetDll_XNetRegisterKey_entry(u32 caller, mapped_void key_id, mapped_void key) {
+  (void)caller;
+  (void)key_id;
+  (void)key;
+  return 0;
+}
+
+u32 NetDll_XNetReplaceKey_entry(u32 caller, mapped_void key_id, mapped_void key) {
+  (void)caller;
+  (void)key_id;
+  (void)key;
+  return 0;
+}
+
+u32 NetDll_XNetUnregisterKey_entry(u32 caller, mapped_void key_id) {
+  (void)caller;
+  (void)key_id;
   return 0;
 }
 
@@ -549,6 +583,24 @@ u32 NetDll_XNetXnAddrToInAddr_entry(u32 caller, ppc_ptr_t<XNADDR> xn_addr, mappe
 u32 NetDll_XNetInAddrToXnAddr_entry(u32 caller, mapped_void in_addr, ppc_ptr_t<XNADDR> xn_addr,
                                     mapped_void xid) {
   return 1;
+}
+
+u32 NetDll_XNetUnregisterInAddr_entry(u32 caller, u32 in_addr) {
+  (void)caller;
+  (void)in_addr;
+  return 0;
+}
+
+u32 NetDll_XNetConnect_entry(u32 caller, u32 in_addr) {
+  (void)caller;
+  (void)in_addr;
+  return 0;
+}
+
+u32 NetDll_XNetGetConnectStatus_entry(u32 caller, u32 in_addr) {
+  (void)caller;
+  (void)in_addr;
+  return 0;
 }
 
 // https://www.google.com/patents/WO2008112448A1?cl=en
@@ -1092,25 +1144,27 @@ REX_EXPORT_STUB(__imp__NetDll_XHttpSetStatusCallback);
 REX_EXPORT_STUB(__imp__NetDll_XHttpShutdown);
 REX_EXPORT_STUB(__imp__NetDll_XHttpStartup);
 REX_EXPORT_STUB(__imp__NetDll_XHttpWriteData);
-REX_EXPORT_STUB(__imp__NetDll_XNetConnect);
-REX_EXPORT_STUB(__imp__NetDll_XNetCreateKey);
+REX_EXPORT(__imp__NetDll_XNetConnect, rex::kernel::xam::NetDll_XNetConnect_entry)
+REX_EXPORT(__imp__NetDll_XNetCreateKey, rex::kernel::xam::NetDll_XNetCreateKey_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseLookup);
 REX_EXPORT_STUB(__imp__NetDll_XNetDnsReverseRelease);
 REX_EXPORT_STUB(__imp__NetDll_XNetGetBroadcastVersionStatus);
-REX_EXPORT_STUB(__imp__NetDll_XNetGetConnectStatus);
+REX_EXPORT(__imp__NetDll_XNetGetConnectStatus,
+           rex::kernel::xam::NetDll_XNetGetConnectStatus_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetGetSystemLinkPort);
 REX_EXPORT_STUB(__imp__NetDll_XNetGetXnAddrPlatform);
 REX_EXPORT_STUB(__imp__NetDll_XNetInAddrToServer);
 REX_EXPORT_STUB(__imp__NetDll_XNetQosGetListenStats);
 REX_EXPORT_STUB(__imp__NetDll_XNetQosLookup);
-REX_EXPORT_STUB(__imp__NetDll_XNetRegisterKey);
-REX_EXPORT_STUB(__imp__NetDll_XNetReplaceKey);
+REX_EXPORT(__imp__NetDll_XNetRegisterKey, rex::kernel::xam::NetDll_XNetRegisterKey_entry)
+REX_EXPORT(__imp__NetDll_XNetReplaceKey, rex::kernel::xam::NetDll_XNetReplaceKey_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetServerToInAddr);
 REX_EXPORT_STUB(__imp__NetDll_XNetSetOpt);
 REX_EXPORT_STUB(__imp__NetDll_XNetStartupEx);
 REX_EXPORT_STUB(__imp__NetDll_XNetTsAddrToInAddr);
-REX_EXPORT_STUB(__imp__NetDll_XNetUnregisterInAddr);
-REX_EXPORT_STUB(__imp__NetDll_XNetUnregisterKey);
+REX_EXPORT(__imp__NetDll_XNetUnregisterInAddr,
+           rex::kernel::xam::NetDll_XNetUnregisterInAddr_entry)
+REX_EXPORT(__imp__NetDll_XNetUnregisterKey, rex::kernel::xam::NetDll_XNetUnregisterKey_entry)
 REX_EXPORT_STUB(__imp__NetDll_XmlDownloadContinue);
 REX_EXPORT_STUB(__imp__NetDll_XmlDownloadGetParseTime);
 REX_EXPORT_STUB(__imp__NetDll_XmlDownloadGetReceivedDataSize);

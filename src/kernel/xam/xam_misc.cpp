@@ -12,9 +12,16 @@
 #include <rex/chrono/clock.h>
 #include <rex/logging.h>
 #include <rex/hook.h>
+#include <rex/system/kernel_state.h>
 #include <rex/system/xtypes.h>
 
 namespace rex::kernel::xam {
+
+namespace {
+
+constexpr u64 kOfflineMachineId = 0xFA00000002CCCCCCull;
+
+}  // namespace
 
 u32 QueryPerformanceCounter_entry(mapped_u64 counter_ptr) {
   if (!counter_ptr) {
@@ -74,6 +81,22 @@ u32 XamBackgroundDownloadItemGetHistoryStatus_entry(mapped_void content_data,
       "{:#x} no offline history (content={:#x} item={:#x} flags={:#x})", X_ERROR_NOT_FOUND,
       content_data.guest_address(), item_data.guest_address(), flags);
   return X_ERROR_NOT_FOUND;
+}
+
+u32 XNetLogonGetMachineID_entry(mapped_u64 machine_id_ptr) {
+  if (!machine_id_ptr) {
+    return 1;
+  }
+
+  *machine_id_ptr = kOfflineMachineId;
+  return 0;
+}
+
+u32 XNetLogonGetTitleID_entry(u32 caller) {
+  (void)caller;
+
+  auto* kernel_state = rex::system::kernel_state();
+  return kernel_state ? kernel_state->title_id() : 0;
 }
 
 }  // namespace rex::kernel::xam
@@ -303,13 +326,13 @@ REX_EXPORT_STUB(__imp__XNetLogonGetExtendedStatus);
 REX_EXPORT_STUB(__imp__XNetLogonGetFlowToken);
 REX_EXPORT_STUB(__imp__XNetLogonGetLastUPnPStatus);
 REX_EXPORT_STUB(__imp__XNetLogonGetLoggedOnUsers);
-REX_EXPORT_STUB(__imp__XNetLogonGetMachineID);
+REX_EXPORT(__imp__XNetLogonGetMachineID, rex::kernel::xam::XNetLogonGetMachineID_entry)
 REX_EXPORT_STUB(__imp__XNetLogonGetNatType);
 REX_EXPORT_STUB(__imp__XNetLogonGetServiceInfo);
 REX_EXPORT_STUB(__imp__XNetLogonGetServiceNetworkID);
 REX_EXPORT_STUB(__imp__XNetLogonGetState);
 REX_EXPORT_STUB(__imp__XNetLogonGetTicketOpt);
-REX_EXPORT_STUB(__imp__XNetLogonGetTitleID);
+REX_EXPORT(__imp__XNetLogonGetTitleID, rex::kernel::xam::XNetLogonGetTitleID_entry)
 REX_EXPORT_STUB(__imp__XNetLogonGetTitleVersion);
 REX_EXPORT_STUB(__imp__XNetLogonGetUserPrivileges);
 REX_EXPORT_STUB(__imp__XNetLogonInitOverrideInfo);
