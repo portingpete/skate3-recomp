@@ -3,7 +3,13 @@
 #include <rex/system/xtypes.h>
 #include <rex/types.h>
 
+namespace rex::kernel::xboxkrnl {
+u32 KeQueryPerformanceFrequency_entry();
+}  // namespace rex::kernel::xboxkrnl
+
 namespace rex::kernel::xam {
+u32 QueryPerformanceCounter_entry(mapped_u64 counter_ptr);
+u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr);
 u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_void item_data,
                                              u32 flags, u32 item_count, mapped_u32 state_ptr,
                                              mapped_u32 progress_ptr,
@@ -11,6 +17,25 @@ u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_vo
 u32 XamBackgroundDownloadItemGetHistoryStatus_entry(mapped_void content_data,
                                                     mapped_void item_data, u32 flags);
 }  // namespace rex::kernel::xam
+
+TEST_CASE("XAM performance queries mirror the guest clock", "[kernel][xam]") {
+  const u32 expected_frequency = rex::kernel::xboxkrnl::KeQueryPerformanceFrequency_entry();
+  rex::be_u64 frequency = 0;
+  CHECK(rex::kernel::xam::QueryPerformanceFrequency_entry(
+            mapped_u64(&frequency, 0x40001000)) == 1);
+  CHECK(static_cast<uint64_t>(frequency) == expected_frequency);
+  CHECK(static_cast<uint64_t>(frequency) > 0);
+  CHECK(rex::kernel::xam::QueryPerformanceFrequency_entry(mapped_u64(nullptr)) == 0);
+
+  rex::be_u64 counter1 = 0;
+  rex::be_u64 counter2 = 0;
+  CHECK(rex::kernel::xam::QueryPerformanceCounter_entry(mapped_u64(&counter1, 0x40001008)) ==
+        1);
+  CHECK(rex::kernel::xam::QueryPerformanceCounter_entry(mapped_u64(&counter2, 0x40001010)) ==
+        1);
+  CHECK(static_cast<uint64_t>(counter2) >= static_cast<uint64_t>(counter1));
+  CHECK(rex::kernel::xam::QueryPerformanceCounter_entry(mapped_u64(nullptr)) == 0);
+}
 
 TEST_CASE("Background download item status reports no active offline item", "[kernel][xam]") {
   constexpr u32 kSuccess = 0;

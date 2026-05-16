@@ -9,11 +9,34 @@
  */
 
 #include <rex/kernel/xam/private.h>
+#include <rex/chrono/clock.h>
 #include <rex/logging.h>
 #include <rex/hook.h>
 #include <rex/system/xtypes.h>
 
 namespace rex::kernel::xam {
+
+u32 QueryPerformanceCounter_entry(mapped_u64 counter_ptr) {
+  if (!counter_ptr) {
+    return 0;
+  }
+
+  const u64 counter = chrono::Clock::QueryGuestTickCount();
+  *counter_ptr = counter;
+  REXKRNL_IMPORT_RESULT("QueryPerformanceCounter", "{} ticks", counter);
+  return 1;
+}
+
+u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr) {
+  if (!frequency_ptr) {
+    return 0;
+  }
+
+  const u64 frequency = chrono::Clock::guest_tick_frequency();
+  *frequency_ptr = frequency;
+  REXKRNL_IMPORT_RESULT("QueryPerformanceFrequency", "{} Hz", frequency);
+  return 1;
+}
 
 u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_void item_data,
                                              u32 flags, u32 item_count, mapped_u32 state_ptr,
@@ -174,8 +197,8 @@ REX_EXPORT_STUB(__imp__PIXAddCounter);
 REX_EXPORT_STUB(__imp__PIXBeginCapture);
 REX_EXPORT_STUB(__imp__PIXEndCapture);
 REX_EXPORT_STUB(__imp__PIXGetGPUSlot);
-REX_EXPORT_STUB(__imp__QueryPerformanceCounter);
-REX_EXPORT_STUB(__imp__QueryPerformanceFrequency);
+REX_EXPORT(__imp__QueryPerformanceCounter, rex::kernel::xam::QueryPerformanceCounter_entry)
+REX_EXPORT(__imp__QueryPerformanceFrequency, rex::kernel::xam::QueryPerformanceFrequency_entry)
 REX_EXPORT_STUB(__imp__RaiseException);
 REX_EXPORT_STUB(__imp__Refresh);
 REX_EXPORT_STUB(__imp__Refresh_);
