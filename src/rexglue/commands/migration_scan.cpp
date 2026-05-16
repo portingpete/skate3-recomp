@@ -87,6 +87,10 @@ bool IsPathTokenChar(char c) {
   return std::isalnum(uc) != 0 || c == '_' || c == '-' || c == '.' || c == '/' || c == '\\';
 }
 
+bool IsPathSeparator(char c) {
+  return c == '/' || c == '\\';
+}
+
 bool ReplaceAllPathTokens(std::string& haystack, std::string_view needle,
                           std::string_view replacement) {
   if (needle.empty())
@@ -94,9 +98,12 @@ bool ReplaceAllPathTokens(std::string& haystack, std::string_view needle,
   bool replaced = false;
   std::string::size_type pos = 0;
   while ((pos = haystack.find(needle, pos)) != std::string::npos) {
-    bool boundary_before = pos == 0 || !IsPathTokenChar(haystack[pos - 1]);
+    bool boundary_before =
+        pos == 0 || !IsPathTokenChar(haystack[pos - 1]) || IsPathSeparator(haystack[pos - 1]);
     bool boundary_after =
-        pos + needle.size() >= haystack.size() || !IsPathTokenChar(haystack[pos + needle.size()]);
+        pos + needle.size() >= haystack.size() ||
+        !IsPathTokenChar(haystack[pos + needle.size()]) ||
+        IsPathSeparator(haystack[pos + needle.size()]);
     if (!boundary_before || !boundary_after) {
       pos += needle.size();
       continue;
@@ -370,7 +377,7 @@ std::vector<OverwriteEntry> ScanSourceIncludeRewrites(const fs::path& project_ro
   std::string new_basename = names.snake_case + "_init.h";
   std::string new_basename_lc = ToLower(new_basename);
 
-  static const std::regex include_re(R"(^(\s*#\s*include\s*[<"])([^>"]+)([>"].*)$)");
+  static const std::regex include_re(R"(^(\s*#\s*include\s*[<"])([^>"]+)([>"][^\r\n]*\r?)$)");
   auto extract_target = [&](const std::string& line) -> std::optional<std::string> {
     std::smatch m;
     if (!std::regex_search(line, m, include_re))

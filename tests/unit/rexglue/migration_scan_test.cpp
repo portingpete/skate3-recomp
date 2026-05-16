@@ -30,13 +30,13 @@ struct TempProject {
   ~TempProject() { fs::remove_all(root); }
 
   void writeRexglueCmake(const std::string& content) const {
-    std::ofstream f(root / "generated" / "rexglue.cmake");
+    std::ofstream f(root / "generated" / "rexglue.cmake", std::ios::binary);
     f << content;
   }
 
   void writeFile(const fs::path& rel, const std::string& content) const {
     fs::create_directories((root / rel).parent_path());
-    std::ofstream f(root / rel);
+    std::ofstream f(root / rel, std::ios::binary);
     f << content;
   }
 };
@@ -222,6 +222,19 @@ TEST_CASE("MigrationScan: ScanSourceIncludeRewrites is case-insensitive on basen
   auto entries = rexglue::cli::ScanSourceIncludeRewrites(tp.root, "mygame");
   REQUIRE(entries.size() == 1u);
   CHECK(entries[0].rendered_content.find("mygame_init.h") != std::string::npos);
+}
+
+TEST_CASE("MigrationScan: ScanSourceIncludeRewrites handles CRLF include lines",
+          "[rexglue][migration_scan]") {
+  TempProject tp;
+  tp.writeFile("src/main.cpp",
+               "#include \"generated/mygame_config.h\"\r\n"
+               "int main() { return 0; }\r\n");
+
+  auto entries = rexglue::cli::ScanSourceIncludeRewrites(tp.root, "mygame");
+  REQUIRE(entries.size() == 1u);
+  CHECK(entries[0].rendered_content.find("#include \"generated/mygame_init.h\"\r\n") !=
+        std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
