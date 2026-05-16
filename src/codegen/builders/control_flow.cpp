@@ -13,8 +13,12 @@
 #include "helpers.h"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include <rex/logging.h>
+
+#include <string>
+#include <vector>
 
 #include "../codegen_logging.h"
 
@@ -100,6 +104,61 @@ bool build_blrl(BuilderContext& ctx) {
   ctx.println("\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr)); }}");
   ctx.csrState = CSRState::Unknown;
   return true;
+}
+
+namespace {
+
+bool emit_bclr_from_bo_bi(BuilderContext& ctx, uint32_t bo, uint32_t bi, bool link) {
+  if ((bo & 0x04) == 0) {
+    ctx.println("\t--{}.u64;", ctx.ctr());
+  }
+
+  std::vector<std::string> conditions;
+  if ((bo & 0x04) == 0) {
+    conditions.push_back(fmt::format("{}.u32 {} 0", ctx.ctr(), (bo & 0x02) ? "==" : "!="));
+  }
+  if ((bo & 0x10) == 0) {
+    auto cr_bit = fmt::format("{}.{}", ctx.cr(bi / 4), crBitName(bi));
+    conditions.push_back((bo & 0x08) ? cr_bit : fmt::format("!{}", cr_bit));
+  }
+
+  if (link) {
+    ctx.println("\t{{ auto old_lr = ctx.lr;");
+    if (!ctx.config().skipLr)
+      ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
+
+    if (conditions.empty()) {
+      ctx.println("\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr));");
+    } else {
+      ctx.println("\tif ({}) {{", fmt::join(conditions, " && "));
+      ctx.println("\t\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr));");
+      ctx.println("\t}}");
+    }
+
+    ctx.println("\t}}");
+    ctx.csrState = CSRState::Unknown;  // the call could change it
+    return true;
+  }
+
+  if (conditions.empty()) {
+    ctx.println("\treturn;");
+    return true;
+  }
+
+  ctx.println("\tif ({}) {{", fmt::join(conditions, " && "));
+  ctx.println("\t\treturn;");
+  ctx.println("\t}}");
+  return true;
+}
+
+}  // namespace
+
+bool build_bclr(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, ctx.insn.operands[0], ctx.insn.operands[1], false);
+}
+
+bool build_bclrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, ctx.insn.operands[0], ctx.insn.operands[1], true);
 }
 
 //=============================================================================
@@ -189,12 +248,140 @@ bool build_bctrl(BuilderContext& ctx) {
   return true;
 }
 
-bool build_bnectr(BuilderContext& ctx) {
-  ctx.println("\tif (!{}.eq) {{", ctx.cr(ctx.insn.operands[0]));
+namespace {
+
+bool emit_conditional_ctr(BuilderContext& ctx, bool invert, uint32_t crField, const char* bit,
+                          bool link) {
+  if (link && !ctx.config().skipLr)
+    ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
+  ctx.println("\tif ({}{}.{}) {{", invert ? "!" : "", ctx.cr(crField), bit);
   ctx.println("\t\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
-  ctx.println("\t\treturn;");
+  if (!link)
+    ctx.println("\t\treturn;");
   ctx.println("\t}}");
+  if (link)
+    ctx.csrState = CSRState::Unknown;  // the call could change it
   return true;
+}
+
+bool emit_conditional_ctr_cr(BuilderContext& ctx, bool invert, const char* bit, bool link) {
+  return emit_conditional_ctr(ctx, invert, ctx.insn.operands[0], bit, link);
+}
+
+bool emit_conditional_ctr_bi(BuilderContext& ctx, bool invert, bool link) {
+  const uint32_t bi = ctx.insn.operands[0];
+  return emit_conditional_ctr(ctx, invert, bi / 4, crBitName(bi), link);
+}
+
+bool emit_ctr_from_bo_bi(BuilderContext& ctx, bool link) {
+  const uint32_t bo = ctx.insn.operands[0];
+  const uint32_t bi = ctx.insn.operands[1];
+
+  // bcctr/bcctrl do not decrement or test CTR; BO only controls whether and
+  // how the CR bit is tested before branching to CTR.
+  if ((bo & 0x10) != 0) {
+    if (link && !ctx.config().skipLr)
+      ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
+    ctx.println("\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    if (!link)
+      ctx.println("\treturn;");
+    if (link)
+      ctx.csrState = CSRState::Unknown;  // the call could change it
+    return true;
+  }
+
+  const bool expect_true = (bo & 0x08) != 0;
+  return emit_conditional_ctr(ctx, !expect_true, bi / 4, crBitName(bi), link);
+}
+
+}  // namespace
+
+bool build_bltctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "lt", false);
+}
+
+bool build_bltctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "lt", true);
+}
+
+bool build_bgtctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "gt", false);
+}
+
+bool build_bgtctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "gt", true);
+}
+
+bool build_beqctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "eq", false);
+}
+
+bool build_beqctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "eq", true);
+}
+
+bool build_bsoctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "so", false);
+}
+
+bool build_bsoctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, false, "so", true);
+}
+
+bool build_bgectr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "lt", false);
+}
+
+bool build_bgectrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "lt", true);
+}
+
+bool build_blectr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "gt", false);
+}
+
+bool build_blectrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "gt", true);
+}
+
+bool build_bnectr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "eq", false);
+}
+
+bool build_bnectrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "eq", true);
+}
+
+bool build_bnsctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "so", false);
+}
+
+bool build_bnsctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_cr(ctx, true, "so", true);
+}
+
+bool build_btctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_bi(ctx, false, false);
+}
+
+bool build_btctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_bi(ctx, false, true);
+}
+
+bool build_bfctr(BuilderContext& ctx) {
+  return emit_conditional_ctr_bi(ctx, true, false);
+}
+
+bool build_bfctrl(BuilderContext& ctx) {
+  return emit_conditional_ctr_bi(ctx, true, true);
+}
+
+bool build_bcctr(BuilderContext& ctx) {
+  return emit_ctr_from_bo_bi(ctx, false);
+}
+
+bool build_bcctrl(BuilderContext& ctx) {
+  return emit_ctr_from_bo_bi(ctx, true);
 }
 
 //=============================================================================
@@ -218,6 +405,14 @@ bool build_bdnzlr(BuilderContext& ctx) {
   ctx.println("\t--{}.u64;", ctx.ctr());
   ctx.println("\tif ({}.u32 != 0) return;", ctx.ctr());
   return true;
+}
+
+bool build_bdnzflr(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0, ctx.insn.operands[0], false);
+}
+
+bool build_bdnzflrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0, ctx.insn.operands[0], true);
 }
 
 bool build_bdnz(BuilderContext& ctx) {
@@ -271,6 +466,10 @@ bool build_beqlr(BuilderContext& ctx) {
   return true;
 }
 
+bool build_beqlrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0] * 4 + 2, true);
+}
+
 bool build_bne(BuilderContext& ctx) {
   ctx.emit_conditional_branch(true, "eq");
   return true;
@@ -279,6 +478,10 @@ bool build_bne(BuilderContext& ctx) {
 bool build_bnelr(BuilderContext& ctx) {
   ctx.println("\tif (!{}.eq) return;", ctx.cr(ctx.insn.operands[0]));
   return true;
+}
+
+bool build_bnelrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0] * 4 + 2, true);
 }
 
 //=============================================================================
@@ -295,6 +498,10 @@ bool build_bltlr(BuilderContext& ctx) {
   return true;
 }
 
+bool build_bltlrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0] * 4, true);
+}
+
 bool build_bge(BuilderContext& ctx) {
   ctx.emit_conditional_branch(true, "lt");
   return true;
@@ -303,6 +510,10 @@ bool build_bge(BuilderContext& ctx) {
 bool build_bgelr(BuilderContext& ctx) {
   ctx.println("\tif (!{}.lt) return;", ctx.cr(ctx.insn.operands[0]));
   return true;
+}
+
+bool build_bgelrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0] * 4, true);
 }
 
 //=============================================================================
@@ -319,6 +530,10 @@ bool build_bgtlr(BuilderContext& ctx) {
   return true;
 }
 
+bool build_bgtlrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0] * 4 + 1, true);
+}
+
 bool build_ble(BuilderContext& ctx) {
   ctx.emit_conditional_branch(true, "gt");
   return true;
@@ -327,6 +542,10 @@ bool build_ble(BuilderContext& ctx) {
 bool build_blelr(BuilderContext& ctx) {
   ctx.println("\tif (!{}.gt) return;", ctx.cr(ctx.insn.operands[0]));
   return true;
+}
+
+bool build_blelrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0] * 4 + 1, true);
 }
 
 //=============================================================================
@@ -343,6 +562,10 @@ bool build_bsolr(BuilderContext& ctx) {
   return true;
 }
 
+bool build_bsolrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0] * 4 + 3, true);
+}
+
 bool build_bns(BuilderContext& ctx) {
   ctx.emit_conditional_branch(true, "so");
   return true;
@@ -351,6 +574,26 @@ bool build_bns(BuilderContext& ctx) {
 bool build_bnslr(BuilderContext& ctx) {
   ctx.println("\tif (!{}.so) return;", ctx.cr(ctx.insn.operands[0]));
   return true;
+}
+
+bool build_bnslrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0] * 4 + 3, true);
+}
+
+bool build_btlr(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0], false);
+}
+
+bool build_btlrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x0C, ctx.insn.operands[0], true);
+}
+
+bool build_bflr(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0], false);
+}
+
+bool build_bflrl(BuilderContext& ctx) {
+  return emit_bclr_from_bo_bi(ctx, 0x04, ctx.insn.operands[0], true);
 }
 
 }  // namespace rex::codegen

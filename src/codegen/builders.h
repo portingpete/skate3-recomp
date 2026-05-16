@@ -165,16 +165,41 @@ bool build_b(BuilderContext& ctx);
 bool build_bl(BuilderContext& ctx);
 bool build_blr(BuilderContext& ctx);
 bool build_blrl(BuilderContext& ctx);
+bool build_bclr(BuilderContext& ctx);
+bool build_bclrl(BuilderContext& ctx);
 
 // Count register branch
 bool build_bctr(BuilderContext& ctx);
 bool build_bctrl(BuilderContext& ctx);
+bool build_bltctr(BuilderContext& ctx);
+bool build_bltctrl(BuilderContext& ctx);
+bool build_bgtctr(BuilderContext& ctx);
+bool build_bgtctrl(BuilderContext& ctx);
+bool build_beqctr(BuilderContext& ctx);
+bool build_beqctrl(BuilderContext& ctx);
+bool build_bsoctr(BuilderContext& ctx);
+bool build_bsoctrl(BuilderContext& ctx);
+bool build_bgectr(BuilderContext& ctx);
+bool build_bgectrl(BuilderContext& ctx);
+bool build_blectr(BuilderContext& ctx);
+bool build_blectrl(BuilderContext& ctx);
 bool build_bnectr(BuilderContext& ctx);
+bool build_bnectrl(BuilderContext& ctx);
+bool build_bnsctr(BuilderContext& ctx);
+bool build_bnsctrl(BuilderContext& ctx);
+bool build_btctr(BuilderContext& ctx);
+bool build_btctrl(BuilderContext& ctx);
+bool build_bfctr(BuilderContext& ctx);
+bool build_bfctrl(BuilderContext& ctx);
+bool build_bcctr(BuilderContext& ctx);
+bool build_bcctrl(BuilderContext& ctx);
 
 // Decrement counter and branch
 bool build_bdz(BuilderContext& ctx);
 bool build_bdzf(BuilderContext& ctx);
 bool build_bdzlr(BuilderContext& ctx);
+bool build_bdnzflr(BuilderContext& ctx);
+bool build_bdnzflrl(BuilderContext& ctx);
 bool build_bdnz(BuilderContext& ctx);
 bool build_bdnzf(BuilderContext& ctx);
 bool build_bdnzlr(BuilderContext& ctx);
@@ -183,26 +208,40 @@ bool build_bdnzt(BuilderContext& ctx);
 // Conditional branch (eq)
 bool build_beq(BuilderContext& ctx);
 bool build_beqlr(BuilderContext& ctx);
+bool build_beqlrl(BuilderContext& ctx);
 bool build_bne(BuilderContext& ctx);
 bool build_bnelr(BuilderContext& ctx);
+bool build_bnelrl(BuilderContext& ctx);
 
 // Conditional branch (lt)
 bool build_blt(BuilderContext& ctx);
 bool build_bltlr(BuilderContext& ctx);
+bool build_bltlrl(BuilderContext& ctx);
 bool build_bge(BuilderContext& ctx);
 bool build_bgelr(BuilderContext& ctx);
+bool build_bgelrl(BuilderContext& ctx);
 
 // Conditional branch (gt)
 bool build_bgt(BuilderContext& ctx);
 bool build_bgtlr(BuilderContext& ctx);
+bool build_bgtlrl(BuilderContext& ctx);
 bool build_ble(BuilderContext& ctx);
 bool build_blelr(BuilderContext& ctx);
+bool build_blelrl(BuilderContext& ctx);
 
 // Conditional branch (so - summary overflow / unordered)
 bool build_bso(BuilderContext& ctx);
 bool build_bsolr(BuilderContext& ctx);
+bool build_bsolrl(BuilderContext& ctx);
 bool build_bns(BuilderContext& ctx);
 bool build_bnslr(BuilderContext& ctx);
+bool build_bnslrl(BuilderContext& ctx);
+
+// Conditional branch to LR bit-test forms
+bool build_btlr(BuilderContext& ctx);
+bool build_btlrl(BuilderContext& ctx);
+bool build_bflr(BuilderContext& ctx);
+bool build_bflrl(BuilderContext& ctx);
 
 //=============================================================================
 // Floating Point Builders

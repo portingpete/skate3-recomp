@@ -57,7 +57,8 @@ bool Instruction::is_return() const {
 }
 
 bool Instruction::is_indirect_branch() const {
-  return opcode == Opcode::bclr || opcode == Opcode::bcctr;
+  return opcode == Opcode::bclr || opcode == Opcode::bclrl || opcode == Opcode::bcctr ||
+         opcode == Opcode::bcctrl;
 }
 
 bool Instruction::is_record_form() const {

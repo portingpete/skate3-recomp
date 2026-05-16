@@ -70,6 +70,130 @@ TEST_CASE("FunctionNode emit keeps edge-less entry targets local when owned by t
   CHECK(cpp.find("Unresolved call from 0x00001000 to 0x00001020") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
+          "[codegen][FunctionNode]") {
+  // 0x4C820421 = bnectrl cr0. The call is conditional and must preserve
+  // fall-through when CR0 EQ is set.
+  constexpr std::array<uint8_t, 8> kConditionalCtrLink = {
+      0x4C, 0x82, 0x04, 0x21,  // bnectrl cr0
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kConditionalCtrLink);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  CHECK(cpp.find("if (!ctx.cr0.eq) {") != std::string::npos);
+  CHECK(cpp.find("ctx.lr = 0x1004;") != std::string::npos);
+  RequireTokenOrder(cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
+  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(cpp.find("UNIMPLEMENTED") == std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit handles raw branch-to-register BO/BI forms",
+          "[codegen][FunctionNode]") {
+  auto emit = [](std::array<uint8_t, 8> bytes) {
+    auto binary = MakeBinaryView(0x1000, bytes);
+    rex::codegen::RecompilerConfig config;
+    rex::codegen::FunctionGraph graph;
+    rex::codegen::FunctionNode node(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG);
+    node.discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+    node.seal();
+
+    rex::codegen::EmitContext ctx{
+        .binary = binary,
+        .config = config,
+        .graph = graph,
+        .entryPoint = 0,
+        .resolver = nullptr,
+    };
+
+    return node.emitCpp(ctx);
+  };
+
+  constexpr std::array<uint8_t, 8> kRawConditionalCtrLink = {
+      0x4C, 0x02, 0x04, 0x21,  // bcctrl 0,2,0
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+  const std::string ctr_link_cpp = emit(kRawConditionalCtrLink);
+  CHECK(ctr_link_cpp.find("if (!ctx.cr0.eq) {") != std::string::npos);
+  CHECK(ctr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
+  RequireTokenOrder(ctr_link_cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
+  CHECK(ctr_link_cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(ctr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
+
+  constexpr std::array<uint8_t, 8> kRawConditionalLrLink = {
+      0x4C, 0x02, 0x00, 0x21,  // bclrl 0,2,0
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+  const std::string lr_link_cpp = emit(kRawConditionalLrLink);
+  CHECK(lr_link_cpp.find("--ctx.ctr.u64;") != std::string::npos);
+  CHECK(lr_link_cpp.find("ctx.ctr.u32 != 0 && !ctx.cr0.eq") != std::string::npos);
+  CHECK(lr_link_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
+  CHECK(lr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
+  RequireTokenOrder(lr_link_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
+  CHECK(lr_link_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(lr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
+          "[codegen][FunctionNode]") {
+  auto emit = [](std::array<uint8_t, 8> bytes) {
+    auto binary = MakeBinaryView(0x1000, bytes);
+    rex::codegen::RecompilerConfig config;
+    rex::codegen::FunctionGraph graph;
+    rex::codegen::FunctionNode node(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG);
+    node.discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+    node.seal();
+
+    rex::codegen::EmitContext ctx{
+        .binary = binary,
+        .config = config,
+        .graph = graph,
+        .entryPoint = 0,
+        .resolver = nullptr,
+    };
+
+    return node.emitCpp(ctx);
+  };
+
+  constexpr std::array<uint8_t, 8> kNeLrLink = {
+      0x4C, 0x82, 0x00, 0x21,  // bnelrl cr0
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+  const std::string ne_cpp = emit(kNeLrLink);
+  CHECK(ne_cpp.find("if (!ctx.cr0.eq) {") != std::string::npos);
+  CHECK(ne_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
+  CHECK(ne_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
+  RequireTokenOrder(ne_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
+  CHECK(ne_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(ne_cpp.find("UNIMPLEMENTED") == std::string::npos);
+
+  constexpr std::array<uint8_t, 8> kEqLrLink = {
+      0x4D, 0x82, 0x00, 0x21,  // beqlrl cr0
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+  const std::string eq_cpp = emit(kEqLrLink);
+  CHECK(eq_cpp.find("if (ctx.cr0.eq) {") != std::string::npos);
+  CHECK(eq_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
+  CHECK(eq_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
+  RequireTokenOrder(eq_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
+  CHECK(eq_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(eq_cpp.find("UNIMPLEMENTED") == std::string::npos);
+}
+
 TEST_CASE("FunctionNode SEH catch uses captured establisher frame",
           "[codegen][FunctionNode][SEH]") {
   constexpr std::array<uint8_t, 12> kFrameSetupAndReturn = {
