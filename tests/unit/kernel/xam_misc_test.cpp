@@ -10,6 +10,7 @@ u32 KeQueryPerformanceFrequency_entry();
 namespace rex::kernel::xam {
 u32 QueryPerformanceCounter_entry(mapped_u64 counter_ptr);
 u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr);
+u32 Refresh_entry(mapped_void refresh_context, u32 refresh_flags, u32 refresh_arg);
 u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_void item_data,
                                              u32 flags, u32 item_count, mapped_u32 state_ptr,
                                              mapped_u32 progress_ptr,
@@ -35,6 +36,14 @@ TEST_CASE("XAM performance queries mirror the guest clock", "[kernel][xam]") {
         1);
   CHECK(static_cast<uint64_t>(counter2) >= static_cast<uint64_t>(counter1));
   CHECK(rex::kernel::xam::QueryPerformanceCounter_entry(mapped_u64(nullptr)) == 0);
+}
+
+TEST_CASE("Refresh is a deterministic offline no-op success", "[kernel][xam]") {
+  constexpr u32 kSuccess = 0;
+
+  CHECK(rex::kernel::xam::Refresh_entry(mapped_void(nullptr), 0, 0) == kSuccess);
+  CHECK(rex::kernel::xam::Refresh_entry(mapped_void(nullptr, 0x40001000), 0x1234,
+                                        0x80000000) == kSuccess);
 }
 
 TEST_CASE("Background download item status reports no active offline item", "[kernel][xam]") {

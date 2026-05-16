@@ -38,6 +38,13 @@ u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr) {
   return 1;
 }
 
+u32 Refresh_entry(mapped_void refresh_context, u32 refresh_flags, u32 refresh_arg) {
+  REXKRNL_IMPORT_RESULT("Refresh", "{:#x} context={:#x} flags={:#x} arg={:#x}",
+                        X_ERROR_SUCCESS, refresh_context.guest_address(), refresh_flags,
+                        refresh_arg);
+  return X_ERROR_SUCCESS;
+}
+
 u32 XamBackgroundDownloadItemGetStatus_entry(mapped_void content_data, mapped_void item_data,
                                              u32 flags, u32 item_count, mapped_u32 state_ptr,
                                              mapped_u32 progress_ptr,
@@ -200,7 +207,7 @@ REX_EXPORT_STUB(__imp__PIXGetGPUSlot);
 REX_EXPORT(__imp__QueryPerformanceCounter, rex::kernel::xam::QueryPerformanceCounter_entry)
 REX_EXPORT(__imp__QueryPerformanceFrequency, rex::kernel::xam::QueryPerformanceFrequency_entry)
 REX_EXPORT_STUB(__imp__RaiseException);
-REX_EXPORT_STUB(__imp__Refresh);
+REX_EXPORT(__imp__Refresh, rex::kernel::xam::Refresh_entry)
 REX_EXPORT_STUB(__imp__Refresh_);
 REX_EXPORT_STUB(__imp__Refresh_0);
 REX_EXPORT_STUB(__imp__Refresh_1);
