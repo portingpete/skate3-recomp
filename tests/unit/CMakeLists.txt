@@ -4,6 +4,7 @@ add_executable(unit_tests
     audio/audio_system_test.cpp
     memory/heap_allocation_test.cpp
     kernel/object_table_test.cpp
+    kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp
     core/cvar_test.cpp
     core/fiber_test.cpp
@@ -84,6 +85,7 @@ catch_discover_tests(unit_tests
 
 add_executable(runtime_unit_tests
     kernel/rtl_raise_exception_test.cpp
+    kernel/xboxkrnl_ob_runtime_test.cpp
 )
 
 target_include_directories(runtime_unit_tests PRIVATE
