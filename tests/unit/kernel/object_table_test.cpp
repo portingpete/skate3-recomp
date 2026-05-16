@@ -372,6 +372,21 @@ TEST_CASE("ObjectTable ReleaseHandle on invalid handle returns error", "[kernel]
   CHECK(status == X_STATUS_INVALID_HANDLE);
 }
 
+TEST_CASE("ObjectTable ReleaseHandle rejects stale removed handles", "[kernel][object_table]") {
+  InitTestLogging();
+
+  ObjectTable table;
+  auto* obj = new TestObject();
+  object_ref<TestObject> owner(obj);
+
+  X_HANDLE handle = 0;
+  REQUIRE(table.AddHandle(obj, &handle) == X_STATUS_SUCCESS);
+
+  CHECK(table.ReleaseHandle(handle) == X_STATUS_SUCCESS);
+  CHECK(table.ReleaseHandle(handle) == X_STATUS_INVALID_HANDLE);
+  CHECK(table.RetainHandle(handle) == X_STATUS_INVALID_HANDLE);
+}
+
 TEST_CASE("ObjectTable DuplicateHandle creates new handle for same object",
           "[kernel][object_table]") {
   InitTestLogging();

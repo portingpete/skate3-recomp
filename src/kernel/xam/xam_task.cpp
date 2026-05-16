@@ -11,12 +11,14 @@
 
 #include <rex/kernel/xam/module.h>
 #include <rex/kernel/xam/private.h>
+#include <rex/kernel/xboxkrnl/error.h>
 #include <rex/logging.h>
 #include <rex/hook.h>
 #include <rex/types.h>
 #include <rex/string.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/function_dispatcher.h>
+#include <rex/system/util/object_table.h>
 #include <rex/system/user_module.h>
 #include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
@@ -47,7 +49,8 @@ static_assert_size(XTASK_MESSAGE, 0x1C);
 u32 XamTaskSchedule_entry(mapped_void callback, ppc_ptr_t<XTASK_MESSAGE> message,
                           mapped_u32 unknown, mapped_u32 handle_ptr) {
   // TODO(gibbed): figure out what this is for
-  *handle_ptr = 12345;
+  (void)unknown;
+  *handle_ptr = 0;
 
   uint32_t stack_size = REX_KERNEL_STATE()->GetExecutableModule()->stack_size();
 
@@ -56,7 +59,8 @@ u32 XamTaskSchedule_entry(mapped_void callback, ppc_ptr_t<XTASK_MESSAGE> message
 
   auto thread =
       object_ref<XThread>(new XThread(REX_KERNEL_STATE(), stack_size, 0, callback.guest_address(),
-                                      message.guest_address(), 0, true));
+                                      message.guest_address(), 0, true, false,
+                                      REX_KERNEL_STATE()->GetSystemProcess()));
 
   X_STATUS result = thread->Create();
 
@@ -66,18 +70,38 @@ u32 XamTaskSchedule_entry(mapped_void callback, ppc_ptr_t<XTASK_MESSAGE> message
     return result;
   }
 
+  *handle_ptr = thread->handle();
   REXKRNL_DEBUG("XAM task ({:08X}) scheduled asynchronously", callback.guest_address());
 
   return X_STATUS_SUCCESS;
 }
 
 u32 XamTaskShouldExit_entry(u32 r3) {
+  (void)r3;
   return 0;
 }
 
+u32 XamTaskCloseHandleForObjectTable(util::ObjectTable* object_table, u32 handle) {
+  if (!object_table) {
+    return 0;
+  }
+
+  X_STATUS result = object_table->ReleaseHandle(static_cast<uint32_t>(handle));
+  if (XFAILED(result)) {
+    if (XThread::IsInThread()) {
+      XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(result));
+    }
+    return 0;
+  }
+
+  return 1;
+}
+
 u32 XamTaskCloseHandle_entry(u32 handle) {
-  REXKRNL_DEBUG("XamTaskCloseHandle({:#x}) - stub", (uint32_t)handle);
-  return X_STATUS_SUCCESS;
+  REXKRNL_IMPORT_TRACE("XamTaskCloseHandle", "handle={:#x}", static_cast<uint32_t>(handle));
+  u32 result = XamTaskCloseHandleForObjectTable(REX_KERNEL_OBJECTS(), handle);
+  REXKRNL_IMPORT_RESULT("XamTaskCloseHandle", "{}", static_cast<uint32_t>(result));
+  return result;
 }
 
 }  // namespace xam

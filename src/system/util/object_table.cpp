@@ -149,7 +149,7 @@ X_STATUS ObjectTable::RetainHandle(X_HANDLE handle) {
   auto global_lock = global_critical_region_.Acquire();
 
   ObjectTableEntry* entry = LookupTable(handle);
-  if (!entry) {
+  if (!entry || !entry->object || entry->handle_ref_count <= 0) {
     return X_STATUS_INVALID_HANDLE;
   }
 
@@ -161,7 +161,7 @@ X_STATUS ObjectTable::ReleaseHandle(X_HANDLE handle) {
   auto global_lock = global_critical_region_.Acquire();
 
   ObjectTableEntry* entry = LookupTable(handle);
-  if (!entry) {
+  if (!entry || !entry->object || entry->handle_ref_count <= 0) {
     return X_STATUS_INVALID_HANDLE;
   }
 
@@ -176,40 +176,36 @@ X_STATUS ObjectTable::ReleaseHandle(X_HANDLE handle) {
 }
 
 X_STATUS ObjectTable::RemoveHandle(X_HANDLE handle) {
-  X_STATUS result = X_STATUS_SUCCESS;
-
   handle = TranslateHandle(handle);
   if (!handle) {
     return X_STATUS_INVALID_HANDLE;
   }
 
   ObjectTableEntry* entry = LookupTable(handle);
-  if (!entry) {
+  if (!entry || !entry->object) {
     return X_STATUS_INVALID_HANDLE;
   }
 
   auto global_lock = global_critical_region_.Acquire();
-  if (entry->object) {
-    auto object = entry->object;
-    entry->object = nullptr;
-    assert_zero(entry->handle_ref_count);
-    entry->handle_ref_count = 0;
+  auto object = entry->object;
+  entry->object = nullptr;
+  assert_zero(entry->handle_ref_count);
+  entry->handle_ref_count = 0;
 
-    // Walk the object's handles and remove this one.
-    auto handle_entry = std::find(object->handles().begin(), object->handles().end(), handle);
-    if (handle_entry != object->handles().end()) {
-      object->handles().erase(handle_entry);
-    }
-
-    REXSYS_NOISY_DEBUG("Removed handle:{:08X} for {}", handle, typeid(*object).name());
-
-    // Remove object name from mapping to prevent naming collision.
-    if (!object->name().empty()) {
-      RemoveNameMapping(object->name());
-    }
-    // Release now that the object has been removed from the table.
-    object->Release();
+  // Walk the object's handles and remove this one.
+  auto handle_entry = std::find(object->handles().begin(), object->handles().end(), handle);
+  if (handle_entry != object->handles().end()) {
+    object->handles().erase(handle_entry);
   }
+
+  REXSYS_NOISY_DEBUG("Removed handle:{:08X} for {}", handle, typeid(*object).name());
+
+  // Remove object name from mapping to prevent naming collision.
+  if (!object->name().empty()) {
+    RemoveNameMapping(object->name());
+  }
+  // Release now that the object has been removed from the table.
+  object->Release();
 
   return X_STATUS_SUCCESS;
 }
