@@ -9,6 +9,10 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstring>
+
+#include <fmt/format.h>
+
 #include <rex/cvar.h>
 #include <rex/kernel/xam/private.h>
 #include <rex/logging.h>
@@ -17,6 +21,7 @@
 #include <rex/types.h>
 #include <rex/string.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/user_module.h>
 #include <rex/system/xam/content_device.h>
 #include <rex/system/xenumerator.h>
 #include <rex/system/xtypes.h>
@@ -44,16 +49,73 @@ u32 XamContentGetLicenseMask_entry(mapped_u32 mask_ptr, mapped_void overlapped_p
   }
 }
 
+std::string BuildXamContentResolvePath(const XCONTENT_DATA& content_data, uint64_t xuid,
+                                       uint32_t title_id) {
+  const uint32_t device_id = static_cast<uint32_t>(content_data.device_id);
+  const XContentType content_type_value = content_data.content_type;
+  const uint32_t content_type = static_cast<uint32_t>(content_type_value);
+  const std::string file_name = content_data.file_name();
+
+  if (device_id == static_cast<uint32_t>(DummyDeviceId::ODD)) {
+    return fmt::format("game:\\Content\\0000000000000000\\{:08X}\\{:08X}\\{}", title_id,
+                       content_type, file_name);
+  }
+
+  uint64_t resolved_xuid = xuid;
+  if (content_data.content_type == XContentType::kMarketplaceContent) {
+    resolved_xuid = 0;
+  }
+  return fmt::format("content:\\{:016X}\\{:08X}\\{:08X}\\{}", resolved_xuid, title_id,
+                     content_type, file_name);
+}
+
 u32 XamContentResolve_entry(u32 user_index, mapped_void content_data_ptr, mapped_void buffer_ptr,
                             u32 buffer_size, u32 unk1, u32 unk2, u32 unk3) {
-  auto content_data = content_data_ptr.as<XCONTENT_DATA*>();
+  (void)user_index;
+  (void)unk1;
+  (void)unk2;
+  (void)unk3;
 
-  // Result of buffer_ptr is sent to RtlInitAnsiString.
-  // buffer_size is usually 260 (max path).
-  // Games expect zero if resolve was successful.
-  assert_always();
-  REXKRNL_WARN("XamContentResolve unimplemented!");
-  return X_ERROR_NOT_FOUND;
+  if (!content_data_ptr || !buffer_ptr) {
+    REXKRNL_IMPORT_RESULT("XamContentResolve", "invalid parameter");
+    return X_ERROR_INVALID_PARAMETER;
+  }
+  if (buffer_size == 0) {
+    REXKRNL_IMPORT_RESULT("XamContentResolve", "insufficient buffer");
+    return X_ERROR_INSUFFICIENT_BUFFER;
+  }
+
+  const XCONTENT_DATA& content_data = *content_data_ptr.as<XCONTENT_DATA*>();
+  const uint32_t device_id = static_cast<uint32_t>(content_data.device_id);
+  if (device_id != 0 && GetDummyDeviceInfo(device_id) == nullptr) {
+    REXKRNL_IMPORT_RESULT("XamContentResolve", "device {:#x} not connected", device_id);
+    return X_ERROR_DEVICE_NOT_CONNECTED;
+  }
+
+  auto* kernel_state = system::kernel_state();
+  if (!kernel_state) {
+    REXKRNL_IMPORT_RESULT("XamContentResolve", "no kernel state");
+    return X_ERROR_INVALID_PARAMETER;
+  }
+
+  uint32_t title_id = 0;
+  auto executable_module = kernel_state->GetExecutableModule();
+  if (executable_module) {
+    title_id = executable_module->title_id();
+  }
+
+  const std::string resolved_path =
+      BuildXamContentResolvePath(content_data, kernel_state->user_profile()->xuid(), title_id);
+  if (resolved_path.size() + 1 > static_cast<size_t>(buffer_size)) {
+    REXKRNL_IMPORT_RESULT("XamContentResolve", "{} needs {} bytes", resolved_path,
+                          resolved_path.size() + 1);
+    return X_ERROR_INSUFFICIENT_BUFFER;
+  }
+
+  std::memcpy(static_cast<char*>(buffer_ptr.host_address()), resolved_path.c_str(),
+              resolved_path.size() + 1);
+  REXKRNL_IMPORT_RESULT("XamContentResolve", "{}", resolved_path);
+  return X_ERROR_SUCCESS;
 }
 
 // https://github.com/MrColdbird/gameservice/blob/master/ContentManager.cpp
