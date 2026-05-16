@@ -185,6 +185,39 @@ TEST_CASE("Discover does not promote interior-only raw rdata label tables",
   CHECK_FALSE(ctx.graph.isEntryPoint(0x100C));
 }
 
+TEST_CASE("Discover follows fall-through after conditional bcctr",
+          "[codegen][Discover][ControlFlow]") {
+  constexpr std::array<uint8_t, 28> kConditionalCtrBranch = {
+      0x3C, 0x80, 0x83, 0x09,  // 0x1000: lis r4,0x8309
+      0x80, 0x04, 0x2C, 0xC0,  // 0x1004: lwz r0,0x2CC0(r4)
+      0x2C, 0x00, 0x00, 0x00,  // 0x1008: cmpwi r0,0
+      0x7C, 0x09, 0x03, 0xA6,  // 0x100C: mtctr r0
+      0x4C, 0x82, 0x04, 0x20,  // 0x1010: bnectr
+      0x7C, 0x08, 0x02, 0xA6,  // 0x1014: mflr r0
+      0x4E, 0x80, 0x00, 0x20,  // 0x1018: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kConditionalCtrBranch);
+  rex::codegen::RecompilerConfig config;
+  auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
+  ctx.initDecoded();
+
+  ctx.scan.codeRegions.push_back({0x1000, 0x101C});
+  ctx.scan.pdataSizes[0x1000] = 0x1C;
+  ctx.graph.addFunction(0x1000, 0x1C, rex::codegen::FunctionAuthority::PDATA, true);
+
+  auto result = rex::codegen::phases::Discover(ctx);
+  REQUIRE(result.has_value());
+
+  const auto* node = ctx.graph.getFunction(0x1000);
+  REQUIRE(node != nullptr);
+  REQUIRE(node->instructions().size() == 7);
+  REQUIRE(node->blocks().size() == 2);
+  CHECK(node->blocks()[1].base == 0x1014);
+  CHECK(node->isLabel(0x1014));
+  CHECK(node->containsAddress(0x1014));
+}
+
 TEST_CASE("GapFill returned-pointer thunks register alternate entries inside known functions",
           "[codegen][GapFill][FunctionPointer]") {
   constexpr std::array<uint8_t, 44> kGapFilledReturnedCodePointerThunk = {

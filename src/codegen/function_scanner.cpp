@@ -463,8 +463,9 @@ static bool is_function_boundary(u32 code, const Instruction& instr, guest_addr_
     return true;
   }
 
-  // bctr/bctrl - indirect branch/call via CTR
-  if (instr.opcode == Opcode::bcctr || instr.opcode == Opcode::bcctrl) {
+  // bctr/bctrl - unconditional indirect branch/call via CTR
+  if ((instr.opcode == Opcode::bcctr || instr.opcode == Opcode::bcctrl) &&
+      !instr.is_conditional()) {
     REXCODEGEN_TRACE("  [0x{:08X}] Hit bctr/bctrl - function boundary", addr);
     return true;
   }
@@ -971,7 +972,25 @@ FunctionBlocks FunctionScanner::discover_blocks(rex::guest_addr_t entry_point,
       continue;
     }
 
-    // Check for bctr (indirect branch)
+    // Check for conditional bcctr (indirect branch with a fall-through path)
+    if (instr.opcode == Opcode::bcctr && instr.is_conditional()) {
+      guest_addr_t fall_through = addr + 4;
+      block.successors.push_back(fall_through);
+      block.has_terminator = true;
+      result.blocks.push_back(block);
+      block_stack.pop_back();
+
+      if (!scannedAddrs.count(fall_through)) {
+        DiscoveredBlock ft_block;
+        ft_block.base = fall_through;
+        ft_block.end = fall_through;
+        ft_block.projectedSize = -1;
+        block_stack.push_back(ft_block);
+      }
+      continue;
+    }
+
+    // Check for bctr (unconditional indirect branch)
     if (instr.opcode == Opcode::bcctr) {
       auto jt_info = detect_jump_table(addr);
       if (jt_info.has_value()) {
@@ -1256,7 +1275,7 @@ bool isBlockTerminator(const DecodedInsn& insn, uint32_t addr, const CodeRegion&
   // bcctr (indirect branch via CTR)
   if (insn.opcode == Opcode::bcctr || insn.opcode == Opcode::bcctrl) {
     // bcctrl is call, bcctr is terminator
-    return insn.opcode == Opcode::bcctr;
+    return insn.opcode == Opcode::bcctr && !isConditional(insn);
   }
 
   // Unconditional branch
@@ -1896,6 +1915,20 @@ BlockDiscoveryResult discoverBlocks(DecodedBinary& decoded, uint32_t entryPoint,
           // Calls don't terminate block, fall through
         } else if (isReturn(*insn)) {
           // blr - end of function path
+          block.size = addr - blockStart + 4;
+          break;
+        } else if (insn->opcode == rex::codegen::ppc::Opcode::bcctr &&
+                   isConditional(*insn)) {
+          // Conditional bcctr branches through CTR only on the taken path; the not-taken path
+          // falls through into the next basic block.
+          uint32_t fallthrough = addr + 4;
+          if (isWithinFunction(fallthrough)) {
+            result.labels.insert(fallthrough);
+            if (!visited.contains(fallthrough) && !blockStarts.contains(fallthrough)) {
+              blockStarts.insert(fallthrough);
+              worklist.push(fallthrough);
+            }
+          }
           block.size = addr - blockStart + 4;
           break;
         } else if (insn->opcode == rex::codegen::ppc::Opcode::bcctr) {
