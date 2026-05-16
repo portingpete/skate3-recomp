@@ -102,6 +102,24 @@ u32 RtlLowerChar_entry(u32 in) {
   return c;
 }
 
+u32 RtlUpcaseUnicodeChar_entry(u32 in) {
+  uint32_t c = in & 0xFFFFu;
+  if (c >= u'a' && c <= u'z') {
+    return c ^ 0x20u;
+  }
+
+  return c;
+}
+
+u32 RtlDowncaseUnicodeChar_entry(u32 in) {
+  uint32_t c = in & 0xFFFFu;
+  if (c >= u'A' && c <= u'Z') {
+    return c ^ 0x20u;
+  }
+
+  return c;
+}
+
 u32 RtlCompareString_entry(mapped_string string_1, mapped_string string_2, u32 case_insensitive) {
   int ret = case_insensitive ? rex::string::compare_case(string_1, string_2)
                              : std::strcmp(string_1, string_2);
@@ -577,7 +595,6 @@ REX_EXPORT_STUB(__imp__RtlCompareUnicodeString);
 REX_EXPORT_STUB(__imp__RtlCompareUnicodeStringN);
 REX_EXPORT_STUB(__imp__RtlCompareUtf8ToUnicode);
 REX_EXPORT_STUB(__imp__RtlCreateUnicodeString);
-REX_EXPORT_STUB(__imp__RtlDowncaseUnicodeChar);
 REX_EXPORT_STUB(__imp__RtlGetCallersAddress);
 REX_EXPORT_STUB(__imp__RtlGetStackLimits);
 REX_EXPORT_STUB(__imp__RtlLookupFunctionEntry);
@@ -586,7 +603,6 @@ REX_EXPORT_STUB(__imp__RtlUnicodeToMultiByteSize);
 REX_EXPORT_STUB(__imp__RtlUnicodeToUtf8);
 REX_EXPORT_STUB(__imp__RtlUnicodeToUtf8Size);
 REX_EXPORT_STUB(__imp__RtlUnwind2);
-REX_EXPORT_STUB(__imp__RtlUpcaseUnicodeChar);
 REX_EXPORT_STUB(__imp__RtlVirtualUnwind);
 REX_EXPORT_STUB(__imp__RtlImageDirectoryEntryToData);
 REX_EXPORT_STUB(__imp__RtlCaptureStackBackTrace);
@@ -600,6 +616,8 @@ REX_EXPORT(__imp__RtlCompareMemoryUlong, rex::kernel::xboxkrnl::RtlCompareMemory
 REX_EXPORT(__imp__RtlFillMemoryUlong, rex::kernel::xboxkrnl::RtlFillMemoryUlong_entry)
 REX_EXPORT(__imp__RtlUpperChar, rex::kernel::xboxkrnl::RtlUpperChar_entry)
 REX_EXPORT(__imp__RtlLowerChar, rex::kernel::xboxkrnl::RtlLowerChar_entry)
+REX_EXPORT(__imp__RtlUpcaseUnicodeChar, rex::kernel::xboxkrnl::RtlUpcaseUnicodeChar_entry)
+REX_EXPORT(__imp__RtlDowncaseUnicodeChar, rex::kernel::xboxkrnl::RtlDowncaseUnicodeChar_entry)
 REX_EXPORT(__imp__RtlCompareString, rex::kernel::xboxkrnl::RtlCompareString_entry)
 REX_EXPORT(__imp__RtlCompareStringN, rex::kernel::xboxkrnl::RtlCompareStringN_entry)
 REX_EXPORT(__imp__RtlInitAnsiString, rex::kernel::xboxkrnl::RtlInitAnsiString_entry)
