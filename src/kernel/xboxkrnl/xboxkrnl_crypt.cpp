@@ -13,6 +13,7 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #include <algorithm>
+#include <array>
 
 #include <rex/kernel/xboxkrnl/private.h>
 #include <rex/logging.h>
@@ -326,6 +327,16 @@ u32 XeCryptBnDwLePkcs1Verify_entry(mapped_void hash, mapped_void sig, u32 size) 
   return 1;
 }
 
+u32 XeCryptBnQwBeSigVerify_entry(mapped_void signature, mapped_void hash, mapped_void salt,
+                                 mapped_void rsa) {
+  (void)hash;
+  (void)salt;
+  (void)rsa;
+
+  REXKRNL_DEBUG("XeCryptBnQwBeSigVerify - accepting non-null signature");
+  return signature ? 1 : 0;
+}
+
 void XeCryptRandom_entry(mapped_void buf, u32 buf_size) {
   std::memset(buf, 0xFD, buf_size);
 }
@@ -558,6 +569,17 @@ void XeCryptHmacSha_entry(mapped_void key, u32 key_size_in, mapped_void inp_1, u
   std::memcpy(out, digest, std::min((uint32_t)out_size, 0x14u));
 }
 
+void XeCryptRotSumSha_entry(mapped_void input_1, u32 input_1_size, mapped_void input_2,
+                            u32 input_2_size, mapped_void output, u32 output_size) {
+  if (!output || !output_size) {
+    return;
+  }
+
+  REXKRNL_DEBUG("XeCryptRotSumSha - using SHA-1 compatibility digest");
+  XeCryptSha_entry(input_1, input_1_size, input_2, input_2_size, mapped_void(nullptr), 0, output,
+                   output_size);
+}
+
 // Keys
 // TODO: Array of keys we need
 
@@ -617,6 +639,20 @@ u32 XeKeysObscureKey_entry(mapped_void input, mapped_void output) {
   return X_STATUS_SUCCESS;
 }
 
+u32 XeKeysGetKey_entry(u32 key_num, mapped_void key, mapped_u32 key_size) {
+  (void)key_num;
+
+  if (!key || !key_size) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  const uint32_t size = key_size.value();
+  std::memset(key, 0, size);
+
+  REXKRNL_DEBUG("XeKeysGetKey - returning deterministic zero key");
+  return X_STATUS_SUCCESS;
+}
+
 u32 XeKeysHmacShaUsingKey_entry(mapped_void obscured_key, mapped_void inp_1, u32 inp_1_size,
                                 mapped_void inp_2, u32 inp_2_size, mapped_void inp_3,
                                 u32 inp_3_size, mapped_void out, u32 out_size) {
@@ -639,8 +675,25 @@ u32 XeKeysHmacShaUsingKey_entry(mapped_void obscured_key, mapped_void inp_1, u32
 }
 
 u32 XeKeysConsolePrivateKeySign_entry(mapped_void hash, mapped_void signature) {
-  REXKRNL_DEBUG("XeKeysConsolePrivateKeySign - stub");
-  return 0;  // Success
+  if (!hash || !signature) {
+    REXKRNL_IMPORT_RESULT("XeKeysConsolePrivateKeySign", "hash={:#x} signature={:#x} -> false",
+                          hash.guest_address(), signature.guest_address());
+    return 0;
+  }
+
+  constexpr size_t kConsoleCertificateSize = 0x1A8;
+  constexpr std::array<uint8_t, 5> kConsoleId{{0x93, 0x01, 0x64, 0xE6, 0x07}};
+  constexpr std::array<uint8_t, 8> kManufactureDate{{2, 0, 0, 5, 1, 1, 2, 2}};
+
+  auto certificate = signature.as<uint8_t*>();
+  std::memset(certificate, 0, kConsoleCertificateSize);
+  std::copy(kConsoleId.begin(), kConsoleId.end(), certificate + 0x02);
+  certificate[0x1B] = 2;
+  std::copy(kManufactureDate.begin(), kManufactureDate.end(), certificate + 0x1C);
+
+  REXKRNL_IMPORT_RESULT("XeKeysConsolePrivateKeySign", "hash={:#x} signature={:#x} -> true",
+                        hash.guest_address(), signature.guest_address());
+  return 1;
 }
 
 u32 XeKeysConsoleSignatureVerification_entry(mapped_void hash, mapped_void signature,
@@ -659,7 +712,6 @@ REX_EXPORT_STUB(__imp__XeCryptBnDw_Zero);
 REX_EXPORT_STUB(__imp__XeCryptBnDwLePkcs1Format);
 REX_EXPORT_STUB(__imp__XeCryptBnQwBeSigCreate);
 REX_EXPORT_STUB(__imp__XeCryptBnQwBeSigFormat);
-REX_EXPORT_STUB(__imp__XeCryptBnQwBeSigVerify);
 REX_EXPORT_STUB(__imp__XeCryptBnQwNeModExp);
 REX_EXPORT_STUB(__imp__XeCryptBnQwNeModExpRoot);
 REX_EXPORT_STUB(__imp__XeCryptBnQwNeModInv);
@@ -688,7 +740,6 @@ REX_EXPORT_STUB(__imp__XeCryptMd5Final);
 REX_EXPORT_STUB(__imp__XeCryptMd5);
 REX_EXPORT_STUB(__imp__XeCryptParveEcb);
 REX_EXPORT_STUB(__imp__XeCryptParveCbcMac);
-REX_EXPORT_STUB(__imp__XeCryptRotSumSha);
 REX_EXPORT_STUB(__imp__XeCryptSha256);
 REX_EXPORT_STUB(__imp__XeCryptSha384Init);
 REX_EXPORT_STUB(__imp__XeCryptSha384Update);
@@ -709,7 +760,6 @@ REX_EXPORT_STUB(__imp__XeKeysGeneratePrivateKey);
 REX_EXPORT_STUB(__imp__XeKeysGetKeyProperties);
 REX_EXPORT_STUB(__imp__XeKeysSetKey);
 REX_EXPORT_STUB(__imp__XeKeysGenerateRandomKey);
-REX_EXPORT_STUB(__imp__XeKeysGetKey);
 REX_EXPORT_STUB(__imp__XeKeysGetDigest);
 REX_EXPORT_STUB(__imp__XeKeysGetConsoleID);
 REX_EXPORT_STUB(__imp__XeKeysGetConsoleType);
@@ -792,6 +842,8 @@ REX_EXPORT(__imp__XeCryptSha256Final, rex::kernel::xboxkrnl::XeCryptSha256Final_
 REX_EXPORT(__imp__XeCryptBnQw_SwapDwQwLeBe, rex::kernel::xboxkrnl::XeCryptBnQw_SwapDwQwLeBe_entry)
 REX_EXPORT(__imp__XeCryptBnQwNeRsaPubCrypt, rex::kernel::xboxkrnl::XeCryptBnQwNeRsaPubCrypt_entry)
 REX_EXPORT(__imp__XeCryptBnDwLePkcs1Verify, rex::kernel::xboxkrnl::XeCryptBnDwLePkcs1Verify_entry)
+REX_EXPORT(__imp__XeCryptBnQwBeSigVerify,
+           rex::kernel::xboxkrnl::XeCryptBnQwBeSigVerify_entry)
 REX_EXPORT(__imp__XeCryptRandom, rex::kernel::xboxkrnl::XeCryptRandom_entry)
 REX_EXPORT(__imp__XeCryptDesParity, rex::kernel::xboxkrnl::XeCryptDesParity_entry)
 REX_EXPORT(__imp__XeCryptDes3Key, rex::kernel::xboxkrnl::XeCryptDes3Key_entry)
@@ -801,9 +853,11 @@ REX_EXPORT(__imp__XeCryptAesKey, rex::kernel::xboxkrnl::XeCryptAesKey_entry)
 REX_EXPORT(__imp__XeCryptAesEcb, rex::kernel::xboxkrnl::XeCryptAesEcb_entry)
 REX_EXPORT(__imp__XeCryptAesCbc, rex::kernel::xboxkrnl::XeCryptAesCbc_entry)
 REX_EXPORT(__imp__XeCryptHmacSha, rex::kernel::xboxkrnl::XeCryptHmacSha_entry)
+REX_EXPORT(__imp__XeCryptRotSumSha, rex::kernel::xboxkrnl::XeCryptRotSumSha_entry)
 REX_EXPORT(__imp__XeKeysHmacSha, rex::kernel::xboxkrnl::XeKeysHmacSha_entry)
 REX_EXPORT(__imp__XeKeysAesCbcUsingKey, rex::kernel::xboxkrnl::XeKeysAesCbcUsingKey_entry)
 REX_EXPORT(__imp__XeKeysObscureKey, rex::kernel::xboxkrnl::XeKeysObscureKey_entry)
+REX_EXPORT(__imp__XeKeysGetKey, rex::kernel::xboxkrnl::XeKeysGetKey_entry)
 REX_EXPORT(__imp__XeKeysHmacShaUsingKey, rex::kernel::xboxkrnl::XeKeysHmacShaUsingKey_entry)
 REX_EXPORT(__imp__XeKeysConsolePrivateKeySign,
            rex::kernel::xboxkrnl::XeKeysConsolePrivateKeySign_entry)
