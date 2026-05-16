@@ -291,22 +291,86 @@ u32 NetDll_WSAGetLastError_entry() {
   return XThread::GetLastError();
 }
 
+void SetWsaLastErrorIfInThread(u32 error_code) {
+  if (XThread::IsInThread()) {
+    XThread::SetLastError(error_code);
+  }
+}
+
+void MarkOfflineReceivePending(mapped_u32 num_bytes_recv,
+                               ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr) {
+  if (num_bytes_recv) {
+    *num_bytes_recv = 0;
+  }
+  if (overlapped_ptr) {
+    overlapped_ptr->internal = X_ERROR_IO_PENDING;
+    overlapped_ptr->internal_high = 0;
+  }
+}
+
+u32 NetDll_WSAGetOverlappedResult_entry(u32 caller, u32 socket,
+                                        ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr,
+                                        mapped_u32 num_bytes_transferred, u32 wait,
+                                        mapped_u32 flags_ptr) {
+  (void)caller;
+  (void)socket;
+  (void)wait;
+
+  if (num_bytes_transferred) {
+    *num_bytes_transferred = 0;
+  }
+  if (flags_ptr) {
+    *flags_ptr = 0;
+  }
+
+  if (!overlapped_ptr) {
+    SetWsaLastErrorIfInThread(X_ERROR_INVALID_PARAMETER);
+    return 0;
+  }
+
+  const u32 result = overlapped_ptr->internal;
+  if (result == X_ERROR_IO_PENDING) {
+    SetWsaLastErrorIfInThread(X_ERROR_IO_INCOMPLETE);
+    return 0;
+  }
+  if (result != X_ERROR_SUCCESS) {
+    SetWsaLastErrorIfInThread(result);
+    return 0;
+  }
+
+  if (num_bytes_transferred) {
+    *num_bytes_transferred = overlapped_ptr->internal_high;
+  }
+  SetWsaLastErrorIfInThread(X_ERROR_SUCCESS);
+  return 1;
+}
+
 u32 NetDll_WSARecvFrom_entry(u32 caller, u32 socket, ppc_ptr_t<XWSABUF> buffers_ptr,
                              u32 buffer_count, mapped_u32 num_bytes_recv, mapped_u32 flags_ptr,
                              ppc_ptr_t<XSOCKADDR_IN> from_addr,
                              ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr,
                              mapped_void completion_routine_ptr) {
-  if (overlapped_ptr) {
-    // auto evt = REX_KERNEL_OBJECTS()->LookupObject<XEvent>(
-    //    overlapped_ptr->event_handle);
-
-    // if (evt) {
-    //  //evt->Set(0, false);
-    //}
-  }
+  MarkOfflineReceivePending(num_bytes_recv, overlapped_ptr);
 
   // we're not going to be receiving packets any time soon
   // return error so we don't wait on that - Cancerous
+  SetWsaLastErrorIfInThread(X_ERROR_IO_PENDING);
+  return -1;
+}
+
+u32 NetDll_WSARecv_entry(u32 caller, u32 socket, ppc_ptr_t<XWSABUF> buffers_ptr,
+                         u32 buffer_count, mapped_u32 num_bytes_recv, mapped_u32 flags_ptr,
+                         ppc_ptr_t<XWSAOVERLAPPED> overlapped_ptr,
+                         mapped_void completion_routine_ptr) {
+  (void)caller;
+  (void)socket;
+  (void)buffers_ptr;
+  (void)buffer_count;
+  (void)flags_ptr;
+  (void)completion_routine_ptr;
+
+  MarkOfflineReceivePending(num_bytes_recv, overlapped_ptr);
+  SetWsaLastErrorIfInThread(X_ERROR_IO_PENDING);
   return -1;
 }
 
@@ -360,8 +424,9 @@ u32 NetDll_WSAWaitForMultipleEvents_entry(u32 num_events, mapped_u32 events, u32
 
   X_STATUS result = 0;
   do {
-    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(num_events, events, wait_all, 1, alertable,
-                                                    timeout != -1 ? &timeout_wait : nullptr);
+    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(
+        num_events, events, wait_all, 1, alertable,
+        timeout != 0xFFFFFFFFu ? &timeout_wait : nullptr);
   } while (result == X_STATUS_ALERTED);
 
   if (XFAILED(result)) {
@@ -567,7 +632,7 @@ u32 NetDll_inet_addr_entry(mapped_string addr_ptr) {
   // https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-inet_addr#return-value
   // Based on console research it seems like x360 uses old version of inet_addr
   // In case of empty string it return 0 instead of -1
-  if (addr == -1 && !addr_ptr.value().length()) {
+  if (addr == 0xFFFFFFFFu && !addr_ptr.value().length()) {
     return 0;
   }
 
@@ -753,7 +818,7 @@ struct host_set {
     this->count = guest_set->fd_count;
     for (uint32_t i = 0; i < this->count; ++i) {
       auto socket_handle = static_cast<X_HANDLE>(guest_set->fd_array[i]);
-      if (socket_handle == -1) {
+      if (socket_handle == X_INVALID_HANDLE_VALUE) {
         this->count = i;
         break;
       }
@@ -940,6 +1005,9 @@ REX_EXPORT(__imp__NetDll_XNetRandom, rex::kernel::xam::NetDll_XNetRandom_entry)
 REX_EXPORT(__imp__NetDll_WSAStartup, rex::kernel::xam::NetDll_WSAStartup_entry)
 REX_EXPORT(__imp__NetDll_WSACleanup, rex::kernel::xam::NetDll_WSACleanup_entry)
 REX_EXPORT(__imp__NetDll_WSAGetLastError, rex::kernel::xam::NetDll_WSAGetLastError_entry)
+REX_EXPORT(__imp__NetDll_WSAGetOverlappedResult,
+           rex::kernel::xam::NetDll_WSAGetOverlappedResult_entry)
+REX_EXPORT(__imp__NetDll_WSARecv, rex::kernel::xam::NetDll_WSARecv_entry)
 REX_EXPORT(__imp__NetDll_WSARecvFrom, rex::kernel::xam::NetDll_WSARecvFrom_entry)
 REX_EXPORT(__imp__NetDll_WSASendTo, rex::kernel::xam::NetDll_WSASendTo_entry)
 REX_EXPORT(__imp__NetDll_WSAWaitForMultipleEvents,
@@ -998,8 +1066,6 @@ REX_EXPORT_STUB(__imp__NetDll_UpnpSearchGetDevices);
 REX_EXPORT_STUB(__imp__NetDll_UpnpStartup);
 REX_EXPORT_STUB(__imp__NetDll_WSACancelOverlappedIO);
 REX_EXPORT_STUB(__imp__NetDll_WSAEventSelect);
-REX_EXPORT_STUB(__imp__NetDll_WSAGetOverlappedResult);
-REX_EXPORT_STUB(__imp__NetDll_WSARecv);
 REX_EXPORT_STUB(__imp__NetDll_WSASend);
 REX_EXPORT_STUB(__imp__NetDll_WSAStartupEx);
 REX_EXPORT_STUB(__imp__NetDll_XHttpCloseHandle);
