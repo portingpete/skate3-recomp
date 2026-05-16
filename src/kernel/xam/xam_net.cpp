@@ -46,6 +46,21 @@ namespace xam {
 using namespace rex::system;
 using namespace rex::system::xam;
 
+namespace {
+
+constexpr u32 kWsaEFault = 0x271Eu;
+constexpr u32 kWsaENotSock = 0x2736u;
+
+#if REX_PLATFORM_WIN32
+using host_socket_t = SOCKET;
+using host_socklen_t = int;
+#else
+using host_socket_t = int;
+using host_socklen_t = socklen_t;
+#endif
+
+}  // namespace
+
 // https://github.com/G91/TitanOffLine/blob/1e692d9bb9dfac386d08045ccdadf4ae3227bb5e/xkelib/xam/xamNet.h
 enum {
   XNCALLER_INVALID = 0x0,
@@ -329,6 +344,27 @@ void SetWsaLastErrorIfInThread(u32 error_code) {
   if (XThread::IsInThread()) {
     XThread::SetLastError(error_code);
   }
+}
+
+void SetNativeWsaLastErrorIfInThread() {
+#if REX_PLATFORM_WIN32
+  SetWsaLastErrorIfInThread(WSAGetLastError());
+#else
+  SetWsaLastErrorIfInThread(0);
+#endif
+}
+
+u32 FailWsa(u32 error_code) {
+  SetWsaLastErrorIfInThread(error_code);
+  return 0xFFFFFFFFu;
+}
+
+object_ref<XSocket> LookupSocketObject(u32 socket_handle) {
+  auto* kernel_state = rex::system::kernel_state();
+  if (!kernel_state || !kernel_state->object_table()) {
+    return nullptr;
+  }
+  return kernel_state->object_table()->LookupObject<XSocket>(socket_handle);
 }
 
 void MarkOfflineReceivePending(mapped_u32 num_bytes_recv,
@@ -845,6 +881,33 @@ u32 NetDll_setsockopt_entry(u32 caller, u32 socket_handle, u32 level, u32 optnam
   return XSUCCEEDED(status) ? 0 : -1;
 }
 
+u32 NetDll_getsockopt_entry(u32 caller, u32 socket_handle, u32 level, u32 optname,
+                            mapped_void optval_ptr, mapped_u32 optlen_ptr) {
+  (void)caller;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+  if (!optval_ptr || !optlen_ptr) {
+    return FailWsa(kWsaEFault);
+  }
+
+  host_socklen_t native_len = static_cast<host_socklen_t>(*optlen_ptr);
+  const int ret =
+      getsockopt(static_cast<host_socket_t>(socket->native_handle()), static_cast<int>(level),
+                 static_cast<int>(optname), static_cast<char*>(optval_ptr.host_address()),
+                 &native_len);
+  if (ret == -1) {
+    SetNativeWsaLastErrorIfInThread();
+    return 0xFFFFFFFFu;
+  }
+
+  *optlen_ptr = static_cast<u32>(native_len);
+  SetWsaLastErrorIfInThread(0);
+  return 0;
+}
+
 u32 NetDll_ioctlsocket_entry(u32 caller, u32 socket_handle, u32 cmd, mapped_void arg_ptr) {
   auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(socket_handle);
   if (!socket) {
@@ -943,6 +1006,60 @@ u32 NetDll_accept_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> addr
   } else {
     return -1;
   }
+}
+
+u32 NetDll_getsockname_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> name,
+                             mapped_u32 namelen_ptr) {
+  (void)caller;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+  if (!name || !namelen_ptr) {
+    return FailWsa(kWsaEFault);
+  }
+
+  sockaddr native_addr{};
+  host_socklen_t native_len = static_cast<host_socklen_t>(*namelen_ptr);
+  const int ret =
+      getsockname(static_cast<host_socket_t>(socket->native_handle()), &native_addr, &native_len);
+  if (ret == -1) {
+    SetNativeWsaLastErrorIfInThread();
+    return 0xFFFFFFFFu;
+  }
+
+  StoreSockaddr(native_addr, reinterpret_cast<uint8_t*>(name.host_address()));
+  *namelen_ptr = static_cast<u32>(native_len);
+  SetWsaLastErrorIfInThread(0);
+  return 0;
+}
+
+u32 NetDll_getpeername_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XSOCKADDR> name,
+                             mapped_u32 namelen_ptr) {
+  (void)caller;
+
+  auto socket = LookupSocketObject(socket_handle);
+  if (!socket) {
+    return FailWsa(kWsaENotSock);
+  }
+  if (!name || !namelen_ptr) {
+    return FailWsa(kWsaEFault);
+  }
+
+  sockaddr native_addr{};
+  host_socklen_t native_len = static_cast<host_socklen_t>(*namelen_ptr);
+  const int ret =
+      getpeername(static_cast<host_socket_t>(socket->native_handle()), &native_addr, &native_len);
+  if (ret == -1) {
+    SetNativeWsaLastErrorIfInThread();
+    return 0xFFFFFFFFu;
+  }
+
+  StoreSockaddr(native_addr, reinterpret_cast<uint8_t*>(name.host_address()));
+  *namelen_ptr = static_cast<u32>(native_len);
+  SetWsaLastErrorIfInThread(0);
+  return 0;
 }
 
 struct x_fd_set {
@@ -1307,6 +1424,6 @@ REX_EXPORT_STUB(__imp__NetDll_XnpToolIpProxyInject);
 REX_EXPORT_STUB(__imp__NetDll_XnpToolSetCallbacks);
 REX_EXPORT_STUB(__imp__NetDll_XnpUnregisterKeyForCallerType);
 REX_EXPORT_STUB(__imp__NetDll_XnpUpdateConfigParams);
-REX_EXPORT_STUB(__imp__NetDll_getpeername);
-REX_EXPORT_STUB(__imp__NetDll_getsockname);
-REX_EXPORT_STUB(__imp__NetDll_getsockopt);
+REX_EXPORT(__imp__NetDll_getpeername, rex::kernel::xam::NetDll_getpeername_entry)
+REX_EXPORT(__imp__NetDll_getsockname, rex::kernel::xam::NetDll_getsockname_entry)
+REX_EXPORT(__imp__NetDll_getsockopt, rex::kernel::xam::NetDll_getsockopt_entry)

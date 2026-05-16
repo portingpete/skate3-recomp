@@ -8,6 +8,7 @@
 #include <rex/types.h>
 
 namespace rex::system {
+struct XSOCKADDR;
 struct XSOCKADDR_IN;
 }  // namespace rex::system
 
@@ -51,6 +52,14 @@ u32 NetDll_XNetQosLookup_entry(u32 caller, u32 xnaddr_count, mapped_void xnaddr_
                                u32 inaddr_count, mapped_void inaddr_ptrs, mapped_void ports,
                                u32 probe_count, u32 bits_per_second, u32 flags,
                                u32 event_handle, mapped_u32 qos_out);
+u32 NetDll_getsockopt_entry(u32 caller, u32 socket_handle, u32 level, u32 optname,
+                            mapped_void optval_ptr, mapped_u32 optlen_ptr);
+u32 NetDll_getsockname_entry(u32 caller, u32 socket_handle,
+                             ppc_ptr_t<rex::system::XSOCKADDR> name,
+                             mapped_u32 namelen_ptr);
+u32 NetDll_getpeername_entry(u32 caller, u32 socket_handle,
+                             ppc_ptr_t<rex::system::XSOCKADDR> name,
+                             mapped_u32 namelen_ptr);
 }  // namespace rex::kernel::xam
 
 namespace {
@@ -177,6 +186,18 @@ TEST_CASE("XNetQosLookup reports an empty offline result without kernel state",
             mapped_void(nullptr), mapped_void(nullptr), 0, 0, 0, 0,
             mapped_u32(&qos_handle, 0x40004000)) == 0);
   CHECK(u32(qos_handle) == 0);
+}
+
+TEST_CASE("socket query helpers fail deterministically for missing sockets",
+          "[kernel][xam_net]") {
+  CHECK(rex::kernel::xam::NetDll_getsockopt_entry(
+            1, 0xBAD, 0, 0, mapped_void(nullptr), mapped_u32(nullptr)) == kSocketError);
+  CHECK(rex::kernel::xam::NetDll_getsockname_entry(
+            1, 0xBAD, ppc_ptr_t<rex::system::XSOCKADDR>(nullptr),
+            mapped_u32(nullptr)) == kSocketError);
+  CHECK(rex::kernel::xam::NetDll_getpeername_entry(
+            1, 0xBAD, ppc_ptr_t<rex::system::XSOCKADDR>(nullptr),
+            mapped_u32(nullptr)) == kSocketError);
 }
 
 TEST_CASE("WSARecvFrom marks offline overlapped receives pending", "[kernel][xam_net]") {
