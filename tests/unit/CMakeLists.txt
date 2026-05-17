@@ -7,6 +7,7 @@ add_executable(unit_tests
     kernel/ldi_decompression_test.cpp
     kernel/xboxkrnl_audio_test.cpp
     kernel/xboxkrnl_device_request_test.cpp
+    kernel/xboxkrnl_memory_test.cpp
     kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp
     kernel/xboxkrnl_usbcam_test.cpp

@@ -677,6 +677,22 @@ u32 MmIsAddressValid_entry(u32 address) {
   return heap->QueryRangeAccess(address, address) != rex::memory::PageAccess::kNoAccess;
 }
 
+u32 MmLockAndMapSegmentArray_entry(u32 flags, mapped_void segment_array, u32 segment_count,
+                                   u32 map_flags) {
+  if (!segment_array || !segment_count) {
+    return 0;
+  }
+
+  REXKRNL_IMPORT_RESULT("MmLockAndMapSegmentArray", "segments={:#x} count={} flags={:#x}/{:#x}",
+                        segment_array.guest_address(), segment_count, flags, map_flags);
+  return segment_array.guest_address();
+}
+
+void MmUnlockAndUnmapSegmentArray_entry(mapped_void mapped_address) {
+  REXKRNL_IMPORT_RESULT("MmUnlockAndUnmapSegmentArray", "mapped={:#x}",
+                        mapped_address.guest_address());
+}
+
 u32 NtAllocateEncryptedMemory_entry(u32 unk, u32 region_size, mapped_u32 base_addr_ptr) {
   if (!region_size) {
     return X_STATUS_INVALID_PARAMETER;
@@ -753,11 +769,13 @@ REX_EXPORT_STUB(__imp__ExQueryPoolBlockSize);
 REX_EXPORT_STUB(__imp__MmDoubleMapMemory);
 REX_EXPORT_STUB(__imp__MmUnmapMemory);
 REX_EXPORT(__imp__MmIsAddressValid, rex::kernel::xboxkrnl::MmIsAddressValid_entry)
-REX_EXPORT_STUB(__imp__MmLockAndMapSegmentArray);
+REX_EXPORT(__imp__MmLockAndMapSegmentArray,
+           rex::kernel::xboxkrnl::MmLockAndMapSegmentArray_entry)
 REX_EXPORT_STUB(__imp__MmLockUnlockBufferPages);
 REX_EXPORT_STUB(__imp__MmPersistPhysicalMemoryAllocation);
 REX_EXPORT_STUB(__imp__MmSplitPhysicalMemoryAllocation);
-REX_EXPORT_STUB(__imp__MmUnlockAndUnmapSegmentArray);
+REX_EXPORT(__imp__MmUnlockAndUnmapSegmentArray,
+           rex::kernel::xboxkrnl::MmUnlockAndUnmapSegmentArray_entry)
 REX_EXPORT_STUB(__imp__MmUnmapIoSpace);
 REX_EXPORT(__imp__NtAllocateEncryptedMemory, rex::kernel::xboxkrnl::NtAllocateEncryptedMemory_entry)
 REX_EXPORT(__imp__NtFreeEncryptedMemory, rex::kernel::xboxkrnl::NtFreeEncryptedMemory_entry)
