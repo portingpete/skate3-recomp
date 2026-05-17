@@ -38,6 +38,10 @@ u32 NetDll_XNetUnregisterKey_entry(u32 caller, mapped_void key_id);
 u32 NetDll_XNetConnect_entry(u32 caller, u32 in_addr);
 u32 NetDll_XNetGetConnectStatus_entry(u32 caller, u32 in_addr);
 u32 NetDll_XNetUnregisterInAddr_entry(u32 caller, u32 in_addr);
+u32 NetDll_XNetGetOpt_entry(u32 caller, u32 option_id, mapped_void buffer_ptr,
+                            mapped_u32 buffer_size);
+u32 NetDll_XNetSetOpt_entry(u32 caller, u32 option_id, mapped_void buffer_ptr,
+                            u32 buffer_size);
 u32 NetDll_XNetServerToInAddr_entry(u32 caller, mapped_void server, mapped_void xid,
                                     mapped_void in_addr);
 u32 NetDll_XNetInAddrToServer_entry(u32 caller, mapped_void in_addr, mapped_void xid,
@@ -73,6 +77,8 @@ namespace {
 constexpr u32 kSocketError = 0xFFFFFFFFu;
 constexpr u32 kErrorIoPending = 0x000003E5u;
 constexpr u64 kOfflineMachineId = 0xFA00000002CCCCCCull;
+constexpr u32 kWsaEMsgSize = 0x00002738u;
+constexpr u32 kWsaEInval = 0x00002726u;
 
 u32 ReadBe32(const uint8_t* data, size_t offset) {
   return (u32(data[offset]) << 24) | (u32(data[offset + 1]) << 16) |
@@ -138,6 +144,37 @@ TEST_CASE("XNet key registration helpers are deterministic no-op successes",
             kCaller, mapped_void(nullptr), mapped_void(nullptr)) == 0);
   CHECK(rex::kernel::xam::NetDll_XNetUnregisterKey_entry(
             kCaller, mapped_void(key_id.data(), 0x40002000)) == 0);
+}
+
+TEST_CASE("XNetSetOpt updates startup parameters for XNetGetOpt", "[kernel][xam_net]") {
+  constexpr u32 kCaller = 1;
+  constexpr u32 kStartupParamsOption = 1;
+  constexpr size_t kStartupParamsSize = 13;
+
+  std::array<uint8_t, kStartupParamsSize> startup_params{
+      {0x0D, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C}};
+  std::array<uint8_t, kStartupParamsSize> output{};
+  output.fill(0xCD);
+  rex::be_u32 output_size = kStartupParamsSize;
+
+  CHECK(rex::kernel::xam::NetDll_XNetSetOpt_entry(
+            kCaller, kStartupParamsOption, mapped_void(startup_params.data(), 0x40005000),
+            static_cast<u32>(startup_params.size())) == 0);
+  CHECK(rex::kernel::xam::NetDll_XNetGetOpt_entry(
+            kCaller, kStartupParamsOption, mapped_void(output.data(), 0x40006000),
+            mapped_u32(&output_size, 0x40006010)) == 0);
+  CHECK(output == startup_params);
+  CHECK(u32(output_size) == kStartupParamsSize);
+
+  CHECK(rex::kernel::xam::NetDll_XNetSetOpt_entry(
+            kCaller, kStartupParamsOption, mapped_void(nullptr),
+            static_cast<u32>(startup_params.size())) == kWsaEMsgSize);
+  CHECK(rex::kernel::xam::NetDll_XNetSetOpt_entry(
+            kCaller, kStartupParamsOption, mapped_void(startup_params.data(), 0x40005000),
+            static_cast<u32>(startup_params.size() - 1)) == kWsaEMsgSize);
+  CHECK(rex::kernel::xam::NetDll_XNetSetOpt_entry(
+            kCaller, 0xDEAD, mapped_void(startup_params.data(), 0x40005000),
+            static_cast<u32>(startup_params.size())) == kWsaEInval);
 }
 
 TEST_CASE("XNet address conversion helpers keep offline outputs deterministic",

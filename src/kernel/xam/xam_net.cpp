@@ -243,6 +243,21 @@ u32 NetDll_XNetGetOpt_entry(u32 one, u32 option_id, mapped_void buffer_ptr,
   }
 }
 
+u32 NetDll_XNetSetOpt_entry(u32 caller, u32 option_id, mapped_void buffer_ptr, u32 buffer_size) {
+  (void)caller;
+  switch (option_id) {
+    case 1:
+      if (!buffer_ptr || buffer_size < sizeof(XNetStartupParams)) {
+        return 0x2738;  // WSAEMSGSIZE
+      }
+      std::memcpy(&xnet_startup_params, buffer_ptr, sizeof(XNetStartupParams));
+      return 0;
+    default:
+      REXKRNL_WARN("NetDll_XNetSetOpt: option {} unimplemented", option_id);
+      return 0x2726;  // WSAEINVAL
+  }
+}
+
 u32 NetDll_XNetRandom_entry(u32 caller, mapped_void buffer_ptr, u32 length) {
   // For now, constant values.
   // This makes replicating things easier.
@@ -1461,7 +1476,7 @@ REX_EXPORT(__imp__NetDll_XNetRegisterKey, rex::kernel::xam::NetDll_XNetRegisterK
 REX_EXPORT(__imp__NetDll_XNetReplaceKey, rex::kernel::xam::NetDll_XNetReplaceKey_entry)
 REX_EXPORT(__imp__NetDll_XNetServerToInAddr,
            rex::kernel::xam::NetDll_XNetServerToInAddr_entry)
-REX_EXPORT_STUB(__imp__NetDll_XNetSetOpt);
+REX_EXPORT(__imp__NetDll_XNetSetOpt, rex::kernel::xam::NetDll_XNetSetOpt_entry)
 REX_EXPORT_STUB(__imp__NetDll_XNetStartupEx);
 REX_EXPORT(__imp__NetDll_XNetTsAddrToInAddr,
            rex::kernel::xam::NetDll_XNetTsAddrToInAddr_entry)
