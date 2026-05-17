@@ -13,12 +13,17 @@
 
 #pragma once
 
+#include <atomic>
 #include <bit>
 #include <cstdint>
 #include <cstring>
 
 #include <rex/platform/fpscr.h>
 #include <rex/types.h>
+
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+#include <immintrin.h>
+#endif
 
 #include <simde/x86/avx.h>
 #include <simde/x86/sse.h>
@@ -39,6 +44,22 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 namespace rex::runtime {
 PPCFunc* ResolveIndirectFunction(uint32_t guest_address);
 }  // namespace rex::runtime
+
+namespace rex {
+
+inline void ppc_delay_execution_hint() noexcept {
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+  _mm_pause();
+#elif defined(__i386__) || defined(__x86_64__)
+  __builtin_ia32_pause();
+#elif defined(__aarch64__)
+  __asm__ __volatile__("yield" ::: "memory");
+#else
+  std::atomic_signal_fence(std::memory_order_seq_cst);
+#endif
+}
+
+}  // namespace rex
 
 //=============================================================================
 // PPC Function Macros

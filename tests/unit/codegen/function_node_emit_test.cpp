@@ -284,6 +284,31 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(eq_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit lowers db16cyc spin hints to host pause hints",
+          "[codegen][FunctionNode]") {
+  constexpr std::array<uint8_t, 4> kDb16cyc = {
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+  };
+
+  auto binary = MakeBinaryView(0x1000, kDb16cyc);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 4, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 4}}, {}, {});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  CHECK(cpp.find("// db16cyc \n\trex::ppc_delay_execution_hint();") != std::string::npos);
+}
+
 TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of range",
           "[codegen][FunctionNode]") {
   constexpr std::array<uint8_t, 8> kBctrWithLocalTarget = {
