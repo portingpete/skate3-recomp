@@ -430,6 +430,14 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
                                  [](const SehScope& scope) {
                                    return scope.filter != 0 && scope.handler != 0;
                                  });
+  const auto hasLocalBlockContaining = [this](uint32_t addr) {
+    return std::any_of(blocks().begin(), blocks().end(),
+                       [addr](const Block& block) { return block.contains(addr); });
+  };
+  const auto hasSeparateFunctionEntry = [this, &ctx](uint32_t addr) {
+    const FunctionNode* fn = ctx.graph.getFunction(addr);
+    return fn != nullptr && fn != this;
+  };
 
   // --- First pass: collect labels from all blocks ---
   std::unordered_set<size_t> labels;
@@ -447,7 +455,9 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
         labels.emplace(scope.tryEnd);
       }
       if (scope.filter != 0 && scope.handler != 0) {
-        labels.emplace(scope.handler);
+        if (hasLocalBlockContaining(scope.handler) || !hasSeparateFunctionEntry(scope.handler)) {
+          labels.emplace(scope.handler);
+        }
       }
     }
   }
@@ -574,8 +584,15 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(body, "\tif (seh_dispatch_target != 0) {{");
     for (const auto& scope : sehInfo->scopes) {
       if (scope.filter != 0 && scope.handler != 0) {
-        emit_println(body, "\t\tif (seh_dispatch_target == 0x{:08X}) goto loc_{:X};",
-                     scope.handler, scope.handler);
+        if (hasLocalBlockContaining(scope.handler) || !hasSeparateFunctionEntry(scope.handler)) {
+          emit_println(body, "\t\tif (seh_dispatch_target == 0x{:08X}) goto loc_{:X};",
+                       scope.handler, scope.handler);
+        } else {
+          emit_println(body, "\t\tif (seh_dispatch_target == 0x{:08X}) {{", scope.handler);
+          emit_println(body, "\t\t\t{}(ctx, base);", getFunctionCallName(ctx, scope.handler));
+          emit_println(body, "\t\t\treturn;");
+          emit_println(body, "\t\t}}");
+        }
       }
     }
     emit_println(body, "\t\tREX_FATAL(\"Unhandled SEH dispatch target in sub_{:08X}\");",
