@@ -5,6 +5,7 @@ add_executable(unit_tests
     memory/heap_allocation_test.cpp
     kernel/object_table_test.cpp
     kernel/ldi_decompression_test.cpp
+    kernel/xboxkrnl_audio_test.cpp
     kernel/xboxkrnl_device_request_test.cpp
     kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp

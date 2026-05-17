@@ -105,6 +105,16 @@ u32 XAudioSubmitRenderDriverFrame_entry(mapped_void driver_ptr, mapped_void samp
   return X_ERROR_SUCCESS;
 }
 
+u32 XAudioQueryDriverPerformance_entry(mapped_void driver_ptr, mapped_void performance_ptr) {
+  if (performance_ptr) {
+    performance_ptr.Zero(0x30);
+  }
+
+  REXKRNL_IMPORT_RESULT("XAudioQueryDriverPerformance", "driver={:#x} out={:#x}",
+                        driver_ptr.guest_address(), performance_ptr.guest_address());
+  return X_ERROR_SUCCESS;
+}
+
 }  // namespace rex::kernel::xboxkrnl
 
 REX_EXPORT(__imp__XAudioGetSpeakerConfig, rex::kernel::xboxkrnl::XAudioGetSpeakerConfig_entry)
@@ -119,6 +129,8 @@ REX_EXPORT(__imp__XAudioUnregisterRenderDriverClient,
            rex::kernel::xboxkrnl::XAudioUnregisterRenderDriverClient_entry)
 REX_EXPORT(__imp__XAudioSubmitRenderDriverFrame,
            rex::kernel::xboxkrnl::XAudioSubmitRenderDriverFrame_entry)
+REX_EXPORT(__imp__XAudioQueryDriverPerformance,
+           rex::kernel::xboxkrnl::XAudioQueryDriverPerformance_entry)
 
 REX_EXPORT_STUB(__imp__XAudioRenderDriverInitialize);
 REX_EXPORT_STUB(__imp__XAudioRenderDriverLock);
@@ -126,7 +138,6 @@ REX_EXPORT_STUB(__imp__XAudioSetVoiceCategoryVolume);
 REX_EXPORT_STUB(__imp__XAudioBeginDigitalBypassMode);
 REX_EXPORT_STUB(__imp__XAudioEndDigitalBypassMode);
 REX_EXPORT_STUB(__imp__XAudioSubmitDigitalPacket);
-REX_EXPORT_STUB(__imp__XAudioQueryDriverPerformance);
 REX_EXPORT_STUB(__imp__XAudioGetRenderDriverThread);
 REX_EXPORT_STUB(__imp__XAudioSetSpeakerConfig);
 REX_EXPORT_STUB(__imp__XAudioOverrideSpeakerConfig);
