@@ -534,6 +534,16 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     }
   }
 
+  const bool hasPreEntryBlock =
+      std::any_of(blocks().begin(), blocks().end(),
+                  [this](const Block& block) { return block.base < base(); });
+  const bool entryHasBlock =
+      std::any_of(blocks().begin(), blocks().end(),
+                  [this](const Block& block) { return block.contains(base()); });
+  if (hasPreEntryBlock && entryHasBlock) {
+    labels.emplace(base());
+  }
+
   // --- Function name ---
   std::string name;
   if (base() == ctx.entryPoint) {
@@ -571,6 +581,10 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(body, "\t\tREX_FATAL(\"Unhandled SEH dispatch target in sub_{:08X}\");",
                  base());
     emit_println(body, "\t}}");
+  }
+
+  if (hasPreEntryBlock && entryHasBlock) {
+    emit_println(body, "\tgoto loc_{:X};", base());
   }
 
   ppc_insn insn;

@@ -70,6 +70,96 @@ TEST_CASE("FunctionNode emit keeps edge-less entry targets local when owned by t
   CHECK(cpp.find("Unresolved call from 0x00001000 to 0x00001020") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit keeps decrement branches local in owned pre-entry blocks",
+          "[codegen][FunctionNode]") {
+  std::array<uint8_t, 0x60> bytes{};
+  for (size_t offset = 0; offset < bytes.size(); offset += 4) {
+    bytes[offset + 0] = 0x60;
+    bytes[offset + 1] = 0x00;
+    bytes[offset + 2] = 0x00;
+    bytes[offset + 3] = 0x00;
+  }
+  bytes[0x54] = 0x42;
+  bytes[0x55] = 0x00;
+  bytes[0x56] = 0xFF;
+  bytes[0x57] = 0xAC;  // 0x1078: bdnz 0x1024
+  bytes[0x5C] = 0x4E;
+  bytes[0x5D] = 0x80;
+  bytes[0x5E] = 0x00;
+  bytes[0x5F] = 0x20;  // 0x1080: blr
+
+  auto binary = MakeBinaryView(0x1024, bytes);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1080, 4, rex::codegen::FunctionAuthority::DISCOVERED, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1024, .size = static_cast<uint32_t>(bytes.size())}},
+                 {}, {0x1024, 0x1078, 0x1080});
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("if (ctx.ctr.u32 != 0) goto loc_1024;") != std::string::npos);
+  CHECK(cpp.find("branch to 0x1024 outside function") == std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit starts promoted alternate entries at the entry label",
+          "[codegen][FunctionNode]") {
+  std::array<uint8_t, 0x68> bytes{};
+  for (size_t offset = 0; offset < bytes.size(); offset += 4) {
+    bytes[offset + 0] = 0x60;
+    bytes[offset + 1] = 0x00;
+    bytes[offset + 2] = 0x00;
+    bytes[offset + 3] = 0x00;
+  }
+  bytes[0x00] = 0x38;
+  bytes[0x01] = 0x60;
+  bytes[0x02] = 0x00;
+  bytes[0x03] = 0x01;  // 0x1020: li r3,1
+  bytes[0x04] = 0x4E;
+  bytes[0x05] = 0x80;
+  bytes[0x06] = 0x00;
+  bytes[0x07] = 0x20;  // 0x1024: blr
+  bytes[0x60] = 0x38;
+  bytes[0x61] = 0x60;
+  bytes[0x62] = 0x00;
+  bytes[0x63] = 0x02;  // 0x1080: li r3,2
+  bytes[0x64] = 0x4E;
+  bytes[0x65] = 0x80;
+  bytes[0x66] = 0x00;
+  bytes[0x67] = 0x20;  // 0x1084: blr
+
+  auto binary = MakeBinaryView(0x1020, bytes);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1080, 8, rex::codegen::FunctionAuthority::DISCOVERED, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1020, .size = 8},
+                  rex::codegen::Block{.base = 0x1080, .size = 8}},
+                 {}, {0x1020, 0x1080});
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  RequireTokenOrder(cpp, "REX_FUNC_PROLOGUE();", "\tgoto loc_1080;");
+  RequireTokenOrder(cpp, "\tgoto loc_1080;", "loc_1020:");
+  CHECK(cpp.find("loc_1080:") != std::string::npos);
+}
+
 TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
           "[codegen][FunctionNode]") {
   // 0x4C820421 = bnectrl cr0. The call is conditional and must preserve

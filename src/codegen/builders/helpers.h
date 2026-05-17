@@ -377,7 +377,7 @@ inline bool isMMIOUpperBits(uint32_t imm) {
 /**
  * Emit a conditional branch with bounds checking.
  *
- * If the target is within the current function, emits a goto.
+ * If the target is owned by the current function, emits a goto.
  * If outside, emits a warning and a return statement.
  *
  * @param ctx The builder context
@@ -387,12 +387,12 @@ inline bool isMMIOUpperBits(uint32_t imm) {
  */
 inline void emitBranchWithBoundsCheck(BuilderContext& ctx, uint32_t target,
                                       std::string_view condition, std::string_view instr_name) {
-  if (target < ctx.fn.base() || target >= ctx.fn.end()) {
+  if (ctx.fn.containsAddress(target) || ctx.fn.isWithinBounds(target)) {
+    ctx.println("\tif ({}) goto loc_{:X};", condition, target);
+  } else {
     REXCODEGEN_WARN("{} at {:X} branches outside function to {:X}", instr_name, ctx.base, target);
     ctx.println("\tif ({}) {{ /* branch to 0x{:X} outside function */ return; }}", condition,
                 target);
-  } else {
-    ctx.println("\tif ({}) goto loc_{:X};", condition, target);
   }
 }
 
