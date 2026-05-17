@@ -34,6 +34,64 @@
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
 
+namespace {
+
+void StoreGuestU32(uint8_t* base, u32 address, u32 value) {
+  auto* dst = base + address;
+  dst[0] = static_cast<uint8_t>(value >> 24);
+  dst[1] = static_cast<uint8_t>(value >> 16);
+  dst[2] = static_cast<uint8_t>(value >> 8);
+  dst[3] = static_cast<uint8_t>(value);
+}
+
+void StoreGuestU64(uint8_t* base, u32 address, u64 value) {
+  StoreGuestU32(base, address, static_cast<u32>(value >> 32));
+  StoreGuestU32(base, address + 4, static_cast<u32>(value));
+}
+
+u32 CaptureConditionRegister(const PPCContext& ctx) {
+  return (ctx.cr0.raw() << 28) | (ctx.cr1.raw() << 24) | (ctx.cr2.raw() << 20) |
+         (ctx.cr3.raw() << 16) | (ctx.cr4.raw() << 12) | (ctx.cr5.raw() << 8) |
+         (ctx.cr6.raw() << 4) | ctx.cr7.raw();
+}
+
+void StoreRtlContextRecord(PPCContext& ctx, uint8_t* base, u32 context_record) {
+  if (!context_record) {
+    return;
+  }
+
+  const PPCRegister* fprs = &ctx.f14;
+  for (u32 i = 0; i < 18; ++i) {
+    StoreGuestU64(base, context_record + i * 8, fprs[i].u64);
+  }
+
+  StoreGuestU64(base, context_record + 144, ctx.r1.u64);
+
+  const PPCRegister* gprs = &ctx.r13;
+  for (u32 i = 0; i < 19; ++i) {
+    StoreGuestU64(base, context_record + 152 + i * 8, gprs[i].u64);
+  }
+
+  const PPCVRegister* vectors = &ctx.v64;
+  for (u32 i = 0; i < 64; ++i) {
+    const u32 ea = context_record + 320 + i * 16;
+    for (u32 byte = 0; byte < 16; ++byte) {
+      base[ea + byte] = vectors[i].u8[15 - byte];
+    }
+  }
+
+  StoreGuestU32(base, context_record + 304, CaptureConditionRegister(ctx));
+  StoreGuestU32(base, context_record + 308, static_cast<u32>(ctx.lr));
+  StoreGuestU32(base, context_record + 312, 0);
+
+  // Some title CRT helpers read these compact slots while walking unwind
+  // records, matching the compatibility layout generated SEH filters use.
+  StoreGuestU32(base, context_record + 8, static_cast<u32>(ctx.lr));
+  StoreGuestU64(base, context_record + 32, ctx.r1.u64);
+}
+
+}  // namespace
+
 // https://msdn.microsoft.com/en-us/library/ff561778
 u32 RtlCompareMemory_entry(mapped_void source1, mapped_void source2, u32 length) {
   uint8_t* p1 = source1;
@@ -572,9 +630,8 @@ u32 RtlComputeCrc32_entry(u32 seed, mapped_void buffer, u32 length) {
   return ~hash;
 }
 
-void RtlCaptureContext_entry() {
-  // TODO(tomc): do we even need this?
-  REXKRNL_WARN("[STUB] RtlCaptureContext called - not implemented");
+void RtlCaptureContext_entry(PPCContext& ctx, uint8_t* base) {
+  StoreRtlContextRecord(ctx, base, ctx.r3.u32);
 }
 
 void RtlUnwind_entry() {
@@ -643,6 +700,11 @@ REX_EXPORT(__imp__RtlLeaveCriticalSection, rex::kernel::xboxkrnl::RtlLeaveCritic
 REX_EXPORT(__imp__RtlTimeToTimeFields, rex::kernel::xboxkrnl::RtlTimeToTimeFields_entry)
 REX_EXPORT(__imp__RtlTimeFieldsToTime, rex::kernel::xboxkrnl::RtlTimeFieldsToTime_entry)
 REX_EXPORT(__imp__RtlComputeCrc32, rex::kernel::xboxkrnl::RtlComputeCrc32_entry)
-REX_EXPORT(__imp__RtlCaptureContext, rex::kernel::xboxkrnl::RtlCaptureContext_entry)
 REX_EXPORT(__imp__RtlUnwind, rex::kernel::xboxkrnl::RtlUnwind_entry)
 REX_EXPORT(__imp____C_specific_handler, rex::kernel::xboxkrnl::__C_specific_handler_entry)
+
+REX_HOOK_RAW(__imp__RtlCaptureContext) {
+  rex::kernel::xboxkrnl::RtlCaptureContext_entry(ctx, base);
+}
+static rex::ppc::detail::PPCFuncRegistrar _ppc_reg___imp__RtlCaptureContext(
+    "__imp__RtlCaptureContext", &__imp__RtlCaptureContext);
