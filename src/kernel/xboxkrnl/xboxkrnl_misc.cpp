@@ -26,9 +26,21 @@ void KeEnableFpuExceptions_entry(u32 enabled) {
   // TODO(benvanik): can we do anything about exceptions?
 }
 
+u32 MicDeviceRequest_entry(mapped_void request_ptr) {
+  (void)request_ptr;
+  return 0xC000009D;
+}
+
+u32 RmcDeviceRequest_entry(mapped_void request_ptr) {
+  (void)request_ptr;
+  return 0xC000009D;
+}
+
 }  // namespace rex::kernel::xboxkrnl
 
 REX_EXPORT(__imp__KeEnableFpuExceptions, rex::kernel::xboxkrnl::KeEnableFpuExceptions_entry)
+REX_EXPORT(__imp__MicDeviceRequest, rex::kernel::xboxkrnl::MicDeviceRequest_entry)
+REX_EXPORT(__imp__RmcDeviceRequest, rex::kernel::xboxkrnl::RmcDeviceRequest_entry)
 
 REX_EXPORT_STUB(__imp__ExSetBetaFeaturesEnabled);
 REX_EXPORT_STUB(__imp__ExIsBetaFeatureEnabled);
@@ -91,7 +103,6 @@ REX_EXPORT_STUB(__imp__IptvSetBoundaryKey);
 REX_EXPORT_STUB(__imp__IptvSetSessionKey);
 REX_EXPORT_STUB(__imp__IptvVerifyOmac1Signature);
 REX_EXPORT_STUB(__imp__McaDeviceRequest);
-REX_EXPORT_STUB(__imp__MicDeviceRequest);
 REX_EXPORT_STUB(__imp__MtpdBeginTransaction);
 REX_EXPORT_STUB(__imp__MtpdCancelTransaction);
 REX_EXPORT_STUB(__imp__MtpdEndTransaction);
@@ -119,7 +130,6 @@ REX_EXPORT_STUB(__imp__NomnilSetLed);
 REX_EXPORT_STUB(__imp__NomnilStartCloseDevice);
 REX_EXPORT_STUB(__imp__NullCableRequest);
 REX_EXPORT_STUB(__imp__PsCamDeviceRequest);
-REX_EXPORT_STUB(__imp__RmcDeviceRequest);
 REX_EXPORT_STUB(__imp__TidDeviceRequest);
 REX_EXPORT_STUB(__imp__TitleDeviceAuthRequest);
 REX_EXPORT_STUB(__imp__UsbdAddDeviceComplete);
