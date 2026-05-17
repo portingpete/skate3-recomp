@@ -185,6 +185,64 @@ TEST_CASE("Discover does not promote interior-only raw rdata label tables",
   CHECK_FALSE(ctx.graph.isEntryPoint(0x100C));
 }
 
+TEST_CASE("Discover registers dynamically stored code-pointer entries",
+          "[codegen][Discover][FunctionPointer]") {
+  auto kDynamicCodePointerStore = [] {
+    std::array<uint8_t, 0x50> bytes{};
+
+    bytes[0x00] = 0x38;  // 0x1000: li r3,1
+    bytes[0x01] = 0x60;
+    bytes[0x02] = 0x00;
+    bytes[0x03] = 0x01;
+    bytes[0x04] = 0x4E;  // 0x1004: blr
+    bytes[0x05] = 0x80;
+    bytes[0x06] = 0x00;
+    bytes[0x07] = 0x20;
+    bytes[0x18] = 0x38;  // 0x1018: li r3,2
+    bytes[0x19] = 0x60;
+    bytes[0x1A] = 0x00;
+    bytes[0x1B] = 0x02;
+    bytes[0x1C] = 0x4E;  // 0x101C: blr
+    bytes[0x1D] = 0x80;
+    bytes[0x1E] = 0x00;
+    bytes[0x1F] = 0x20;
+
+    bytes[0x40] = 0x3D;  // 0x1040: lis r11,0
+    bytes[0x41] = 0x60;
+    bytes[0x42] = 0x00;
+    bytes[0x43] = 0x00;
+    bytes[0x44] = 0x39;  // 0x1044: addi r8,r11,0x1018
+    bytes[0x45] = 0x0B;
+    bytes[0x46] = 0x10;
+    bytes[0x47] = 0x18;
+    bytes[0x48] = 0x91;  // 0x1048: stw r8,16(r3)
+    bytes[0x49] = 0x03;
+    bytes[0x4A] = 0x00;
+    bytes[0x4B] = 0x10;
+    bytes[0x4C] = 0x4E;  // 0x104C: blr
+    bytes[0x4D] = 0x80;
+    bytes[0x4E] = 0x00;
+    bytes[0x4F] = 0x20;
+
+    return bytes;
+  }();
+
+  auto binary = MakeBinaryView(0x1000, kDynamicCodePointerStore);
+  rex::codegen::RecompilerConfig config;
+  auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
+  ctx.initDecoded();
+
+  ctx.scan.codeRegions.push_back({0x1000, 0x1050});
+  ctx.scan.pdataSizes[0x1000] = 0x20;
+  ctx.scan.pdataSizes[0x1040] = 0x10;
+  ctx.graph.addFunction(0x1000, 0x20, rex::codegen::FunctionAuthority::PDATA, true);
+  ctx.graph.addFunction(0x1040, 0x10, rex::codegen::FunctionAuthority::PDATA, true);
+
+  auto result = rex::codegen::phases::Discover(ctx);
+  REQUIRE(result.has_value());
+  CHECK(ctx.graph.isEntryPoint(0x1018));
+}
+
 TEST_CASE("Discover follows fall-through after conditional bcctr",
           "[codegen][Discover][ControlFlow]") {
   constexpr std::array<uint8_t, 28> kConditionalCtrBranch = {
