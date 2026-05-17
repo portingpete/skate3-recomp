@@ -53,7 +53,9 @@ ReXApp::~ReXApp() = default;
 
 ReXApp::ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo ppc_info,
                std::string_view usage)
-    : WindowedApp(ctx, name, usage), ppc_info_(ppc_info) {}
+    : WindowedApp(ctx, name, usage), ppc_info_(ppc_info) {
+  AddPositionalOption("game_data_root");
+}
 
 bool ReXApp::OnInitialize() {
   if (!SetupEnvironment())
@@ -81,6 +83,8 @@ bool ReXApp::SetupEnvironment() {
   std::string game_data_cvar = REXCVAR_GET(game_data_root);
   if (!game_data_cvar.empty()) {
     game_dir = game_data_cvar;
+  } else if (auto game_data_arg = GetArgument("game_data_root")) {
+    game_dir = *game_data_arg;
   }
 
   // User data: cvar override, or platform user directory

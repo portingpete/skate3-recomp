@@ -50,6 +50,7 @@ add_executable(unit_tests
     rexglue/init_command_test.cpp
     rexglue/migration_scan_test.cpp
     rexglue/ui_test.cpp
+    ui/rex_app_test.cpp
 )
 
 target_sources(unit_tests PRIVATE
@@ -57,6 +58,7 @@ target_sources(unit_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/rexglue/commands/migration_scan.cpp
     ${PROJECT_SOURCE_DIR}/src/rexglue/ui/ui.cpp
     ${PROJECT_SOURCE_DIR}/src/rexglue/ui/progress.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/rex_app.cpp
 )
 
 target_include_directories(unit_tests PRIVATE
@@ -64,6 +66,10 @@ target_include_directories(unit_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/thirdparty/cli11/include
 )
+if(TARGET imgui)
+    target_include_directories(unit_tests PRIVATE
+        $<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>)
+endif()
 
 target_link_libraries(unit_tests PRIVATE
     rexcore
