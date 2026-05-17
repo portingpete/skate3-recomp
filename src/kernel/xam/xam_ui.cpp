@@ -638,14 +638,19 @@ u32 XamShowVoiceMailUI_entry() {
   return X_ERROR_SUCCESS;
 }
 
-uint32_t XamShowMessageBoxUIEx_entry() {
-  // TODO(tomc): implement properly
-  static bool warned = false;
-  if (!warned) {
-    REXKRNL_WARN("[STUB] XamShowMessageBoxUIEx - not implemented");
-    warned = true;
-  }
-  return 0;
+u32 XamShowMessageBoxUIEx_entry(u32 user_index, mapped_wstring title_ptr,
+                                mapped_wstring text_ptr, u32 button_count,
+                                mapped_u32 button_ptrs, u32 active_button, u32 flags,
+                                u32 unknown_unused, mapped_u32 result_ptr,
+                                mapped_void overlapped) {
+  REXKRNL_DEBUG(
+      "XamShowMessageBoxUIEx({:08X}, {:08X}, {:08X}, {:08X}, {:08X}, {:08X}, {:08X}, {:08X}, "
+      "{:08X}, {:08X})",
+      uint32_t(user_index), title_ptr.guest_address(), text_ptr.guest_address(),
+      uint32_t(button_count), button_ptrs.guest_address(), uint32_t(active_button), uint32_t(flags),
+      uint32_t(unknown_unused), result_ptr.guest_address(), overlapped.guest_address());
+  return XamShowMessageBoxUI_entry(user_index, title_ptr, text_ptr, button_count, button_ptrs,
+                                   active_button, flags, result_ptr, overlapped);
 }
 
 }  // namespace xam
