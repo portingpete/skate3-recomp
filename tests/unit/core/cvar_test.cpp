@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -314,6 +315,27 @@ TEST_CASE("cvar testing utilities", "[cvar]") {
     rex::cvar::testing::ResetAllForTesting();
     CHECK(REXCVAR_GET(test_int32_flag) == 42);  // Back to default
   }
+}
+
+TEST_CASE("cvar Init accepts hyphen aliases for underscore flags", "[cvar]") {
+  rex::cvar::testing::ResetAllForTesting();
+
+  std::vector<std::string> args = {"test.exe", "--test-string-flag", "from-cli",
+                                   "--test-bool-flag", "K:\\GameRoot"};
+  std::vector<char*> argv;
+  argv.reserve(args.size());
+  for (auto& arg : args) {
+    argv.push_back(arg.data());
+  }
+
+  auto remaining = rex::cvar::Init(static_cast<int>(argv.size()), argv.data());
+
+  REQUIRE(remaining.size() == 1);
+  CHECK(remaining[0] == "K:\\GameRoot");
+  CHECK(REXCVAR_GET(test_string_flag) == "from-cli");
+  CHECK(REXCVAR_GET(test_bool_flag));
+
+  rex::cvar::testing::ResetAllForTesting();
 }
 
 TEST_CASE("cvar TOML serialization", "[cvar]") {

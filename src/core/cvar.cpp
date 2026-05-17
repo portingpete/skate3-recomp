@@ -57,6 +57,33 @@ std::string FlagNameToEnvVar(std::string_view name) {
   return result;
 }
 
+std::string HyphenAlias(std::string_view name) {
+  std::string alias(name);
+  std::replace(alias.begin(), alias.end(), '_', '-');
+  return alias;
+}
+
+std::string BuildCliOptionNames(std::string_view name) {
+  std::string name_string(name);
+  std::string option_names = "--" + name_string;
+  std::string alias = HyphenAlias(name);
+  if (alias != name_string) {
+    option_names += ",--" + alias;
+  }
+  return option_names;
+}
+
+std::string BuildCliBoolOptionNames(std::string_view name) {
+  std::string name_string(name);
+  std::string option_names = BuildCliOptionNames(name);
+  option_names += ",!--no-" + name_string;
+  std::string alias = HyphenAlias(name);
+  if (alias != name_string) {
+    option_names += ",!--no-" + alias;
+  }
+  return option_names;
+}
+
 // Recursively apply TOML values
 void ApplyTomlTable(const toml::table& table, const std::string& prefix) {
   for (const auto& [key, value] : table) {
@@ -470,12 +497,12 @@ std::vector<std::string> Init(int argc, char** argv) {
   for (auto& entry : GetRegistryStorage()) {
     if (entry.type == FlagType::Boolean) {
       app.add_flag_function(
-          "--" + entry.name + ",!--no-" + entry.name,
+          BuildCliBoolOptionNames(entry.name),
           [&entry](int64_t count) { entry.setter(count > 0 ? "true" : "false"); },
           entry.description);
     } else {
       app.add_option_function<std::string>(
-          "--" + entry.name, [&entry](const std::string& val) { entry.setter(val); },
+          BuildCliOptionNames(entry.name), [&entry](const std::string& val) { entry.setter(val); },
           entry.description);
     }
   }
