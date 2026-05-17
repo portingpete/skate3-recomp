@@ -25,6 +25,27 @@ REXCVAR_DEFINE_STRING(hid_mappings_file, "gamecontrollerdb.txt", "Input",
 
 namespace rex::input::sdl {
 
+void LoadGamepadMappingsFromConfiguredFile() {
+  if (REXCVAR_GET(hid_mappings_file).empty()) {
+    return;
+  }
+
+  std::filesystem::path mappings_path(REXCVAR_GET(hid_mappings_file));
+  if (!std::filesystem::exists(mappings_path)) {
+    REXLOG_DEBUG("SDL GameControllerDB: file '{}' does not exist.",
+                 REXCVAR_GET(hid_mappings_file));
+    return;
+  }
+
+  auto mappings_result = SDL_AddGamepadMappingsFromFile(REXCVAR_GET(hid_mappings_file).c_str());
+  if (mappings_result < 0) {
+    REXLOG_ERROR("SDL GameControllerDB: error loading file '{}': {}.",
+                 REXCVAR_GET(hid_mappings_file), mappings_result);
+  } else {
+    REXLOG_INFO("SDL GameControllerDB: loaded {} mappings.", mappings_result);
+  }
+}
+
 SDLInputDriver::SDLInputDriver(rex::ui::Window* window, size_t window_z_order)
     : InputDriver(window, window_z_order),
       sdl_events_initialized_(false),
@@ -90,22 +111,7 @@ void SDLInputDriver::OnWindowAvailable(rex::ui::Window* window) {
       SDL_Gamepad_initialized_ = true;
 
       // Load custom controller mappings if available
-      if (!REXCVAR_GET(hid_mappings_file).empty()) {
-        std::filesystem::path mappings_path(REXCVAR_GET(hid_mappings_file));
-        if (!std::filesystem::exists(mappings_path)) {
-          REXLOG_WARN("SDL GameControllerDB: file '{}' does not exist.",
-                      REXCVAR_GET(hid_mappings_file));
-        } else {
-          auto mappings_result =
-              SDL_AddGamepadMappingsFromFile(REXCVAR_GET(hid_mappings_file).c_str());
-          if (mappings_result < 0) {
-            REXLOG_ERROR("SDL GameControllerDB: error loading file '{}': {}.",
-                         REXCVAR_GET(hid_mappings_file), mappings_result);
-          } else {
-            REXLOG_INFO("SDL GameControllerDB: loaded {} mappings.", mappings_result);
-          }
-        }
-      }
+      LoadGamepadMappingsFromConfiguredFile();
       REXLOG_INFO("SDL input driver initialized successfully");
     });
   }
