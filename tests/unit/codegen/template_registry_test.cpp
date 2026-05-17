@@ -80,6 +80,25 @@ TEST_CASE("TemplateRegistry: render with simple CLI data", "[TemplateRegistry]")
   CHECK(result.find("file_path = \"assets/default.xex\"") != std::string::npos);
 }
 
+TEST_CASE("Template: manifest_toml enables generated exception handlers by default",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "names": {"snake_case": "test_app"},
+    "sdk_version": "1.0.0",
+    "sdk_version_full": "1.0.0-test",
+    "generated_on": "2026-05-16T00:00:00Z",
+    "include_stamp": false,
+    "game_root": "",
+    "xex_path": "assets/default.xex",
+    "out_directory_path": "generated/default",
+    "modules": []
+  })";
+  std::string result = registry.render("init/manifest_toml", json);
+
+  CHECK(result.find("generate_exception_handlers = true") != std::string::npos);
+}
+
 TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
   std::string json = R"({
@@ -121,6 +140,36 @@ TEST_CASE("Template: rexglue target setup exposes source-tree ImGui includes",
   CHECK(result.find("if(TARGET imgui)") != std::string::npos);
   CHECK(result.find("$<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>") !=
         std::string::npos);
+}
+
+TEST_CASE("Template: rexglue target setup applies generated SEH compile options",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json =
+      R"({"sdk_version": "0.8.0", "entrypoint_out_dir": "generated/default", "names": {"snake_case": "mygame"}})";
+  std::string result = registry.render("init/rexglue_cmake", json);
+
+  CHECK(result.find("GENERATED_USES_SEH") != std::string::npos);
+  CHECK(result.find("CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL \"MSVC\"") !=
+        std::string::npos);
+  CHECK(result.find("target_compile_options(${target_name} PRIVATE /EHa)") !=
+        std::string::npos);
+  CHECK(result.find("target_compile_options(${target_name} PRIVATE -fexceptions)") !=
+        std::string::npos);
+}
+
+TEST_CASE("Template: sources_cmake records generated SEH usage", "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "project": "test_proj",
+    "generate_exception_handlers": true,
+    "has_dll_modules": false,
+    "is_dll": false,
+    "recomp_files": ["test_proj_recomp.0.cpp"]
+  })";
+  std::string result = registry.render("codegen/sources_cmake", json);
+
+  CHECK(result.find("set(GENERATED_USES_SEH ON)") != std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: render unknown ID throws TemplateError", "[TemplateRegistry]") {

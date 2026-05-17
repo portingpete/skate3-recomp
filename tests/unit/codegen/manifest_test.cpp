@@ -56,6 +56,37 @@ includes = []
   CHECK(result->modules.empty());
 }
 
+TEST_CASE("Manifest: inline binaries default generated exception handlers on",
+          "[codegen][manifest][seh]") {
+  TempDir tmp;
+  tmp.writeFile("manifest.toml", R"(
+[project]
+name = "mygame"
+
+[entrypoint]
+file_path = "assets/default.xex"
+out_directory_path = "generated/default"
+
+[[modules]]
+guest_path = "bin/lib_a.dll"
+file_path = "assets/lib_a.dll"
+out_directory_path = "generated/lib_a"
+
+[[modules]]
+guest_path = "bin/lib_b.dll"
+file_path = "assets/lib_b.dll"
+out_directory_path = "generated/lib_b"
+generate_exception_handlers = false
+  )");
+
+  auto result = rex::codegen::ManifestConfig::Load(tmp.path / "manifest.toml");
+  REQUIRE(result.has_value());
+  CHECK(result->entrypoint.recompiler.generateExceptionHandlers == true);
+  REQUIRE(result->modules.size() == 2u);
+  CHECK(result->modules[0].recompiler.generateExceptionHandlers == true);
+  CHECK(result->modules[1].recompiler.generateExceptionHandlers == false);
+}
+
 TEST_CASE("Manifest: IsManifest detection", "[codegen][manifest]") {
   TempDir tmp;
   tmp.writeFile("manifest.toml",

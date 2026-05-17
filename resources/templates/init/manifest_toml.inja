@@ -11,11 +11,13 @@ game_root = "{{ game_root }}"
 [entrypoint]
 file_path = "{{ xex_path }}"
 out_directory_path = "{{ out_directory_path }}"
+generate_exception_handlers = true
 includes = []
 {% for m in modules %}
 [[modules]]
 guest_path = "{{ m.guest_path }}"
 file_path = "{{ m.file_path }}"
 out_directory_path = "{{ m.out_directory_path }}"
+generate_exception_handlers = true
 includes = []
 {% endfor -%}

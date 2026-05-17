@@ -51,6 +51,27 @@ static fs::path WriteIncludeChain(const fs::path& dir, uint32_t length) {
 // Test 1: Scalar override -- last (top-level) wins
 // ---------------------------------------------------------------------------
 
+TEST_CASE("Config defaults generated exception handlers on unless explicitly disabled",
+          "[codegen][config][seh]") {
+  auto tmp = fs::temp_directory_path() / "rex_cfg_seh_default";
+  fs::remove_all(tmp);
+  fs::create_directories(tmp);
+
+  WriteTempToml(tmp, "default.toml", "file_path = \"game.xex\"\n");
+  rex::codegen::RecompilerConfig cfg;
+  REQUIRE(cfg.Load((tmp / "default.toml").string()));
+  CHECK(cfg.generateExceptionHandlers == true);
+
+  WriteTempToml(tmp, "disabled.toml",
+                "file_path = \"game.xex\"\n"
+                "generate_exception_handlers = false\n");
+  rex::codegen::RecompilerConfig disabled;
+  REQUIRE(disabled.Load((tmp / "disabled.toml").string()));
+  CHECK(disabled.generateExceptionHandlers == false);
+
+  fs::remove_all(tmp);
+}
+
 TEST_CASE("Config scalar override - last wins", "[codegen][config]") {
   auto tmp = fs::temp_directory_path() / "rex_cfg_scalar";
   fs::remove_all(tmp);
