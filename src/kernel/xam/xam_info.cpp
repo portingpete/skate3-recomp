@@ -281,7 +281,8 @@ void XamLoaderLaunchTitle_entry(mapped_string raw_name_ptr, u32 flags) {
       loader_data.launch_path = path;
     }
   } else {
-    assert_always("Game requested exit to dashboard via XamLoaderLaunchTitle");
+    REXKRNL_DEBUG("XamLoaderLaunchTitle: dashboard exit requested");
+    loader_data.launch_path.clear();
   }
 
   // This function does not return.
