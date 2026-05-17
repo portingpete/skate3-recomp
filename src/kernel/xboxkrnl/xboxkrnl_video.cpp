@@ -90,7 +90,6 @@ REX_EXPORT_STUB(__imp__VdGenerateGPUCSCCoefficients);
 REX_EXPORT_STUB(__imp__VdGetClosedCaptionReadyStatus);
 REX_EXPORT_STUB(__imp__VdGetDisplayModeOverride);
 REX_EXPORT_STUB(__imp__VdInitializeScaler);
-REX_EXPORT_STUB(__imp__VdQuerySystemCommandBuffer);
 REX_EXPORT_STUB(__imp__VdReadDVERegisterUlong);
 REX_EXPORT_STUB(__imp__VdReadWriteHSIOCalibrationFlag);
 REX_EXPORT_STUB(__imp__VdRegisterGraphicsNotification);
@@ -101,7 +100,6 @@ REX_EXPORT_STUB(__imp__VdSetColorProfileAdjustment);
 REX_EXPORT_STUB(__imp__VdSetCscMatricesOverride);
 REX_EXPORT_STUB(__imp__VdSetHDCPOption);
 REX_EXPORT_STUB(__imp__VdSetMacrovisionOption);
-REX_EXPORT_STUB(__imp__VdSetSystemCommandBuffer);
 REX_EXPORT_STUB(__imp__VdSetWSSData);
 REX_EXPORT_STUB(__imp__VdSetWSSOption);
 REX_EXPORT_STUB(__imp__VdTurnDisplayOff);
@@ -343,6 +341,16 @@ void VdGetSystemCommandBuffer_entry(mapped_void p0_ptr, mapped_void p1_ptr) {
   memory::store_and_swap<uint32_t>(p1_ptr, 0xBEEF0001);
 }
 
+u32 VdQuerySystemCommandBuffer_entry(u32 selector) {
+  REXKRNL_DEBUG("VdQuerySystemCommandBuffer(selector={}) - unavailable", selector);
+  return 0;
+}
+
+void VdSetSystemCommandBuffer_entry(mapped_void buffer_ptr) {
+  REXKRNL_DEBUG("VdSetSystemCommandBuffer(buffer=0x{:08X}) - ignored",
+                buffer_ptr.guest_address());
+}
+
 void VdSetSystemCommandBufferGpuIdentifierAddress_entry(mapped_void unk) {
   // r3 = 0x2B10(d3d?) + 8
 }
@@ -558,7 +566,11 @@ REX_EXPORT(__imp__VdSetGraphicsInterruptCallback,
 REX_EXPORT(__imp__VdInitializeRingBuffer, rex::kernel::xboxkrnl::VdInitializeRingBuffer_entry)
 REX_EXPORT(__imp__VdEnableRingBufferRPtrWriteBack,
            rex::kernel::xboxkrnl::VdEnableRingBufferRPtrWriteBack_entry)
+REX_EXPORT(__imp__VdQuerySystemCommandBuffer,
+           rex::kernel::xboxkrnl::VdQuerySystemCommandBuffer_entry)
 REX_EXPORT(__imp__VdGetSystemCommandBuffer, rex::kernel::xboxkrnl::VdGetSystemCommandBuffer_entry)
+REX_EXPORT(__imp__VdSetSystemCommandBuffer,
+           rex::kernel::xboxkrnl::VdSetSystemCommandBuffer_entry)
 REX_EXPORT(__imp__VdSetSystemCommandBufferGpuIdentifierAddress,
            rex::kernel::xboxkrnl::VdSetSystemCommandBufferGpuIdentifierAddress_entry)
 REX_EXPORT(__imp__VdInitializeScalerCommandBuffer,
