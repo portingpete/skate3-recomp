@@ -17,6 +17,7 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/hook.h>
+#include <rex/string/utf8.h>
 #include <rex/types.h>
 #include <rex/system/info/file.h>
 #include <rex/system/kernel_state.h>
@@ -53,6 +54,27 @@ struct CreateOptions {
   // Optimization - file access will be random, not sequential.
   static const uint32_t FILE_RANDOM_ACCESS = 0x00000800;
 };
+
+namespace {
+
+bool IsExpectedRelativeOptionsWriteProbe(X_STATUS status, std::string_view target_path,
+                                         u32 root_directory, u32 desired_access,
+                                         u32 file_attributes, u32 share_access,
+                                         u32 creation_disposition, u32 create_options) {
+  constexpr u32 kObDosDevices = 0xFFFFFFFDu;
+  constexpr u32 kBfme2OptionsWriteAccess = 0x40100080u;
+  constexpr u32 kBfme2OptionsWriteOptions =
+      CreateOptions::FILE_SYNCHRONOUS_IO_NONALERT | CreateOptions::FILE_NON_DIRECTORY_FILE;
+
+  return status == X_STATUS_ACCESS_DENIED && root_directory == kObDosDevices &&
+         desired_access == kBfme2OptionsWriteAccess &&
+         file_attributes == X_FILE_ATTRIBUTE_NORMAL && share_access == 3 &&
+         creation_disposition == static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf) &&
+         create_options == kBfme2OptionsWriteOptions &&
+         rex::string::utf8_equal_case(target_path, "Options.ini");
+}
+
+}  // namespace
 
 static bool IsValidPath(const std::string_view s, bool is_pattern) {
   // TODO(gibbed): validate path components individually
@@ -179,7 +201,10 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
 
   *handle_out = handle;
   if (XFAILED(result)) {
-    if (IsExpectedFileOpenMiss(result)) {
+    if (IsExpectedFileOpenMiss(result) ||
+        IsExpectedRelativeOptionsWriteProbe(result, target_path, object_attrs->root_directory,
+                                            desired_access, file_attributes, share_access,
+                                            creation_disposition, create_options)) {
       REXKRNL_IMPORT_WARN("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
     } else {
       REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
