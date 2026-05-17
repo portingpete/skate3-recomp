@@ -93,6 +93,7 @@ catch_discover_tests(unit_tests
 )
 
 add_executable(runtime_unit_tests
+    kernel/xboxkrnl_io_runtime_test.cpp
     kernel/rtl_raise_exception_test.cpp
     kernel/xboxkrnl_ob_runtime_test.cpp
     kernel/xam_info_test.cpp

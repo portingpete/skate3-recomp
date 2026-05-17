@@ -736,12 +736,12 @@ u32 IoCreateDevice_entry(u32 device_struct, u32 r4, u32 r5, u32 r6, u32 r7, mapp
 }
 
 u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
-  REXKRNL_WARN("IoDismountVolumeByFileHandle({:#x}) - stub", (uint32_t)handle);
+  REXKRNL_IMPORT_TRACE("IoDismountVolumeByFileHandle", "handle={:#x}", (uint32_t)handle);
   return X_STATUS_SUCCESS;
 }
 
 u32 IoDismountVolumeByName_entry(ppc_ptr_t<X_ANSI_STRING> name) {
-  REXKRNL_WARN("IoDismountVolumeByName - stub");
+  REXKRNL_IMPORT_TRACE("IoDismountVolumeByName", "name={:#x}", name.guest_address());
   return X_STATUS_SUCCESS;
 }
 
@@ -796,14 +796,19 @@ u32 IoSynchronousDeviceIoControlRequest_entry(u32 ioctl, mapped_void device_obje
 }
 
 u32 StfsCreateDevice_entry(mapped_void device_object, u32 flags, mapped_u32 out_device) {
-  REXKRNL_WARN("StfsCreateDevice - stub");
+  REXKRNL_IMPORT_TRACE("StfsCreateDevice", "device={:#x} flags={:#x} out={:#x}",
+                       device_object.guest_address(), (uint32_t)flags, out_device.guest_address());
   // if (out_device) *out_device = 0;
   return X_STATUS_SUCCESS;
 }
 
 u32 StfsControlDevice_entry(mapped_void device_object, u32 ioctl, mapped_void input_buffer,
                             u32 input_length, mapped_void output_buffer, u32 output_length) {
-  REXKRNL_WARN("StfsControlDevice({:#x}) - stub", (uint32_t)ioctl);
+  REXKRNL_IMPORT_TRACE("StfsControlDevice",
+                       "device={:#x} ioctl={:#x} input={:#x}/{} output={:#x}/{}",
+                       device_object.guest_address(), (uint32_t)ioctl,
+                       input_buffer.guest_address(), (uint32_t)input_length,
+                       output_buffer.guest_address(), (uint32_t)output_length);
   return X_STATUS_SUCCESS;
 }
 
