@@ -57,6 +57,24 @@ ReXApp::ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo 
   AddPositionalOption("game_data_root");
 }
 
+std::filesystem::path ReXApp::ResolveDefaultUpdateDataRoot(
+    const std::filesystem::path& game_data_root, std::string_view update_data_root) {
+  if (!update_data_root.empty()) {
+    return std::filesystem::path(std::string(update_data_root));
+  }
+
+  if (game_data_root.empty()) {
+    return {};
+  }
+
+  auto update_dir = game_data_root / "update";
+  std::error_code ec;
+  if (std::filesystem::is_directory(update_dir, ec)) {
+    return update_dir;
+  }
+  return {};
+}
+
 bool ReXApp::OnInitialize() {
   if (!SetupEnvironment())
     return false;
@@ -96,12 +114,9 @@ bool ReXApp::SetupEnvironment() {
     user_dir = rex::filesystem::GetUserFolder() / GetName();
   }
 
-  // Update data: cvar override, or empty (opt-in)
-  std::filesystem::path update_dir;
+  // Update data: cvar override, or an update folder next to the game files.
   std::string update_data_cvar = REXCVAR_GET(update_data_root);
-  if (!update_data_cvar.empty()) {
-    update_dir = update_data_cvar;
-  }
+  std::filesystem::path update_dir = ResolveDefaultUpdateDataRoot(game_dir, update_data_cvar);
 
   // Cache: cvar override, or user_dir/cache
   std::filesystem::path cache_dir;

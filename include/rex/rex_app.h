@@ -189,6 +189,9 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// Set a callback that provides guest frame stats to the debug overlay.
   void SetGuestFrameStats(ui::DebugOverlayDialog::FrameStatsProvider provider);
 
+  static std::filesystem::path ResolveDefaultUpdateDataRoot(
+      const std::filesystem::path& game_data_root, std::string_view update_data_root);
+
  private:
   std::function<void(PathConfig)> MakeResumeCallback();
 
