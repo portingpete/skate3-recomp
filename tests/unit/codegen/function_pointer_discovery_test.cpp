@@ -1,4 +1,5 @@
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -404,6 +405,35 @@ TEST_CASE("GapFill splits uncovered code after unconditional bctr", "[codegen][G
   auto result = rex::codegen::phases::GapFill(ctx);
   REQUIRE(result.has_value());
   CHECK(ctx.graph.isEntryPoint(0x1004));
+}
+
+TEST_CASE("GapFill cleanup scales across many independent speculative entries",
+          "[codegen][GapFill]") {
+  constexpr std::array<uint8_t, 4> kEmptyText = {
+      0x00, 0x00, 0x00, 0x00,
+  };
+
+  auto binary = MakeBinaryView(0x1000, kEmptyText);
+  rex::codegen::RecompilerConfig config;
+  auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
+  ctx.initDecoded();
+
+  constexpr uint32_t kBase = 0x82000000;
+  constexpr uint32_t kGapCount = 12000;
+  constexpr uint32_t kStride = 0x10;
+  for (uint32_t i = 0; i < kGapCount; ++i) {
+    ctx.graph.addFunction(kBase + i * kStride, 4, rex::codegen::FunctionAuthority::GAP_FILL,
+                          false);
+  }
+
+  const auto start = std::chrono::steady_clock::now();
+  auto result = rex::codegen::phases::GapFill(ctx);
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
+  REQUIRE(result.has_value());
+  CHECK(ctx.graph.functionCount() == kGapCount);
+  CHECK(elapsedMs < 1000);
 }
 
 TEST_CASE("GapFill does not promote discovered absolute jump table data",

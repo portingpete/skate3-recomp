@@ -11,7 +11,9 @@
 
 #include "ppc/instruction.h"
 
+#include <algorithm>
 #include <unordered_set>
+#include <vector>
 
 #include <rex/codegen/phases.h>
 #include "phase_helpers.h"
@@ -203,27 +205,85 @@ void gapFillCodeRegions(CodegenContext& ctx) {
 // Cleanup absorbed GAP_FILL functions
 //=============================================================================
 
+struct FunctionOwnershipInterval {
+  uint32_t start = 0;
+  uint32_t end = 0;
+  uint32_t base = 0;
+  const FunctionNode* node = nullptr;
+  FunctionAuthority authority = FunctionAuthority::GAP_FILL;
+};
+
+void appendOwnershipIntervals(const FunctionNode& node,
+                              std::vector<FunctionOwnershipInterval>& intervals) {
+  auto appendRange = [&](uint32_t start, uint32_t end) {
+    if (end <= start) {
+      return;
+    }
+
+    intervals.push_back({
+        .start = start,
+        .end = end,
+        .base = node.base(),
+        .node = &node,
+        .authority = node.authority(),
+    });
+  };
+
+  for (const auto& block : node.blocks()) {
+    appendRange(block.base, block.base + block.size);
+  }
+
+  if (node.blocks().empty() || node.authority() == FunctionAuthority::CONFIG ||
+      node.authority() == FunctionAuthority::PDATA) {
+    appendRange(node.base(), node.end());
+  }
+}
+
 void cleanupAbsorbedGapFills(CodegenContext& ctx) {
   auto& graph = ctx.graph;
   std::vector<uint32_t> toRemove;
+  std::vector<const FunctionNode*> gapFills;
+  std::vector<FunctionOwnershipInterval> intervals;
 
   for (const auto& [addr, node] : graph.functions()) {
-    if (node->authority() != FunctionAuthority::GAP_FILL)
-      continue;
+    appendOwnershipIntervals(*node, intervals);
+    if (node->authority() == FunctionAuthority::GAP_FILL) {
+      gapFills.push_back(node.get());
+    }
+  }
 
-    for (const auto& [otherAddr, otherNode] : graph.functions()) {
-      if (otherAddr == addr)
-        continue;
-      if (!otherNode->containsAddress(addr))
-        continue;
+  std::sort(intervals.begin(), intervals.end(),
+            [](const FunctionOwnershipInterval& a, const FunctionOwnershipInterval& b) {
+              if (a.start != b.start) {
+                return a.start < b.start;
+              }
+              return a.end < b.end;
+            });
+  std::sort(gapFills.begin(), gapFills.end(),
+            [](const FunctionNode* a, const FunctionNode* b) { return a->base() < b->base(); });
 
-      // This GAP_FILL is inside another function's blocks
-      if (otherNode->authority() != FunctionAuthority::GAP_FILL) {
-        // Absorbed by higher authority - remove
-        toRemove.push_back(addr);
-        break;
-      } else if (otherAddr < addr) {
-        // Both GAP_FILL, other has lower address - it survives
+  std::vector<const FunctionOwnershipInterval*> active;
+  active.reserve(64);
+  size_t nextInterval = 0;
+
+  for (const FunctionNode* gap : gapFills) {
+    const uint32_t addr = gap->base();
+
+    while (nextInterval < intervals.size() && intervals[nextInterval].start <= addr) {
+      active.push_back(&intervals[nextInterval]);
+      ++nextInterval;
+    }
+
+    std::erase_if(active, [addr](const FunctionOwnershipInterval* interval) {
+      return interval->end <= addr;
+    });
+
+    for (const FunctionOwnershipInterval* interval : active) {
+      if (interval->node == gap) {
+        continue;
+      }
+
+      if (interval->authority != FunctionAuthority::GAP_FILL || interval->base < addr) {
         toRemove.push_back(addr);
         break;
       }
