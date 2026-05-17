@@ -237,6 +237,22 @@ TEST_CASE("MigrationScan: ScanSourceIncludeRewrites handles CRLF include lines",
         std::string::npos);
 }
 
+TEST_CASE("MigrationScan: ScanSourceIncludeRewrites updates removed PPC memory include",
+          "[rexglue][migration_scan]") {
+  TempProject tp;
+  tp.writeFile("src/hooks.cpp",
+               "#include \"mygame_init.h\"\n"
+               "#include <rex/ppc/memory.h>\n"
+               "int main() { return 0; }\n");
+
+  auto entries = rexglue::cli::ScanSourceIncludeRewrites(tp.root, "mygame");
+  REQUIRE(entries.size() == 1u);
+  CHECK(entries[0].path == tp.root / "src" / "hooks.cpp");
+  CHECK(entries[0].rendered_content.find("#include <rex/memory.h>") != std::string::npos);
+  CHECK(entries[0].rendered_content.find("rex/ppc/memory.h") == std::string::npos);
+  CHECK(entries[0].rendered_content.find("int main()") != std::string::npos);
+}
+
 // ---------------------------------------------------------------------------
 // Stale include warnings
 // ---------------------------------------------------------------------------
@@ -328,6 +344,36 @@ TEST_CASE("MigrationScan: ScanLegacyIdentifiers rewrites whole-token PPC_FUNC to
   CHECK(entry.rendered_content.find("REX_LOAD_U32") != std::string::npos);
   CHECK(entry.rendered_content.find("PPC_FUNC") == std::string::npos);
   CHECK(entry.rendered_content.find("PPC_LOAD_U32") == std::string::npos);
+}
+
+TEST_CASE("MigrationScan: ScanLegacyIdentifiers rewrites legacy physical-write helper",
+          "[rexglue][migration_scan]") {
+  TempProject tp("migration_legacy_kernel_state");
+  tp.writeFile("src/hook.cpp",
+               "bool DccPreparePhysicalWriteAccess(PPCContext& ctx, uint32_t guest_addr, "
+               "uint32_t byte_count) {\n"
+               "  if (!ctx.kernel_state || !ctx.kernel_state->memory()) {\n"
+               "    return false;\n"
+               "  }\n"
+               "  return ctx.kernel_state->memory()->PreparePhysicalWriteAccess(guest_addr, "
+               "byte_count);\n"
+               "}\n");
+
+  auto findings = rexglue::cli::ScanLegacyIdentifiers(tp.root);
+  REQUIRE(findings.warnings.empty());
+  REQUIRE(findings.rewrites.size() == 1u);
+  CHECK(findings.rewrites[0].rendered_content.find("ctx.kernel_state") == std::string::npos);
+  CHECK(findings.rewrites[0].rendered_content.find("->PreparePhysicalWriteAccess") ==
+        std::string::npos);
+  CHECK(findings.rewrites[0].rendered_content.find("[[maybe_unused]] PPCContext& ctx") !=
+        std::string::npos);
+  CHECK(findings.rewrites[0].rendered_content.find("rex::system::kernel_state()") !=
+        std::string::npos);
+  CHECK(findings.rewrites[0].rendered_content.find("TriggerPhysicalMemoryCallbacks(") !=
+        std::string::npos);
+  CHECK(findings.rewrites[0].rendered_content.find("rex::thread::global_critical_region::"
+                                                   "AcquireDirect()") !=
+        std::string::npos);
 }
 
 TEST_CASE("MigrationScan: ScanLegacyIdentifiers leaves non-matching prefixes alone",

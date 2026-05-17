@@ -50,14 +50,25 @@ ActionStrings ActionStringsFor(OverwriteAction action) {
   return {"Touched", "?     "};
 }
 
+fs::path ProjectDirOrCurrent(fs::path project_dir) {
+  if (!project_dir.empty())
+    return project_dir;
+  std::error_code ec;
+  auto cwd = fs::current_path(ec);
+  return ec ? fs::path(".") : cwd;
+}
+
 bool ApplyEntry(const OverwriteEntry& entry) {
   std::error_code ec;
   switch (entry.action) {
     case OverwriteAction::Write: {
-      fs::create_directories(entry.path.parent_path(), ec);
-      if (ec) {
-        REXLOG_ERROR("Failed to create directory for {}: {}", entry.path.string(), ec.message());
-        return false;
+      auto parent = entry.path.parent_path();
+      if (!parent.empty()) {
+        fs::create_directories(parent, ec);
+        if (ec) {
+          REXLOG_ERROR("Failed to create directory for {}: {}", entry.path.string(), ec.message());
+          return false;
+        }
       }
       return write_file_atomic(entry.path, entry.rendered_content);
     }
@@ -121,6 +132,7 @@ void EmitManualReview(std::span<const MigrationWarning> warnings, std::string_vi
 MigrationFindings ScanProjectMigrations(const fs::path& project_dir, std::string_view project_name,
                                         std::string_view sdk_version,
                                         std::string_view entrypoint_out_dir) {
+  const fs::path project_root = ProjectDirOrCurrent(project_dir);
   MigrationFindings out;
   auto add_rewrites = [&](std::vector<OverwriteEntry> entries) {
     out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(entries.begin()),
@@ -131,12 +143,12 @@ MigrationFindings ScanProjectMigrations(const fs::path& project_dir, std::string
                         std::make_move_iterator(entries.end()));
   };
 
-  add_rewrites(ScanSdkTemplateDrift(project_dir, project_name, sdk_version, entrypoint_out_dir));
-  add_rewrites(ScanSourceIncludeRewrites(project_dir, project_name));
-  auto idents = ScanLegacyIdentifiers(project_dir);
+  add_rewrites(ScanSdkTemplateDrift(project_root, project_name, sdk_version, entrypoint_out_dir));
+  auto idents = ScanLegacyIdentifiers(project_root);
   add_rewrites(std::move(idents.rewrites));
   add_warnings(std::move(idents.warnings));
-  add_warnings(ScanCallSitePatterns(project_dir));
+  add_rewrites(ScanSourceIncludeRewrites(project_root, project_name));
+  add_warnings(ScanCallSitePatterns(project_root));
   return out;
 }
 
@@ -343,8 +355,8 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
       }
 
       auto cmake_rewrites =
-          ScanCmakeReferences(legacy_path.parent_path(), legacy_path.filename().string(),
-                              manifest_path.filename().string());
+          ScanCmakeReferences(ProjectDirOrCurrent(legacy_path.parent_path()),
+                              legacy_path.filename().string(), manifest_path.filename().string());
       post_plan.insert(post_plan.end(), std::make_move_iterator(cmake_rewrites.begin()),
                        std::make_move_iterator(cmake_rewrites.end()));
 

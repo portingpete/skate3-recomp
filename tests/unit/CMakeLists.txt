@@ -3,6 +3,7 @@
 add_executable(unit_tests
     audio/audio_system_test.cpp
     memory/heap_allocation_test.cpp
+    memory/ppc_memory_compat_test.cpp
     kernel/object_table_test.cpp
     kernel/ldi_decompression_test.cpp
     kernel/xboxkrnl_audio_test.cpp
@@ -45,11 +46,13 @@ add_executable(unit_tests
     system/guest_path_test.cpp
     system/function_dispatcher_test.cpp
     codegen/manifest_test.cpp
+    rexglue/codegen_command_test.cpp
     rexglue/migration_scan_test.cpp
     rexglue/ui_test.cpp
 )
 
 target_sources(unit_tests PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/rexglue/commands/legacy_config.cpp
     ${PROJECT_SOURCE_DIR}/src/rexglue/commands/migration_scan.cpp
     ${PROJECT_SOURCE_DIR}/src/rexglue/ui/ui.cpp
     ${PROJECT_SOURCE_DIR}/src/rexglue/ui/progress.cpp
@@ -58,6 +61,7 @@ target_sources(unit_tests PRIVATE
 target_include_directories(unit_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/thirdparty/cli11/include
 )
 
 target_link_libraries(unit_tests PRIVATE

@@ -182,6 +182,10 @@ constexpr BreakingChangeRule kRules[] = {
     {"cache_path", "cache_root", "renamed: cache_path cvar -> cache_root"},
 };
 
+constexpr std::pair<std::string_view, std::string_view> kIncludePathRules[] = {
+    {"rex/ppc/memory.h", "rex/memory.h"},
+};
+
 bool ConfirmSingleArgAllocateThunk(std::string_view line) {
   auto name_pos = line.find("AllocateThunk");
   if (name_pos == std::string_view::npos)
@@ -241,6 +245,42 @@ struct IdentifierScanResult {
   std::set<std::string> applied_reasons;
 };
 
+void ApplySourceTextRewrite(std::string& content, std::string_view legacy,
+                            std::string_view replacement, std::string_view reason,
+                            std::set<std::string>& applied_reasons) {
+  std::size_t pos = 0;
+  while ((pos = content.find(legacy, pos)) != std::string::npos) {
+    content.replace(pos, legacy.size(), replacement);
+    pos += replacement.size();
+    applied_reasons.insert(std::string(reason));
+  }
+}
+
+void ApplyLegacySourceTextRules(std::string& content, std::set<std::string>& applied_reasons) {
+  static constexpr std::string_view kLegacyDccPhysicalWriteHelper =
+      "bool DccPreparePhysicalWriteAccess(PPCContext& ctx, uint32_t guest_addr, uint32_t "
+      "byte_count) {\n"
+      "  if (!ctx.kernel_state || !ctx.kernel_state->memory()) {\n"
+      "    return false;\n"
+      "  }\n"
+      "  return ctx.kernel_state->memory()->PreparePhysicalWriteAccess(guest_addr, byte_count);\n"
+      "}";
+  static constexpr std::string_view kCurrentDccPhysicalWriteHelper =
+      "bool DccPreparePhysicalWriteAccess([[maybe_unused]] PPCContext& ctx, uint32_t guest_addr,\n"
+      "                                   uint32_t byte_count) {\n"
+      "  auto* kernel_state = rex::system::kernel_state();\n"
+      "  if (!kernel_state || !kernel_state->memory()) {\n"
+      "    return false;\n"
+      "  }\n"
+      "  return kernel_state->memory()->TriggerPhysicalMemoryCallbacks(\n"
+      "      rex::thread::global_critical_region::AcquireDirect(), guest_addr, byte_count, true, "
+      "false,\n"
+      "      true);\n"
+      "}";
+  ApplySourceTextRewrite(content, kLegacyDccPhysicalWriteHelper, kCurrentDccPhysicalWriteHelper,
+                         "rewrote legacy physical-write prepare helper", applied_reasons);
+}
+
 IdentifierScanResult ApplyIdentifierRules(const fs::path& path, std::string_view content,
                                           const RuleIndex& rules,
                                           std::vector<MigrationWarning>& warnings) {
@@ -289,6 +329,7 @@ IdentifierScanResult ApplyIdentifierRules(const fs::path& path, std::string_view
                         std::string(content.substr(line_start, line_end - line_start)),
                         fmt::format("legacy identifier: {}", tok), std::string(rule.reason)});
   }
+  ApplyLegacySourceTextRules(result.content, result.applied_reasons);
   return result;
 }
 
@@ -376,6 +417,7 @@ std::vector<OverwriteEntry> ScanSourceIncludeRewrites(const fs::path& project_ro
   std::string old_basename_lc = ToLower(names.snake_case + "_config.h");
   std::string new_basename = names.snake_case + "_init.h";
   std::string new_basename_lc = ToLower(new_basename);
+  RuleIndex legacy_rule_index = BuildRuleIndex(DefaultBreakingChangeRules());
 
   static const std::regex include_re(R"(^(\s*#\s*include\s*[<"])([^>"]+)([>"][^\r\n]*\r?)$)");
   auto extract_target = [&](const std::string& line) -> std::optional<std::string> {
@@ -426,6 +468,19 @@ std::vector<OverwriteEntry> ScanSourceIncludeRewrites(const fs::path& project_ro
       };
 
       if (!target || ToLower(ExtractIncludeBasename(*target)) != old_basename_lc) {
+        if (target) {
+          std::string target_lc = ToLower(std::string(*target));
+          auto rule = std::find_if(std::begin(kIncludePathRules), std::end(kIncludePathRules),
+                                   [&](const auto& r) { return target_lc == r.first; });
+          if (rule != std::end(kIncludePathRules)) {
+            std::smatch m;
+            if (std::regex_search(line, m, include_re)) {
+              append_line(m[1].str() + std::string(rule->second) + m[3].str());
+              changed = true;
+              continue;
+            }
+          }
+        }
         append_line(line);
         continue;
       }
@@ -451,6 +506,11 @@ std::vector<OverwriteEntry> ScanSourceIncludeRewrites(const fs::path& project_ro
 
     if (!changed)
       return;
+    std::vector<MigrationWarning> ignored_warnings;
+    auto legacy = ApplyIdentifierRules(path, out, legacy_rule_index, ignored_warnings);
+    if (!legacy.applied_reasons.empty()) {
+      out = std::move(legacy.content);
+    }
     entries.push_back(
         {path, std::move(out), OverwriteAction::Write, /*silent=*/false,
          fmt::format("{}_config.h -> {}_init.h", names.snake_case, names.snake_case)});
