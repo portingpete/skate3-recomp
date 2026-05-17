@@ -8,6 +8,7 @@ add_executable(unit_tests
     kernel/xboxkrnl_audio_test.cpp
     kernel/xboxkrnl_device_request_test.cpp
     kernel/xboxkrnl_memory_test.cpp
+    kernel/xboxkrnl_modules_test.cpp
     kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_video_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp
