@@ -15,6 +15,7 @@
 #include <rex/logging/sink.h>
 #include <rex/memory.h>
 #include <rex/runtime.h>
+#include <rex/system/info/file.h>
 #include <rex/system/xtypes.h>
 #include <rex/system/xio.h>
 #include <rex/types.h>
@@ -30,6 +31,9 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
                        ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
                        mapped_u64 allocation_size_ptr, u32 file_attributes, u32 share_access,
                        u32 creation_disposition, u32 create_options);
+u32 NtQueryFullAttributesFile_entry(
+    ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> object_attrs,
+    ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION> file_info);
 u32 StfsCreateDevice_entry(mapped_void device_object, u32 flags, mapped_u32 out_device);
 u32 StfsControlDevice_entry(mapped_void device_object, u32 ioctl, mapped_void input_buffer,
                             u32 input_buffer_size, mapped_void output_buffer,
@@ -55,6 +59,10 @@ bool IsVfsEntryNotFoundLog(std::string_view text) {
          text.find("game:\\data") != std::string_view::npos;
 }
 
+bool IsShaderDumpProbeLog(std::string_view text) {
+  return text.find("ShaderDumpxe:\\CompareBackEnds") != std::string_view::npos;
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -70,6 +78,63 @@ u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   return string_guest;
 }
 }  // namespace
+
+TEST_CASE("Shader dump backend probes miss devices without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_shaderdump_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "ShaderDumpxe:\\CompareBackEnds");
+
+  rex::system::X_OBJECT_ATTRIBUTES attrs{};
+  attrs.root_directory = 0;
+  attrs.name_ptr = path_guest;
+  attrs.attributes = 0x40;
+
+  rex::system::X_FILE_NETWORK_OPEN_INFORMATION file_info{};
+
+  CHECK(rex::kernel::xboxkrnl::NtQueryFullAttributesFile_entry(
+            ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+            ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION>(&file_info, 0x40003000)) ==
+        X_STATUS_NO_SUCH_FILE);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto fs_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsShaderDumpProbeLog(entry.text);
+      });
+  const auto fs_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               entry.text.find("ignored shader dump probe") != std::string_view::npos;
+      });
+
+  CHECK(fs_debug_count == 1);
+  CHECK(fs_warning_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
 
 TEST_CASE("NtCreateFile missing file probes return not-found without warning",
           "[runtime][kernel][xboxkrnl][io]") {
