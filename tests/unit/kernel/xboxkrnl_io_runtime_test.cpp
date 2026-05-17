@@ -1,20 +1,35 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstring>
+#include <filesystem>
 #include <string_view>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <rex/cvar.h>
+#include <rex/filesystem/entry.h>
+#include <rex/kernel/init.h>
 #include <rex/logging.h>
 #include <rex/logging/sink.h>
+#include <rex/memory.h>
+#include <rex/runtime.h>
 #include <rex/system/xtypes.h>
 #include <rex/system/xio.h>
 #include <rex/types.h>
 
+using rex::X_HANDLE;
+using rex::X_STATUS;
+
 namespace rex::kernel::xboxkrnl {
 u32 IoDismountVolumeByFileHandle_entry(u32 handle);
 u32 IoDismountVolumeByName_entry(ppc_ptr_t<rex::system::X_ANSI_STRING> name);
+u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
+                       ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> object_attrs,
+                       ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                       mapped_u64 allocation_size_ptr, u32 file_attributes, u32 share_access,
+                       u32 creation_disposition, u32 create_options);
 u32 StfsCreateDevice_entry(mapped_void device_object, u32 flags, mapped_u32 out_device);
 u32 StfsControlDevice_entry(mapped_void device_object, u32 ioctl, mapped_void input_buffer,
                             u32 input_buffer_size, mapped_void output_buffer,
@@ -28,7 +43,117 @@ bool IsVolumeOrStfsNoOpLog(std::string_view text) {
          text.find("StfsCreateDevice") != std::string_view::npos ||
          text.find("StfsControlDevice") != std::string_view::npos;
 }
+
+bool IsNtCreateFileMissingAssetLog(std::string_view text) {
+  return text.find("NtCreateFile") != std::string_view::npos &&
+         text.find("missing_optional_asset.bin") != std::string_view::npos &&
+         text.find("0xc000000f") != std::string_view::npos;
+}
+
+bool IsVfsEntryNotFoundLog(std::string_view text) {
+  return text.find("VFS: entry not found") != std::string_view::npos &&
+         text.find("game:\\data") != std::string_view::npos;
+}
+
+u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
+  const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
+  auto* chars = memory->TranslateVirtual<char*>(chars_guest);
+  REQUIRE(chars != nullptr);
+  std::memcpy(chars, value.data(), value.size());
+
+  const u32 string_guest = memory->SystemHeapAlloc(sizeof(rex::system::X_ANSI_STRING));
+  auto* string = memory->TranslateVirtual<rex::system::X_ANSI_STRING*>(string_guest);
+  REQUIRE(string != nullptr);
+  string->length = static_cast<u16>(value.size());
+  string->maximum_length = static_cast<u16>(value.size());
+  string->pointer = chars_guest;
+  return string_guest;
+}
 }  // namespace
+
+TEST_CASE("NtCreateFile missing file probes return not-found without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_ntcreatefile_missing_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  const bool old_noisy = REXCVAR_GET(log_noisy);
+  REXCVAR_SET(log_noisy, true);
+
+  auto krnl_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), krnl_sink);
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "game:\\data\\missing_optional_asset.bin");
+
+  rex::system::X_OBJECT_ATTRIBUTES attrs{};
+  attrs.root_directory = 0;
+  attrs.name_ptr = path_guest;
+  attrs.attributes = 0x40;
+
+  rex::system::X_IO_STATUS_BLOCK iosb{};
+  rex::be_u32 handle = 0;
+
+  CHECK(rex::kernel::xboxkrnl::NtCreateFile_entry(
+            mapped_u32(&handle, 0x40001000), rex::filesystem::FileAccess::kGenericRead,
+            ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&iosb, 0x40003000), mapped_u64(nullptr),
+            rex::system::X_FILE_ATTRIBUTE_NORMAL, 1,
+            static_cast<u32>(rex::filesystem::FileDisposition::kOpen), 0) ==
+        X_STATUS_NO_SUCH_FILE);
+  CHECK(static_cast<u32>(iosb.status) == X_STATUS_NO_SUCH_FILE);
+  CHECK(static_cast<u32>(iosb.information) ==
+        static_cast<u32>(rex::filesystem::FileAction::kDoesNotExist));
+  CHECK(static_cast<u32>(handle) == X_INVALID_HANDLE_VALUE);
+
+  std::vector<rex::LogEntry> krnl_entries;
+  krnl_sink->CopyEntries(krnl_entries);
+  rex::RemoveSink(rex::log::krnl(), krnl_sink);
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+  REXCVAR_SET(log_noisy, old_noisy);
+
+  const auto krnl_warning_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsNtCreateFileMissingAssetLog(entry.text);
+      });
+  const auto krnl_debug_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsNtCreateFileMissingAssetLog(entry.text);
+      });
+  const auto fs_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsVfsEntryNotFoundLog(entry.text);
+      });
+  const auto fs_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsVfsEntryNotFoundLog(entry.text);
+      });
+
+  CHECK(krnl_debug_count == 1);
+  CHECK(krnl_warning_count == 0);
+  CHECK(fs_debug_count == 1);
+  CHECK(fs_warning_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
 
 TEST_CASE("Volume and STFS no-op helpers are trace-only compatibility shims",
           "[runtime][kernel][xboxkrnl][io]") {
