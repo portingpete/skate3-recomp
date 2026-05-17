@@ -531,6 +531,110 @@ size_t scanStoredCodePointerEntries(CodegenContext& ctx) {
   return targets.size();
 }
 
+size_t scanImmediateCodePointerArguments(CodegenContext& ctx) {
+  if (!ctx.hasDecoded()) {
+    return 0;
+  }
+
+  auto& graph = ctx.graph;
+  auto& binary = ctx.binary();
+  auto& decoded = ctx.decoded();
+  std::vector<CodeRegion> codeRegions = ctx.scan.codeRegions;
+  std::sort(codeRegions.begin(), codeRegions.end(),
+            [](const CodeRegion& lhs, const CodeRegion& rhs) { return lhs.start < rhs.start; });
+
+  std::vector<uint32_t> targets;
+  std::unordered_set<uint32_t> queuedTargets;
+
+  for (const auto& [funcAddr, node] : graph.functions()) {
+    if (!node->isDiscovered() || node->isImport()) {
+      continue;
+    }
+
+    for (const auto& block : node->blocks()) {
+      std::array<uint32_t, 32> highValues{};
+      std::array<uint32_t, 32> codePointerValues{};
+      std::bitset<32> highValid;
+      std::bitset<32> codePointerValid;
+
+      for (uint32_t addr = block.base; addr < block.base + block.size; addr += 4) {
+        const auto* insn = decoded.get(addr);
+        if (!insn) {
+          continue;
+        }
+
+        if (isCall(*insn) && insn->branch_target.has_value()) {
+          const uint32_t callTarget = insn->branch_target.value();
+          if (graph.isEntryPoint(callTarget) || graph.isImport(callTarget)) {
+            for (uint32_t reg = 3; reg <= 10; ++reg) {
+              if (!codePointerValid.test(reg)) {
+                continue;
+              }
+
+              const uint32_t target = codePointerValues[reg];
+              if (!graph.isEntryPoint(target) && !graph.isImport(target) &&
+                  IsPotentialRawCodePointerTarget(binary, decoded, codeRegions, target) &&
+                  queuedTargets.insert(target).second) {
+                targets.push_back(target);
+                REXCODEGEN_TRACE(
+                    "Analyze: immediate code pointer argument 0x{:08X} from function 0x{:08X} at "
+                    "0x{:08X}",
+                    target, funcAddr, addr);
+              }
+            }
+          }
+
+          for (uint32_t reg = 3; reg <= 12; ++reg) {
+            highValid.reset(reg);
+            codePointerValid.reset(reg);
+          }
+          continue;
+        }
+
+        if (isLis(*insn)) {
+          const uint32_t reg = insn->D.RT;
+          highValues[reg] = static_cast<uint32_t>(static_cast<int16_t>(insn->D.d)) << 16;
+          highValid.set(reg);
+          codePointerValid.reset(reg);
+          continue;
+        }
+
+        if (insn->opcode == Opcode::addi || insn->opcode == Opcode::ori) {
+          const uint32_t targetReg = insn->D.RT;
+          const uint32_t sourceReg = insn->D.RA;
+          uint32_t target = 0;
+          const bool materialized =
+              sourceReg != 0 && highValid.test(sourceReg) &&
+              TryDecodeCodePointerMaterialization(highValues[sourceReg], *insn, sourceReg,
+                                                  target) &&
+              IsPotentialRawCodePointerTarget(binary, decoded, codeRegions, target);
+
+          highValid.reset(targetReg);
+          codePointerValid.reset(targetReg);
+          if (materialized) {
+            codePointerValues[targetReg] = target;
+            codePointerValid.set(targetReg);
+          }
+          continue;
+        }
+
+        for (uint8_t reg : insn->get_register_writes()) {
+          highValid.reset(reg);
+          codePointerValid.reset(reg);
+        }
+      }
+    }
+  }
+
+  for (uint32_t target : targets) {
+    graph.addFunction(target, 4, FunctionAuthority::DISCOVERED, true);
+  }
+
+  REXCODEGEN_INFO("Analyze: immediate code pointer argument scan found {} new functions",
+                  targets.size());
+  return targets.size();
+}
+
 void discoverAllFunctions(CodegenContext& ctx) {
   REXCODEGEN_TRACE("Analyze: starting iterative discovery...");
 
@@ -647,6 +751,27 @@ void discoverAllFunctions(CodegenContext& ctx) {
   }
 
   REXCODEGEN_TRACE("Analyze: {} total functions after returned pointer scan",
+                   graph.functionCount());
+
+  const size_t immediatePointerFunctions = scanImmediateCodePointerArguments(ctx);
+  if (immediatePointerFunctions > 0) {
+    size_t immediatePointerIteration = 0;
+    while (immediatePointerIteration < maxIterations) {
+      immediatePointerIteration++;
+
+      auto knownFunctions = buildKnownFunctions(graph);
+      if (discoverPendingFunctions(ctx, knownFunctions) == 0) {
+        break;
+      }
+
+      if (graph.functionCount() == lastFunctionCount) {
+        break;
+      }
+      lastFunctionCount = graph.functionCount();
+    }
+  }
+
+  REXCODEGEN_TRACE("Analyze: {} total functions after immediate code pointer argument scan",
                    graph.functionCount());
 
   const size_t storedPointerFunctions = scanStoredCodePointerEntries(ctx);

@@ -243,6 +243,80 @@ TEST_CASE("Discover registers dynamically stored code-pointer entries",
   CHECK(ctx.graph.isEntryPoint(0x1018));
 }
 
+TEST_CASE("Discover registers code-pointer arguments passed to helper calls",
+          "[codegen][Discover][FunctionPointer]") {
+  auto kHelperCallbackPointer = [] {
+    std::array<uint8_t, 0x44> bytes{};
+
+    bytes[0x00] = 0x3D;  // 0x1000: lis r11,0
+    bytes[0x01] = 0x60;
+    bytes[0x02] = 0x00;
+    bytes[0x03] = 0x00;
+    bytes[0x04] = 0x38;  // 0x1004: addi r5,r11,0x1020
+    bytes[0x05] = 0xAB;
+    bytes[0x06] = 0x10;
+    bytes[0x07] = 0x20;
+    bytes[0x08] = 0x48;  // 0x1008: bl 0x1040
+    bytes[0x09] = 0x00;
+    bytes[0x0A] = 0x00;
+    bytes[0x0B] = 0x39;
+    bytes[0x0C] = 0x4E;  // 0x100C: blr
+    bytes[0x0D] = 0x80;
+    bytes[0x0E] = 0x00;
+    bytes[0x0F] = 0x20;
+
+    bytes[0x20] = 0x3D;  // 0x1020: lis r11,0
+    bytes[0x21] = 0x60;
+    bytes[0x22] = 0x00;
+    bytes[0x23] = 0x00;
+    bytes[0x24] = 0x38;  // 0x1024: li r5,0
+    bytes[0x25] = 0xA0;
+    bytes[0x26] = 0x00;
+    bytes[0x27] = 0x00;
+    bytes[0x28] = 0x38;  // 0x1028: addi r4,r11,0x2000
+    bytes[0x29] = 0x8B;
+    bytes[0x2A] = 0x20;
+    bytes[0x2B] = 0x00;
+    bytes[0x2C] = 0x48;  // 0x102C: b 0x1040
+    bytes[0x2D] = 0x00;
+    bytes[0x2E] = 0x00;
+    bytes[0x2F] = 0x14;
+
+    bytes[0x30] = 0x38;  // 0x1030: li r3,2
+    bytes[0x31] = 0x60;
+    bytes[0x32] = 0x00;
+    bytes[0x33] = 0x02;
+    bytes[0x34] = 0x4E;  // 0x1034: blr
+    bytes[0x35] = 0x80;
+    bytes[0x36] = 0x00;
+    bytes[0x37] = 0x20;
+
+    bytes[0x40] = 0x4E;  // 0x1040: blr
+    bytes[0x41] = 0x80;
+    bytes[0x42] = 0x00;
+    bytes[0x43] = 0x20;
+
+    return bytes;
+  }();
+
+  auto binary = MakeBinaryView(0x1000, kHelperCallbackPointer);
+  rex::codegen::RecompilerConfig config;
+  auto ctx = rex::codegen::CodegenContext::Create(std::move(binary), std::move(config));
+  ctx.initDecoded();
+
+  ctx.scan.codeRegions.push_back({0x1000, 0x1044});
+  ctx.scan.pdataSizes[0x1000] = 0x10;
+  ctx.scan.pdataSizes[0x1030] = 0x08;
+  ctx.scan.pdataSizes[0x1040] = 0x04;
+  ctx.graph.addFunction(0x1000, 0x10, rex::codegen::FunctionAuthority::PDATA, true);
+  ctx.graph.addFunction(0x1030, 0x08, rex::codegen::FunctionAuthority::PDATA, true);
+  ctx.graph.addFunction(0x1040, 0x04, rex::codegen::FunctionAuthority::PDATA, true);
+
+  auto result = rex::codegen::phases::Discover(ctx);
+  REQUIRE(result.has_value());
+  CHECK(ctx.graph.isEntryPoint(0x1020));
+}
+
 TEST_CASE("Discover follows fall-through after conditional bcctr",
           "[codegen][Discover][ControlFlow]") {
   constexpr std::array<uint8_t, 28> kConditionalCtrBranch = {
