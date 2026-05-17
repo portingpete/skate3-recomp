@@ -79,13 +79,33 @@ X_STATUS xeExGetXConfigSetting(uint16_t category, uint16_t setting, void* buffer
           setting_size = 1;
           value[0] = static_cast<uint8_t>(REXCVAR_GET(user_country));
           break;
-        case 0x0019:  // XCONFIG_USER_PC_FLAGS
+        case 0x000F:  // XCONFIG_USER_PC_FLAGS
           setting_size = 1;
           // XBLAllowed | XBLMembershipCreationAllowed
           value[0] = 0x03;
           break;
+        case 0x0016:  // XCONFIG_USER_PC_GAME
+          setting_size = 4;
+          memory::store_and_swap<uint32_t>(value, 0x000000FF);
+          break;
+        case 0x0019:  // XCONFIG_USER_PC_GAME_RATING
+          setting_size = 4;
+          memory::store_and_swap<uint32_t>(value, 0);
+          break;
         default:
           REXKRNL_WARN("Unimplemented XConfig USER setting 0x{:04X}", setting);
+          return X_STATUS_INVALID_PARAMETER_2;
+      }
+      break;
+    case 0x0007:
+      // XCONFIG_CONSOLE_CATEGORY
+      switch (setting) {
+        case 0x0004:  // XCONFIG_CONSOLE_CAMERA_SETTINGS
+          setting_size = 4;
+          memory::store_and_swap<uint32_t>(value, 0x00000001);
+          break;
+        default:
+          REXKRNL_WARN("Unimplemented XConfig CONSOLE setting 0x{:04X}", setting);
           return X_STATUS_INVALID_PARAMETER_2;
       }
       break;
