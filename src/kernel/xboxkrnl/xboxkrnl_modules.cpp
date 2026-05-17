@@ -19,9 +19,85 @@
 #include <rex/system/xexception.h>
 #include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
+#include <rex/system/lzx.h>
+
+#include <algorithm>
+#include <bit>
+#include <mutex>
+#include <unordered_map>
 
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
+
+namespace {
+
+constexpr uint32_t kLdiMinWindowSize = 0x8000;
+constexpr uint32_t kLdiMaxWindowSize = 0x200000;
+constexpr uint32_t kLdiMinWorkspaceSize = 0x9800;
+constexpr uint32_t kLdiHandleBase = 0x4C444900;  // "LDI\0"
+constexpr uint32_t kLdiHandleMask = 0x0000FFFF;
+
+struct LdiDecompressionContext {
+  uint32_t window_size;
+};
+
+std::mutex& LdiContextMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<uint32_t, LdiDecompressionContext>& LdiContexts() {
+  static std::unordered_map<uint32_t, LdiDecompressionContext> contexts;
+  return contexts;
+}
+
+uint32_t& NextLdiHandleIndex() {
+  static uint32_t next_handle_index = 1;
+  return next_handle_index;
+}
+
+uint32_t NormalizeLdiWindowSize(uint32_t requested_size) {
+  uint32_t window_size = std::max(requested_size, kLdiMinWindowSize);
+  if (window_size > kLdiMaxWindowSize) {
+    return window_size;
+  }
+  if (!std::has_single_bit(window_size)) {
+    window_size = std::bit_ceil(window_size);
+  }
+  return window_size;
+}
+
+uint32_t AllocateLdiHandle(uint32_t window_size) {
+  std::lock_guard lock(LdiContextMutex());
+  auto& contexts = LdiContexts();
+  uint32_t& next_handle_index = NextLdiHandleIndex();
+
+  for (uint32_t attempt = 0; attempt < kLdiHandleMask; ++attempt) {
+    const uint32_t index = next_handle_index;
+    next_handle_index = (next_handle_index % kLdiHandleMask) + 1;
+
+    const uint32_t handle = kLdiHandleBase | index;
+    if (!contexts.contains(handle)) {
+      contexts.emplace(handle, LdiDecompressionContext{window_size});
+      return handle;
+    }
+  }
+
+  return 0;
+}
+
+bool LookupLdiContext(uint32_t handle, LdiDecompressionContext* out_context) {
+  std::lock_guard lock(LdiContextMutex());
+  auto& contexts = LdiContexts();
+  auto it = contexts.find(handle);
+  if (it == contexts.end()) {
+    return false;
+  }
+  *out_context = it->second;
+  return true;
+}
+
+}  // namespace
 
 u32 XexCheckExecutablePrivilege_entry(u32 privilege) {
   REXKRNL_IMPORT_TRACE("XexCheckExecutablePrivilege", "priv={}", (uint32_t)privilege);
@@ -85,6 +161,9 @@ u32 XexGetModuleSection_entry(mapped_void hmodule, mapped_string name, mapped_u3
 
 u32 XexLoadImage_entry(mapped_string module_name, u32 module_flags, u32 min_version,
                        mapped_u32 hmodule_ptr) {
+  (void)module_flags;
+  (void)min_version;
+
   X_STATUS result = X_STATUS_NO_SUCH_FILE;
 
   uint32_t hmodule = 0;
@@ -210,8 +289,81 @@ void ExRegisterTitleTerminateNotification_entry(ppc_ptr_t<X_EX_TITLE_TERMINATE_R
 }
 
 u32 XexLoadImageHeaders_entry(mapped_string path, mapped_void headers) {
+  (void)headers;
   REXKRNL_DEBUG("XexLoadImageHeaders({}) - stub", path.value());
   return X_STATUS_NOT_IMPLEMENTED;
+}
+
+u32 LDICreateDecompression_entry(mapped_u32 window_size_ptr, mapped_u32 chunk_size_ptr,
+                                 mapped_void alloc_proc, mapped_void free_proc, u32 memory_size,
+                                 mapped_u32 workspace_size_ptr, mapped_u32 context_out_ptr) {
+  (void)alloc_proc;
+  (void)free_proc;
+
+  if (!window_size_ptr || !chunk_size_ptr || !workspace_size_ptr || !context_out_ptr) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  const uint32_t window_size = NormalizeLdiWindowSize(window_size_ptr.value());
+  if (window_size > kLdiMaxWindowSize) {
+    *context_out_ptr = 0;
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  if (memory_size && memory_size < kLdiMinWorkspaceSize) {
+    *context_out_ptr = 0;
+    return X_STATUS_NO_MEMORY;
+  }
+
+  const uint32_t handle = AllocateLdiHandle(window_size);
+  if (!handle) {
+    *context_out_ptr = 0;
+    return X_STATUS_NO_MEMORY;
+  }
+
+  *window_size_ptr = window_size;
+  *chunk_size_ptr = std::max<uint32_t>(chunk_size_ptr.value(), kLdiMinWindowSize);
+  *workspace_size_ptr = std::max<uint32_t>(workspace_size_ptr.value(), kLdiMinWorkspaceSize);
+  *context_out_ptr = handle;
+  return X_STATUS_SUCCESS;
+}
+
+u32 LDIDecompress_entry(u32 handle, mapped_void input, u32 input_size, mapped_void output,
+                        mapped_u32 output_size_ptr) {
+  if (!handle || !input || !output || !output_size_ptr || input_size == 0) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  LdiDecompressionContext context{};
+  if (!LookupLdiContext(handle, &context)) {
+    return X_STATUS_INVALID_HANDLE;
+  }
+
+  const uint32_t output_size = output_size_ptr.value();
+  if (!output_size) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  const int result = lzx_decompress(input.host_address(), input_size, output.host_address(),
+                                    output_size, context.window_size, nullptr, 0);
+  if (result != 0) {
+    return X_STATUS_UNSUCCESSFUL;
+  }
+
+  *output_size_ptr = output_size;
+  return X_STATUS_SUCCESS;
+}
+
+u32 LDIResetDecompression_entry(u32 handle) {
+  LdiDecompressionContext context{};
+  return LookupLdiContext(handle, &context) ? X_STATUS_SUCCESS : X_STATUS_INVALID_HANDLE;
+}
+
+u32 LDIDestroyDecompression_entry(u32 handle) {
+  std::lock_guard lock(LdiContextMutex());
+  auto& contexts = LdiContexts();
+  const auto erased = contexts.erase(handle);
+  return erased ? X_STATUS_SUCCESS : X_STATUS_INVALID_HANDLE;
 }
 
 }  // namespace rex::kernel::xboxkrnl
@@ -258,7 +410,7 @@ REX_EXPORT_STUB(__imp__XexTitleHashOpen);
 REX_EXPORT_STUB(__imp__XexReserveCodeBuffer);
 REX_EXPORT_STUB(__imp__XexCommitCodeBuffer);
 REX_EXPORT_STUB(__imp__XexRegisterUsermodeModule);
-REX_EXPORT_STUB(__imp__LDICreateDecompression);
-REX_EXPORT_STUB(__imp__LDIDecompress);
-REX_EXPORT_STUB(__imp__LDIDestroyDecompression);
-REX_EXPORT_STUB(__imp__LDIResetDecompression);
+REX_EXPORT(__imp__LDICreateDecompression, rex::kernel::xboxkrnl::LDICreateDecompression_entry)
+REX_EXPORT(__imp__LDIDecompress, rex::kernel::xboxkrnl::LDIDecompress_entry)
+REX_EXPORT(__imp__LDIDestroyDecompression, rex::kernel::xboxkrnl::LDIDestroyDecompression_entry)
+REX_EXPORT(__imp__LDIResetDecompression, rex::kernel::xboxkrnl::LDIResetDecompression_entry)
