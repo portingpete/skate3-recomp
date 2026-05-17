@@ -372,7 +372,16 @@ void ReXApp::LaunchModule() {
       OnGuestThreadExit(main_thread.get());
       REXLOG_INFO("Execution complete");
       if (!shutting_down_.load(std::memory_order_acquire)) {
-        app_context().CallInUIThread([this]() { app_context().QuitFromUIThread(); });
+        app_context().CallInUIThread([this]() {
+          if (shutting_down_.load(std::memory_order_acquire)) {
+            return;
+          }
+          if (window_ && window_->phase() == ui::Window::Phase::kOpen) {
+            window_->RequestClose();
+            return;
+          }
+          app_context().QuitFromUIThread();
+        });
       }
     });
   });
