@@ -47,6 +47,7 @@ add_executable(unit_tests
     system/function_dispatcher_test.cpp
     codegen/manifest_test.cpp
     rexglue/codegen_command_test.cpp
+    rexglue/init_command_test.cpp
     rexglue/migration_scan_test.cpp
     rexglue/ui_test.cpp
 )

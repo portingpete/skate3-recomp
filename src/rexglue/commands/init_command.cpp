@@ -68,8 +68,12 @@ std::string IsoUtcStamp() {
   return fmt::format("{:%Y-%m-%d %H:%M:%S} UTC", fmt::gmtime(t));
 }
 
-fs::path ResolveDir(const std::string& raw, std::error_code& ec) {
-  fs::path p = fs::absolute(raw, ec);
+fs::path ResolvePath(const std::string& raw, const fs::path& base, std::error_code& ec) {
+  fs::path p(raw);
+  if (p.is_relative() && !base.empty()) {
+    p = base / p;
+  }
+  p = fs::absolute(p, ec);
   if (ec)
     return p;
   fs::path canon = fs::weakly_canonical(p, ec);
@@ -97,11 +101,11 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
 
   std::error_code ec;
   fs::path projectRoot =
-      opts.project_root.empty() ? fs::current_path(ec) : ResolveDir(opts.project_root, ec);
+      opts.project_root.empty() ? fs::current_path(ec) : ResolvePath(opts.project_root, {}, ec);
   if (ec)
     return Err<void>(ErrorCategory::IO, "Failed to resolve project root: " + ec.message());
 
-  fs::path xexAbs = ResolveDir(opts.xex_path, ec);
+  fs::path xexAbs = ResolvePath(opts.xex_path, projectRoot, ec);
   if (ec)
     return Err<void>(ErrorCategory::IO,
                      "Failed to resolve --xex_path '" + opts.xex_path + "': " + ec.message());
@@ -118,7 +122,7 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   if (opts.game_root.empty()) {
     gameRootAbs = xexAbs.parent_path();
   } else {
-    gameRootAbs = ResolveDir(opts.game_root, ec);
+    gameRootAbs = ResolvePath(opts.game_root, projectRoot, ec);
     if (ec)
       return Err<void>(ErrorCategory::IO,
                        "Failed to resolve --game_root '" + opts.game_root + "': " + ec.message());
