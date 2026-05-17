@@ -95,6 +95,7 @@ add_executable(runtime_unit_tests
     kernel/rtl_raise_exception_test.cpp
     kernel/xboxkrnl_ob_runtime_test.cpp
     kernel/xam_info_test.cpp
+    kernel/xam_user_runtime_test.cpp
 )
 
 target_include_directories(runtime_unit_tests PRIVATE

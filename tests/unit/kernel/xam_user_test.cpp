@@ -19,8 +19,8 @@ TEST_CASE("XUID user queries return deterministic offline profile data", "[kerne
   CHECK(rex::kernel::xam::XamUserGetMembershipTierFromXUID_entry(0) == 0);
   CHECK(rex::kernel::xam::XamUserGetMembershipTierFromXUID_entry(kXuid) == 6);
 
-  const u32 expected_country = rex::kernel::xam::XamGetOnlineCountryFromLocale_entry(
-      rex::kernel::xam::XamGetLocale_entry());
+  const u32 expected_country =
+      rex::kernel::xam::XamGetOnlineCountryFromLocale_entry(rex::kernel::xam::XamGetLocale_entry());
   CHECK(rex::kernel::xam::XamUserGetOnlineCountryFromXUID_entry(0) == 0);
   CHECK(rex::kernel::xam::XamUserGetOnlineCountryFromXUID_entry(kXuid) == expected_country);
 }
@@ -32,9 +32,8 @@ TEST_CASE("Stats enumerator fails without fabricating handles", "[kernel][xam_us
   rex::be_u32 handle = 0xBBBBBBBBu;
 
   CHECK(rex::kernel::xam::XamUserCreateStatsEnumerator_entry(
-            0x58410A71, 0, 0, 0, 0, mapped_void(nullptr),
-            mapped_u32(&buffer_size, 0x40001000), mapped_u32(&handle, 0x40001004)) ==
-        kFunctionFailed);
+            0x58410A71, 0, 0, 0, 0, mapped_void(nullptr), mapped_u32(&buffer_size, 0x40001000),
+            mapped_u32(&handle, 0x40001004)) == kFunctionFailed);
   CHECK(static_cast<u32>(buffer_size) == 0);
   CHECK(static_cast<u32>(handle) == 0);
 

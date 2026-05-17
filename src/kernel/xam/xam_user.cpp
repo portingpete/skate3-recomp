@@ -337,13 +337,15 @@ u32 XamUserWriteProfileSettings_entry(u32 title_id, u32 user_index, u32 setting_
         " from={} setting_id={:08X} data.type={}",
         n, (uint32_t)setting.from, (uint32_t)setting.setting_id, setting.data.type);
 
+    const uint32_t setting_id = setting.setting_id;
     switch (setting_type) {
       case UserProfile::Setting::Type::CONTENT:
       case UserProfile::Setting::Type::BINARY: {
-        uint8_t* binary_ptr = REX_KERNEL_MEMORY()->TranslateVirtual(setting.data.binary.ptr);
-        size_t binary_size = setting.data.binary.size;
+        const uint32_t binary_guest = setting.data.binary.ptr;
+        const size_t binary_size = setting.data.binary.size;
         std::vector<uint8_t> bytes;
-        if (setting.data.binary.ptr) {
+        if (binary_guest) {
+          uint8_t* binary_ptr = REX_KERNEL_MEMORY()->TranslateVirtual(binary_guest);
           // Copy provided data
           bytes.resize(binary_size);
           std::memcpy(bytes.data(), binary_ptr, binary_size);
@@ -352,14 +354,47 @@ u32 XamUserWriteProfileSettings_entry(u32 title_id, u32 user_index, u32 setting_
           bytes.resize(binary_size, 0);
         }
         user_profile->AddSetting(
-            std::make_unique<xam::UserProfile::BinarySetting>(setting.setting_id, bytes));
+            std::make_unique<xam::UserProfile::BinarySetting>(setting_id, bytes));
       } break;
-      case UserProfile::Setting::Type::WSTRING:
+      case UserProfile::Setting::Type::WSTRING: {
+        std::u16string value;
+        const uint32_t unicode_guest = setting.data.unicode.ptr;
+        const size_t byte_size = setting.data.unicode.size;
+        if (unicode_guest && byte_size) {
+          auto* guest_chars = REX_KERNEL_MEMORY()->TranslateVirtual<uint16_t*>(unicode_guest);
+          const size_t char_count = byte_size / sizeof(uint16_t);
+          std::vector<uint16_t> native_chars(char_count);
+          rex::memory::copy_and_swap(native_chars.data(), guest_chars, char_count);
+
+          size_t length = 0;
+          while (length < native_chars.size() && native_chars[length] != 0) {
+            ++length;
+          }
+          value.assign(reinterpret_cast<const char16_t*>(native_chars.data()), length);
+        }
+        user_profile->AddSetting(
+            std::make_unique<xam::UserProfile::UnicodeSetting>(setting_id, value));
+      } break;
       case UserProfile::Setting::Type::DOUBLE:
+        user_profile->AddSetting(std::make_unique<xam::UserProfile::DoubleSetting>(
+            setting_id, static_cast<double>(setting.data.f64)));
+        break;
       case UserProfile::Setting::Type::FLOAT:
+        user_profile->AddSetting(std::make_unique<xam::UserProfile::FloatSetting>(
+            setting_id, static_cast<float>(setting.data.f32)));
+        break;
       case UserProfile::Setting::Type::INT32:
+        user_profile->AddSetting(std::make_unique<xam::UserProfile::Int32Setting>(
+            setting_id, static_cast<int32_t>(setting.data.s32)));
+        break;
       case UserProfile::Setting::Type::INT64:
+        user_profile->AddSetting(std::make_unique<xam::UserProfile::Int64Setting>(
+            setting_id, static_cast<int64_t>(setting.data.s64)));
+        break;
       case UserProfile::Setting::Type::DATETIME:
+        user_profile->AddSetting(std::make_unique<xam::UserProfile::DateTimeSetting>(
+            setting_id, static_cast<int64_t>(setting.data.filetime)));
+        break;
       default: {
         REXKRNL_ERROR("XamUserWriteProfileSettings: Unimplemented data type {}", setting_type);
       } break;
