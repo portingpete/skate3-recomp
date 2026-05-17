@@ -60,6 +60,14 @@ uint32_t FromXdkProtectFlags(uint32_t protect) {
   return result;
 }
 
+void LogNtAllocateVirtualMemoryDebugMemoryHint(uint32_t debug_memory) {
+  if (debug_memory == 0) {
+    return;
+  }
+  REXKRNL_DEBUG("NtAllocateVirtualMemory devkit memory hint ignored (debug_memory={})",
+                debug_memory);
+}
+
 u32 NtAllocateVirtualMemory_entry(mapped_u32 base_addr_ptr, mapped_u32 region_size_ptr,
                                   u32 alloc_type, u32 protect_bits, u32 debug_memory) {
   uint32_t input_base = base_addr_ptr ? static_cast<uint32_t>(*base_addr_ptr) : 0;
@@ -78,12 +86,8 @@ u32 NtAllocateVirtualMemory_entry(mapped_u32 base_addr_ptr, mapped_u32 region_si
   assert_not_null(base_addr_ptr);
   assert_not_null(region_size_ptr);
 
-  // Set to TRUE when allocation is from devkit memory area.
-  // assert_true(debug_memory == 0);
-  // just warn tf am i gunna do about it
-  if ((uint32_t)debug_memory != 0)
-    REXKRNL_WARN("attmpted allocation to devkit memory area (debug_memory={})",
-                 (uint32_t)debug_memory);
+  // Retail titles can pass this devkit memory hint; keep allocation behavior unchanged.
+  LogNtAllocateVirtualMemoryDebugMemoryHint((uint32_t)debug_memory);
 
   // This allocates memory from the kernel heap, which is initialized on startup
   // and shared by both the kernel implementation and user code.
