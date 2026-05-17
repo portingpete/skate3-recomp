@@ -31,6 +31,15 @@ VirtualFileSystem::~VirtualFileSystem() {
   symlinks_.clear();
 }
 
+namespace {
+
+bool IsBareRelativeGuestPath(const std::string_view path) {
+  return !path.empty() && path.find(':') == std::string_view::npos && path.front() != '\\' &&
+         path.front() != '/';
+}
+
+}  // namespace
+
 bool VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
   auto global_lock = global_critical_region_.Acquire();
   devices_.emplace_back(std::move(device));
@@ -122,6 +131,10 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
   if (it == devices_.cend()) {
     if (rex::string::utf8_starts_with_case(path, "ShaderDumpxe:\\CompareBackEnds")) {
       REXFS_DEBUG("VFS: '{}' -> [no device; ignored shader dump probe]", path);
+      return nullptr;
+    }
+    if (IsBareRelativeGuestPath(normalized_path)) {
+      REXFS_DEBUG("VFS: '{}' -> [no device; relative file probe]", path);
       return nullptr;
     }
     REXFS_WARN("VFS: '{}' -> [no device]", path);

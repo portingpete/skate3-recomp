@@ -63,6 +63,11 @@ bool IsShaderDumpProbeLog(std::string_view text) {
   return text.find("ShaderDumpxe:\\CompareBackEnds") != std::string_view::npos;
 }
 
+bool IsRelativeOptionsProbeLog(std::string_view text) {
+  return text.find("Options.ini") != std::string_view::npos &&
+         text.find("CACHE:") == std::string_view::npos;
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -216,6 +221,58 @@ TEST_CASE("NtCreateFile missing file probes return not-found without warning",
   CHECK(krnl_warning_count == 0);
   CHECK(fs_debug_count == 1);
   CHECK(fs_warning_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Bare relative file probes miss devices without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_relative_file_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  CHECK(runtime.kernel_state()->file_system()->ResolvePath("Options.ini") == nullptr);
+  CHECK(runtime.kernel_state()->file_system()->ResolvePath("CACHE:\\Options.ini") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto relative_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsRelativeOptionsProbeLog(entry.text);
+      });
+  const auto relative_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               entry.text.find("relative file probe") != std::string_view::npos &&
+               IsRelativeOptionsProbeLog(entry.text);
+      });
+  const auto device_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               entry.text.find("CACHE:\\Options.ini") != std::string_view::npos;
+      });
+
+  CHECK(relative_debug_count == 1);
+  CHECK(relative_warning_count == 0);
+  CHECK(device_warning_count >= 1);
 
   std::filesystem::remove_all(root, cleanup_error);
 }
