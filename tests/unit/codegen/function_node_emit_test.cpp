@@ -569,6 +569,67 @@ TEST_CASE("FunctionNode SEH dispatch calls discovered out-of-block handler entri
   RequireTokenOrder(cpp, "seh_handler_1040(ctx, base);", "\t\t\treturn;");
 }
 
+TEST_CASE("FunctionNode SEH dispatch prefers separate handler entries over overlapping blocks",
+          "[codegen][FunctionNode][SEH]") {
+  std::array<uint8_t, 0x44> bytes{};
+  for (size_t offset = 0; offset < bytes.size(); offset += 4) {
+    bytes[offset + 0] = 0x60;
+    bytes[offset + 1] = 0x00;
+    bytes[offset + 2] = 0x00;
+    bytes[offset + 3] = 0x00;  // nop
+  }
+  bytes[0x40] = 0x4E;
+  bytes[0x41] = 0x80;
+  bytes[0x42] = 0x00;
+  bytes[0x43] = 0x20;  // blr
+
+  auto binary = MakeBinaryView(0x1000, bytes);
+  rex::codegen::RecompilerConfig config;
+  config.generateExceptionHandlers = true;
+
+  rex::codegen::FunctionGraph graph;
+  auto* filter = graph.addFunction(0x2000, 4, rex::codegen::FunctionAuthority::HELPER, true);
+  REQUIRE(filter != nullptr);
+  filter->setName("seh_filter_2000");
+  auto* handler = graph.addFunction(0x1040, 4, rex::codegen::FunctionAuthority::DISCOVERED, true);
+  REQUIRE(handler != nullptr);
+  handler->setName("seh_handler_1040");
+
+  auto* node = graph.addFunction(0x1000, 0x80, rex::codegen::FunctionAuthority::PDATA, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = static_cast<uint32_t>(bytes.size())}},
+                 {}, {});
+
+  rex::codegen::SehExceptionInfo seh;
+  seh.scopes.push_back(rex::codegen::SehScope{
+      .tryStart = 0x1000,
+      .tryEnd = 0x1004,
+      .handler = 0x1040,
+      .filter = 0x2000,
+  });
+  rex::codegen::ExceptionInfo exceptionInfo;
+  exceptionInfo.data = std::move(seh);
+  graph.setFunctionExceptionInfo(0x1000, std::move(exceptionInfo));
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) {") != std::string::npos);
+  CHECK(cpp.find("seh_handler_1040(ctx, base);") != std::string::npos);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") ==
+        std::string::npos);
+  RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001040) {",
+                    "seh_handler_1040(ctx, base);");
+  RequireTokenOrder(cpp, "seh_handler_1040(ctx, base);", "\t\t\treturn;");
+}
+
 TEST_CASE("FunctionNode SEH dispatch emits fatal stubs for missing in-range handler blocks",
           "[codegen][FunctionNode][SEH]") {
   constexpr std::array<uint8_t, 4> kTryOnly = {
