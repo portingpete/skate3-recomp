@@ -33,6 +33,7 @@ add_executable(unit_tests
     kernel/xam_ui_test.cpp
     kernel/xam_voice_test.cpp
     codegen/config_test.cpp
+    codegen/codegen_context_test.cpp
     codegen/function_graph_test.cpp
     codegen/function_node_emit_test.cpp
     codegen/function_pointer_discovery_test.cpp
