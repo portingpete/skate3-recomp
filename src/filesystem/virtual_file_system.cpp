@@ -38,6 +38,14 @@ bool IsBareRelativeGuestPath(const std::string_view path) {
          path.front() != '/';
 }
 
+bool IsCacheBigFallbackProbePath(const std::string_view path) {
+  constexpr std::string_view kBigExtension = ".big";
+  return rex::string::utf8_starts_with_case(path, "cache:\\big\\") &&
+         path.size() >= kBigExtension.size() &&
+         rex::string::utf8_equal_case(path.substr(path.size() - kBigExtension.size()),
+                                      kBigExtension);
+}
+
 }  // namespace
 
 bool VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
@@ -116,6 +124,7 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
 
   // Resolve relative paths
   auto normalized_path(rex::string::utf8_canonicalize_guest_path(path));
+  const auto request_path = normalized_path;
 
   // Resolve symlinks.
   std::string resolved_path;
@@ -131,6 +140,10 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
   if (it == devices_.cend()) {
     if (rex::string::utf8_starts_with_case(path, "ShaderDumpxe:\\CompareBackEnds")) {
       REXFS_DEBUG("VFS: '{}' -> [no device; ignored shader dump probe]", path);
+      return nullptr;
+    }
+    if (IsCacheBigFallbackProbePath(request_path)) {
+      REXFS_DEBUG("VFS: '{}' -> [no device; cache fallback probe]", path);
       return nullptr;
     }
     if (IsBareRelativeGuestPath(normalized_path)) {

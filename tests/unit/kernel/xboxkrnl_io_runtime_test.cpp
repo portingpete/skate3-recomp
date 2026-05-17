@@ -68,6 +68,11 @@ bool IsRelativeOptionsProbeLog(std::string_view text) {
          text.find("CACHE:") == std::string_view::npos;
 }
 
+bool IsCacheBigProbeLog(std::string_view text) {
+  return text.find("CACHE:\\big\\assets.0.big") != std::string_view::npos ||
+         text.find("cache:\\big\\assets.0.big") != std::string_view::npos;
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -272,6 +277,59 @@ TEST_CASE("Bare relative file probes miss devices without warning",
 
   CHECK(relative_debug_count == 1);
   CHECK(relative_warning_count == 0);
+  CHECK(device_warning_count >= 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Cache big fallback probes miss devices without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_cache_big_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  REQUIRE(fs->RegisterSymbolicLink("cache:", "\\Device\\cache0"));
+  CHECK(fs->ResolvePath("CACHE:\\big\\assets.0.big") == nullptr);
+  CHECK(fs->ResolvePath("CACHE:\\Options.ini") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto cache_big_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsCacheBigProbeLog(entry.text);
+      });
+  const auto cache_big_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsCacheBigProbeLog(entry.text) &&
+               entry.text.find("cache fallback probe") != std::string_view::npos;
+      });
+  const auto device_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               entry.text.find("CACHE:\\Options.ini") != std::string_view::npos;
+      });
+
+  CHECK(cache_big_debug_count == 1);
+  CHECK(cache_big_warning_count == 0);
   CHECK(device_warning_count >= 1);
 
   std::filesystem::remove_all(root, cleanup_error);
