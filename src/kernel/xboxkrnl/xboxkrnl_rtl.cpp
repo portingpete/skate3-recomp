@@ -634,14 +634,20 @@ void RtlCaptureContext_entry(PPCContext& ctx, uint8_t* base) {
   StoreRtlContextRecord(ctx, base, ctx.r3.u32);
 }
 
-void RtlUnwind_entry() {
-  // TODO(tomc): do we even need this?
-  REXKRNL_WARN("[STUB] RtlUnwind called - not implemented");
+u32 RtlUnwind_entry(u32 target_frame, u32 target_ip, u32 exception_record, u32 return_value) {
+  REXKRNL_DEBUG("RtlUnwind: target_frame=0x{:08X} target_ip=0x{:08X} "
+                "exception_record=0x{:08X} return_value=0x{:08X}",
+                target_frame, target_ip, exception_record, return_value);
+  return return_value;
 }
 
-void __C_specific_handler_entry() {
-  // TODO(tomc): do we even need this?
-  REXKRNL_WARN("[STUB] __C_specific_handler called - not implemented");
+u32 __C_specific_handler_entry(u32 exception_record, u32 establisher_frame, u32 context_record,
+                               u32 dispatcher_context) {
+  constexpr u32 kExceptionContinueSearch = 1;
+  REXKRNL_DEBUG("__C_specific_handler: exception_record=0x{:08X} establisher_frame=0x{:08X} "
+                "context_record=0x{:08X} dispatcher_context=0x{:08X} -> continue search",
+                exception_record, establisher_frame, context_record, dispatcher_context);
+  return kExceptionContinueSearch;
 }
 
 REX_EXPORT_STUB(__imp__RtlAnsiStringToUnicodeString);

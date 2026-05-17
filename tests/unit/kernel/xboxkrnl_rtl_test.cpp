@@ -7,6 +7,8 @@
 #include <rex/types.h>
 
 extern "C" REX_FUNC(__imp__RtlCaptureContext);
+extern "C" REX_FUNC(__imp__RtlUnwind);
+extern "C" REX_FUNC(__imp____C_specific_handler);
 
 namespace rex::kernel::xboxkrnl {
 u32 RtlUpcaseUnicodeChar_entry(u32 in);
@@ -82,4 +84,32 @@ TEST_CASE("RtlCaptureContext writes guest nonvolatile context records",
   CHECK(record[320 + 15] == 0);
   CHECK(record[320 + 63 * 16] == 0xFF);
   CHECK(record[320 + 63 * 16 + 15] == 0xF0);
+}
+
+TEST_CASE("RtlUnwind leaves a deterministic guest return value",
+          "[kernel][xboxkrnl][rtl]") {
+  std::array<uint8_t, 0x1000> storage{};
+  PPCContext ctx{};
+  ctx.r3.u32 = 0x7C24F480u;  // TargetFrame
+  ctx.r4.u32 = 0x825EEC04u;  // TargetIp
+  ctx.r5.u32 = 0x00000800u;  // ExceptionRecord
+  ctx.r6.u32 = 0xC0FFEE42u;  // ReturnValue
+
+  __imp__RtlUnwind(ctx, storage.data());
+
+  CHECK(ctx.r3.u32 == 0xC0FFEE42u);
+}
+
+TEST_CASE("__C_specific_handler continues handler search when dispatcher state is unavailable",
+          "[kernel][xboxkrnl][rtl]") {
+  std::array<uint8_t, 0x1000> storage{};
+  PPCContext ctx{};
+  ctx.r3.u32 = 0x100u;       // ExceptionRecord
+  ctx.r4.u32 = 0x7C24F480u;  // EstablisherFrame
+  ctx.r5.u32 = 0x200u;       // ContextRecord
+  ctx.r6.u32 = 0x300u;       // DispatcherContext
+
+  __imp____C_specific_handler(ctx, storage.data());
+
+  CHECK(ctx.r3.u32 == 1u);
 }
