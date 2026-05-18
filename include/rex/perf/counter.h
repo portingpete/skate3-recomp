@@ -75,6 +75,7 @@ int64_t GetSnapshotCounter(CounterId id);
 void Init();
 
 // CSV logging
+void ConfigureCsvLogPathFromCvar();
 void SetCsvLogPath(const std::string& path);
 void WriteCsvFrame();
 void FlushCsv();
@@ -88,6 +89,10 @@ class Profiler {
   static void Startup() {
 #ifdef REXGLUE_ENABLE_PROFILING
     tracy::StartupProfiler();
+#endif
+#ifdef REXGLUE_ENABLE_PERF_COUNTERS
+    Init();
+    ConfigureCsvLogPathFromCvar();
 #endif
   }
   static void OnThreadEnter(const char* name = nullptr) {

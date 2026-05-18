@@ -16,6 +16,7 @@ add_executable(unit_tests
     kernel/xboxkrnl_io_stub_test.cpp
     kernel/xboxkrnl_usbcam_test.cpp
     core/cvar_test.cpp
+    core/perf_counter_test.cpp
     core/fiber_test.cpp
     core/platform_exceptions_test.cpp
     core/sha256_test.cpp

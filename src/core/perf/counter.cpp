@@ -153,6 +153,10 @@ void SetCsvLogPath(const std::string& path) {
   std::fputc('\n', g_csv_file);
 }
 
+void ConfigureCsvLogPathFromCvar() {
+  SetCsvLogPath(REXCVAR_GET(perf_log_csv));
+}
+
 void WriteCsvFrame() {
   if (!g_csv_file)
     return;
