@@ -57,11 +57,12 @@ struct CreateOptions {
 
 namespace {
 
+constexpr u32 kObDosDevices = 0xFFFFFFFDu;
+
 bool IsExpectedRelativeOptionsWriteProbe(X_STATUS status, std::string_view target_path,
                                          u32 root_directory, u32 desired_access,
                                          u32 file_attributes, u32 share_access,
                                          u32 creation_disposition, u32 create_options) {
-  constexpr u32 kObDosDevices = 0xFFFFFFFDu;
   constexpr u32 kBfme2OptionsWriteAccess = 0x40100080u;
   constexpr u32 kBfme2OptionsWriteOptions =
       CreateOptions::FILE_SYNCHRONOUS_IO_NONALERT | CreateOptions::FILE_NON_DIRECTORY_FILE;
@@ -74,6 +75,10 @@ bool IsExpectedRelativeOptionsWriteProbe(X_STATUS status, std::string_view targe
          rex::string::utf8_equal_case(target_path, "Options.ini");
 }
 
+bool IsNullOrDosDevicesRoot(const u32 root_directory) {
+  return root_directory == 0 || root_directory == kObDosDevices;
+}
+
 bool IsExpectedTitleDebugLogWriteProbe(X_STATUS status, std::string_view target_path,
                                        u32 root_directory, u32 desired_access,
                                        u32 file_attributes, u32 share_access,
@@ -82,7 +87,7 @@ bool IsExpectedTitleDebugLogWriteProbe(X_STATUS status, std::string_view target_
   constexpr u32 kTitleDebugLogWriteOptions =
       CreateOptions::FILE_SYNCHRONOUS_IO_NONALERT | CreateOptions::FILE_NON_DIRECTORY_FILE;
 
-  return status == X_STATUS_ACCESS_DENIED && root_directory == 0 &&
+  return status == X_STATUS_ACCESS_DENIED && IsNullOrDosDevicesRoot(root_directory) &&
          desired_access == kTitleDebugLogWriteAccess &&
          file_attributes == X_FILE_ATTRIBUTE_NORMAL && share_access == 3 &&
          creation_disposition == static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf) &&

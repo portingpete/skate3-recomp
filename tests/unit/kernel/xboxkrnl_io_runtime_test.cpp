@@ -89,6 +89,23 @@ bool IsCacheBigProbeLog(std::string_view text) {
          text.find("cache:\\big\\assets.0.big") != std::string_view::npos;
 }
 
+bool IsOptionalStorageRootProbeLog(std::string_view text) {
+  constexpr std::array<std::string_view, 8> kProbeFragments = {
+      "VFS: 'cache:\\'",
+      "ResolvePath(cache:\\)",
+      "VFS: 'cache1:\\'",
+      "ResolvePath(cache1:\\)",
+      "VFS: 'update:\\'",
+      "ResolvePath(update:\\)",
+      "VFS: 'update:\\update.img'",
+      "ResolvePath(update:\\update.img)",
+  };
+  return std::any_of(kProbeFragments.begin(), kProbeFragments.end(),
+                     [text](const std::string_view fragment) {
+                       return text.find(fragment) != std::string_view::npos;
+                     });
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -415,23 +432,29 @@ TEST_CASE("Fable2 title debug log write probe fails without warning",
   auto* memory = runtime.kernel_state()->memory();
   const u32 path_guest = StoreAnsiString(memory, "D:\\lhdebug.log");
 
-  rex::system::X_OBJECT_ATTRIBUTES attrs{};
-  attrs.root_directory = 0;
-  attrs.name_ptr = path_guest;
-  attrs.attributes = 0x40;
+  constexpr std::array<u32, 2> kRootHandles = {
+      0,
+      0xFFFFFFFDu,
+  };
+  for (const u32 root_handle : kRootHandles) {
+    rex::system::X_OBJECT_ATTRIBUTES attrs{};
+    attrs.root_directory = root_handle;
+    attrs.name_ptr = path_guest;
+    attrs.attributes = 0x40;
 
-  rex::system::X_IO_STATUS_BLOCK iosb{};
-  rex::be_u32 handle = 0;
+    rex::system::X_IO_STATUS_BLOCK iosb{};
+    rex::be_u32 handle = 0;
 
-  CHECK(rex::kernel::xboxkrnl::NtCreateFile_entry(
-            mapped_u32(&handle, 0x40001000), 0x40100080u,
-            ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
-            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&iosb, 0x40003000), mapped_u64(nullptr),
-            rex::system::X_FILE_ATTRIBUTE_NORMAL, 3,
-            static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf), 0x60u) ==
-        X_STATUS_ACCESS_DENIED);
-  CHECK(static_cast<u32>(iosb.status) == X_STATUS_ACCESS_DENIED);
-  CHECK(static_cast<u32>(handle) == X_INVALID_HANDLE_VALUE);
+    CHECK(rex::kernel::xboxkrnl::NtCreateFile_entry(
+              mapped_u32(&handle, 0x40001000), 0x40100080u,
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&iosb, 0x40003000), mapped_u64(nullptr),
+              rex::system::X_FILE_ATTRIBUTE_NORMAL, 3,
+              static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf), 0x60u) ==
+          X_STATUS_ACCESS_DENIED);
+    CHECK(static_cast<u32>(iosb.status) == X_STATUS_ACCESS_DENIED);
+    CHECK(static_cast<u32>(handle) == X_INVALID_HANDLE_VALUE);
+  }
 
   std::vector<rex::LogEntry> krnl_entries;
   krnl_sink->CopyEntries(krnl_entries);
@@ -460,9 +483,9 @@ TEST_CASE("Fable2 title debug log write probe fails without warning",
                IsReadOnlyTitleDebugLogProbeLog(entry.text);
       });
 
-  CHECK(krnl_debug_count == 1);
+  CHECK(krnl_debug_count == 2);
   CHECK(krnl_warning_count == 0);
-  CHECK(fs_debug_count == 1);
+  CHECK(fs_debug_count == 2);
   CHECK(fs_warning_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
@@ -517,6 +540,61 @@ TEST_CASE("Cache big fallback probes miss devices without warning",
   CHECK(cache_big_debug_count == 1);
   CHECK(cache_big_warning_count == 0);
   CHECK(device_warning_count >= 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Optional storage root probes miss devices without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_optional_storage_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("cache:\\") == nullptr);
+  CHECK(fs->ResolvePath("cache1:\\") == nullptr);
+  CHECK(fs->ResolvePath("update:\\") == nullptr);
+  CHECK(fs->ResolvePath("update:\\update.img") == nullptr);
+  CHECK(fs->ResolvePath("update:\\data\\effects") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto optional_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsOptionalStorageRootProbeLog(entry.text);
+      });
+  const auto optional_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               entry.text.find("optional storage probe") != std::string_view::npos;
+      });
+  const auto update_content_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               entry.text.find("update:\\data\\effects") != std::string_view::npos;
+      });
+
+  CHECK(optional_debug_count == 4);
+  CHECK(optional_warning_count == 0);
+  CHECK(update_content_warning_count >= 1);
 
   std::filesystem::remove_all(root, cleanup_error);
 }

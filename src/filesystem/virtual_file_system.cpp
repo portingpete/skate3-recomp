@@ -46,6 +46,19 @@ bool IsCacheBigFallbackProbePath(const std::string_view path) {
                                       kBigExtension);
 }
 
+bool IsOptionalStorageRootProbePath(const std::string_view path) {
+  constexpr std::string_view kProbePaths[] = {
+      "cache:\\", "cache:", "cache1:\\", "cache1:",
+      "update:\\", "update:", "update:\\update.img",
+  };
+  for (const std::string_view probe_path : kProbePaths) {
+    if (rex::string::utf8_equal_case(path, probe_path)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool IsTitleDebugLogWriteProbePath(const std::string_view path,
                                    const FileDisposition creation_disposition) {
   return creation_disposition == FileDisposition::kOverwriteIf &&
@@ -146,6 +159,10 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
   if (it == devices_.cend()) {
     if (rex::string::utf8_starts_with_case(path, "ShaderDumpxe:\\CompareBackEnds")) {
       REXFS_DEBUG("VFS: '{}' -> [no device; ignored shader dump probe]", path);
+      return nullptr;
+    }
+    if (IsOptionalStorageRootProbePath(request_path)) {
+      REXFS_DEBUG("VFS: '{}' -> [no device; optional storage probe]", path);
       return nullptr;
     }
     if (IsCacheBigFallbackProbePath(request_path)) {
