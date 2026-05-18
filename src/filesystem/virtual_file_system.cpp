@@ -46,6 +46,12 @@ bool IsCacheBigFallbackProbePath(const std::string_view path) {
                                       kBigExtension);
 }
 
+bool IsTitleDebugLogWriteProbePath(const std::string_view path,
+                                   const FileDisposition creation_disposition) {
+  return creation_disposition == FileDisposition::kOverwriteIf &&
+         rex::string::utf8_equal_case(path, "D:\\lhdebug.log");
+}
+
 }  // namespace
 
 bool VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
@@ -301,7 +307,12 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry, const std::string_view p
   if (wants_write &&
       ((parent_entry && parent_entry->is_read_only()) || (entry && entry->is_read_only()))) {
     // Match Xenia behavior: downgrade to read access instead of failing.
-    REXFS_WARN("Attempted to open read-only file/dir for write: {}", path);
+    if (IsTitleDebugLogWriteProbePath(path, creation_disposition)) {
+      REXFS_DEBUG("Attempted to open read-only file/dir for write: {} [title debug log probe]",
+                  path);
+    } else {
+      REXFS_WARN("Attempted to open read-only file/dir for write: {}", path);
+    }
     desired_access = FileAccess::kGenericRead | FileAccess::kFileReadData;
   }
 
