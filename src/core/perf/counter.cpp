@@ -39,6 +39,12 @@ constexpr const char* kCounterNames[] = {
     "draw_calls",
     "command_buffer_stalls",
     "vertices_processed",
+    "async_pipeline_skipped_draws",
+    "d3d12_submissions",
+    "d3d12_present_calls",
+    "memexport_readback_full",
+    "memexport_readback_fast",
+    "memexport_readback_fallback",
     "xma_frames_decoded",
     "audio_frame_latency_us",
     "buffer_queue_depth",
@@ -62,6 +68,12 @@ constexpr bool kIsGauge[] = {
     false,  // kDrawCalls
     false,  // kCommandBufferStalls
     false,  // kVerticesProcessed
+    false,  // kAsyncPipelineSkippedDraws
+    false,  // kD3D12Submissions
+    false,  // kD3D12PresentCalls
+    false,  // kMemexportReadbackFull
+    false,  // kMemexportReadbackFast
+    false,  // kMemexportReadbackFallback
     false,  // kXmaFramesDecoded
     false,  // kAudioFrameLatencyUs
     false,  // kBufferQueueDepth  (set each frame)

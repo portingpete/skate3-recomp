@@ -28,6 +28,12 @@ enum class CounterId : uint16_t {
   kDrawCalls,
   kCommandBufferStalls,
   kVerticesProcessed,
+  kAsyncPipelineSkippedDraws,
+  kD3D12Submissions,
+  kD3D12PresentCalls,
+  kMemexportReadbackFull,
+  kMemexportReadbackFast,
+  kMemexportReadbackFallback,
 
   // Audio
   kXmaFramesDecoded,
@@ -152,6 +158,12 @@ class Profiler {
 #define PROFILE_DRAW_CALL() PERF_counter_inc(kDrawCalls)
 #define PROFILE_VERTICES(n) PERF_counter_add(kVerticesProcessed, n)
 #define PROFILE_CMD_BUFFER_STALL() PERF_counter_inc(kCommandBufferStalls)
+#define PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW() PERF_counter_inc(kAsyncPipelineSkippedDraws)
+#define PROFILE_D3D12_SUBMISSION() PERF_counter_inc(kD3D12Submissions)
+#define PROFILE_D3D12_PRESENT_CALL() PERF_counter_inc(kD3D12PresentCalls)
+#define PROFILE_MEMEXPORT_READBACK_FULL() PERF_counter_inc(kMemexportReadbackFull)
+#define PROFILE_MEMEXPORT_READBACK_FAST() PERF_counter_inc(kMemexportReadbackFast)
+#define PROFILE_MEMEXPORT_READBACK_FALLBACK() PERF_counter_inc(kMemexportReadbackFallback)
 #define PROFILE_AUDIO_LATENCY_US(value) PERF_counter_set(kAudioFrameLatencyUs, value)
 #define PROFILE_BUFFER_QUEUE_DEPTH(value) PERF_counter_set(kBufferQueueDepth, value)
 #define PROFILE_THREAD_CREATED() PERF_counter_inc(kActiveThreads)
@@ -177,6 +189,12 @@ class Profiler {
 #define PROFILE_DRAW_CALL()
 #define PROFILE_VERTICES(n)
 #define PROFILE_CMD_BUFFER_STALL()
+#define PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW()
+#define PROFILE_D3D12_SUBMISSION()
+#define PROFILE_D3D12_PRESENT_CALL()
+#define PROFILE_MEMEXPORT_READBACK_FULL()
+#define PROFILE_MEMEXPORT_READBACK_FAST()
+#define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_AUDIO_LATENCY_US(value)
 #define PROFILE_BUFFER_QUEUE_DEPTH(value)
 #define PROFILE_THREAD_CREATED()

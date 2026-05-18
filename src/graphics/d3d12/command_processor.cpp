@@ -2424,6 +2424,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   }
   if (REXCVAR_GET(async_shader_compilation) &&
       pipeline_cache_->GetD3D12PipelineByHandle(pipeline_handle) == nullptr) {
+    PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW();
     return true;
   }
 
@@ -2745,6 +2746,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
         if (REXCVAR_GET(readback_memexport_fast)) {
           IssueDraw_MemexportReadbackFastPath(memexport_total_size);
         } else {
+          PROFILE_MEMEXPORT_READBACK_FULL();
           IssueDraw_MemexportReadbackFullPath(memexport_total_size);
         }
       }
@@ -2856,6 +2858,7 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
   const uint32_t read_index = 1 - write_index;
   const uint32_t readback_size = AlignReadbackBufferSize(total_size);
   if (!ensure_readback_slot(write_index, readback_size)) {
+    PROFILE_MEMEXPORT_READBACK_FALLBACK();
     return IssueDraw_MemexportReadbackFullPath(total_size);
   }
 
@@ -2879,11 +2882,13 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
                              readback.submission_written[read_index] &&
                              readback.submission_written[read_index] <= submission_completed_;
   if (!previous_slot_ready) {
+    PROFILE_MEMEXPORT_READBACK_FALLBACK();
     IssueDraw_MemexportReadbackFullPath(total_size);
     readback.current_index = read_index;
     return true;
   }
 
+  PROFILE_MEMEXPORT_READBACK_FAST();
   const uint8_t* readback_bytes = static_cast<const uint8_t*>(readback.mapped_data[read_index]);
   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
     std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
@@ -3481,6 +3486,7 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
     command_list_->Close();
     ID3D12CommandList* execute_command_lists[] = {command_list_};
     direct_queue->ExecuteCommandLists(1, execute_command_lists);
+    PROFILE_D3D12_SUBMISSION();
     command_allocator_writable_first_->last_usage_submission = submission_current_;
     if (command_allocator_submitted_last_) {
       command_allocator_submitted_last_->next = command_allocator_writable_first_;
