@@ -10,12 +10,14 @@
  */
 #include <rex/perf/counter.h>
 
+#include <rex/chrono/clock.h>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -78,7 +80,8 @@ static_assert(std::size(kIsGauge) == kNumCounters, "kIsGauge must match CounterI
 // CSV state
 std::FILE* g_csv_file = nullptr;
 std::string g_csv_path;
-int g_csv_frame_count = 0;
+uint64_t g_csv_frame_count = 0;
+uint64_t g_csv_start_tick = 0;
 
 }  // anonymous namespace
 
@@ -133,6 +136,7 @@ void SetCsvLogPath(const std::string& path) {
   }
   g_csv_path = path;
   g_csv_frame_count = 0;
+  g_csv_start_tick = 0;
 
   if (path.empty())
     return;
@@ -143,11 +147,12 @@ void SetCsvLogPath(const std::string& path) {
     g_csv_path.clear();
     return;
   }
+  g_csv_start_tick = rex::chrono::Clock::QueryHostTickCount();
 
   // Write header
+  std::fputs("frame_index,elapsed_us", g_csv_file);
   for (size_t i = 0; i < kNumCounters; ++i) {
-    if (i > 0)
-      std::fputc(',', g_csv_file);
+    std::fputc(',', g_csv_file);
     std::fputs(kCounterNames[i], g_csv_file);
   }
   std::fputc('\n', g_csv_file);
@@ -161,9 +166,19 @@ void WriteCsvFrame() {
   if (!g_csv_file)
     return;
 
+  uint64_t elapsed_us = 0;
+  if (g_csv_start_tick) {
+    uint64_t now = rex::chrono::Clock::QueryHostTickCount();
+    uint64_t freq = rex::chrono::Clock::QueryHostTickFrequency();
+    if (freq != 0) {
+      elapsed_us = (now - g_csv_start_tick) * UINT64_C(1000000) / freq;
+    }
+  }
+
+  std::fprintf(g_csv_file, "%llu,%llu", static_cast<unsigned long long>(g_csv_frame_count),
+               static_cast<unsigned long long>(elapsed_us));
   for (size_t i = 0; i < kNumCounters; ++i) {
-    if (i > 0)
-      std::fputc(',', g_csv_file);
+    std::fputc(',', g_csv_file);
     std::fprintf(g_csv_file, "%lld",
                  static_cast<long long>(g_snapshot[i].load(std::memory_order_relaxed)));
   }
@@ -181,6 +196,8 @@ void FlushCsv() {
     g_csv_file = nullptr;
   }
   g_csv_path.clear();
+  g_csv_frame_count = 0;
+  g_csv_start_tick = 0;
 }
 
 }  // namespace rex::perf
