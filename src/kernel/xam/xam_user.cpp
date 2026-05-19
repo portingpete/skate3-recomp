@@ -13,6 +13,9 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #include <cstring>
+#include <optional>
+#include <span>
+#include <vector>
 
 #include <rex/cvar.h>
 #include <rex/kernel/xam/private.h>
@@ -39,9 +42,88 @@ using namespace rex::system::xam;
 uint8_t xeXamGetOnlineCountryFromLocale(uint8_t id);
 uint8_t xeXamGetLocale();
 
-constexpr u32 kFallbackGamerTileOut1 = 0xC0DE0001u;
-constexpr u32 kFallbackGamerTileOut2 = 0xC0DE0002u;
-constexpr u32 kFallbackGamerTileOut3 = 0xC0DE0003u;
+namespace {
+
+constexpr size_t kGamerPictureKeyHexChars = 24;
+constexpr size_t kGamerTileKeyMaxBytes = 0x64;
+
+struct GamerPictureKeyParts {
+  u32 title_id;
+  u32 big_tile_id;
+  u32 small_tile_id;
+};
+
+int HexDigitValue(uint16_t ch) {
+  if (ch >= u'0' && ch <= u'9') {
+    return ch - u'0';
+  }
+  if (ch >= u'a' && ch <= u'f') {
+    return ch - u'a' + 10;
+  }
+  if (ch >= u'A' && ch <= u'F') {
+    return ch - u'A' + 10;
+  }
+  return -1;
+}
+
+std::optional<u32> ParseHexU32(std::span<const uint16_t, 8> chars) {
+  u32 value = 0;
+  for (uint16_t ch : chars) {
+    const int digit = HexDigitValue(ch);
+    if (digit < 0) {
+      return std::nullopt;
+    }
+    value = (value << 4) | static_cast<u32>(digit);
+  }
+  return value;
+}
+
+std::optional<GamerPictureKeyParts> ParseGamerPictureKey(
+    const X_USER_PROFILE_SETTING_DATA& key_data) {
+  if (key_data.type != static_cast<uint8_t>(UserProfile::Setting::Type::WSTRING)) {
+    return std::nullopt;
+  }
+
+  const u32 byte_size = key_data.unicode.size;
+  const u32 unicode_guest = key_data.unicode.ptr;
+  if (!byte_size || byte_size > kGamerTileKeyMaxBytes || (byte_size % sizeof(uint16_t)) != 0 ||
+      !unicode_guest) {
+    return std::nullopt;
+  }
+
+  auto* memory = REX_KERNEL_MEMORY();
+  if (!memory) {
+    return std::nullopt;
+  }
+
+  auto* guest_chars = memory->TranslateVirtual<uint16_t*>(unicode_guest);
+  if (!guest_chars) {
+    return std::nullopt;
+  }
+
+  const size_t char_count = byte_size / sizeof(uint16_t);
+  std::vector<uint16_t> native_chars(char_count);
+  rex::memory::copy_and_swap(native_chars.data(), guest_chars, char_count);
+
+  size_t length = 0;
+  while (length < native_chars.size() && native_chars[length] != 0) {
+    ++length;
+  }
+  if (length != kGamerPictureKeyHexChars) {
+    return std::nullopt;
+  }
+
+  const auto title_id = ParseHexU32(std::span<const uint16_t, 8>(native_chars.data(), 8));
+  const auto big_tile_id = ParseHexU32(std::span<const uint16_t, 8>(native_chars.data() + 8, 8));
+  const auto small_tile_id = ParseHexU32(std::span<const uint16_t, 8>(native_chars.data() + 16, 8));
+  if (!title_id || !big_tile_id || !small_tile_id) {
+    return std::nullopt;
+  }
+
+  return GamerPictureKeyParts{*title_id, *big_tile_id, *small_tile_id};
+}
+
+}  // namespace
 
 i32 XamUserGetXUID_entry(u32 user_index, u32 type_mask, mapped_u64 xuid_ptr) {
   assert_true(type_mask == 1 || type_mask == 2 || type_mask == 3 || type_mask == 4 ||
@@ -718,13 +800,24 @@ u32 XamUserCreateStatsEnumerator_entry(u32 title_id, u32 user_index, u32 xuid_lo
 
 u32 XamParseGamerTileKey_entry(mapped_u32 key_ptr, mapped_u32 out1_ptr, mapped_u32 out2_ptr,
                                mapped_u32 out3_ptr) {
-  if (!key_ptr || !out1_ptr || !out2_ptr || !out3_ptr) {
+  if (!key_ptr) {
     return X_ERROR_INVALID_PARAMETER;
   }
 
-  *out1_ptr = kFallbackGamerTileOut1;
-  *out2_ptr = kFallbackGamerTileOut2;
-  *out3_ptr = kFallbackGamerTileOut3;
+  const auto key_parts = ParseGamerPictureKey(*key_ptr.as<const X_USER_PROFILE_SETTING_DATA*>());
+  if (!key_parts) {
+    return X_ERROR_INVALID_PARAMETER;
+  }
+
+  if (out1_ptr) {
+    *out1_ptr = key_parts->title_id;
+  }
+  if (out2_ptr) {
+    *out2_ptr = key_parts->big_tile_id;
+  }
+  if (out3_ptr) {
+    *out3_ptr = key_parts->small_tile_id;
+  }
   return X_ERROR_SUCCESS;
 }
 

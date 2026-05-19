@@ -83,7 +83,7 @@ UserProfile::UserProfile() {
 
   // If we set this, games will try to get it.
   // XPROFILE_GAMERCARD_PICTURE_KEY
-  AddSetting(std::make_unique<UnicodeSetting>(0x4064000F, u"gamercard_picture_key"));
+  AddSetting(std::make_unique<UnicodeSetting>(0x4064000F, u"FFFE07D10002000200010002"));
 
   // XPROFILE_TITLE_SPECIFIC1
   AddSetting(std::make_unique<BinarySetting>(0x63E83FFF));

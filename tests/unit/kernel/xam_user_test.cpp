@@ -3,6 +3,7 @@
 #include <array>
 
 #include <rex/system/xtypes.h>
+#include <rex/system/xam/user_profile.h>
 #include <rex/types.h>
 
 namespace rex::kernel::xam {
@@ -48,7 +49,7 @@ TEST_CASE("Stats enumerator fails without fabricating handles", "[kernel][xam_us
             mapped_u32(nullptr)) == kFunctionFailed);
 }
 
-TEST_CASE("Gamer tile key parser validates the key before using fallback outputs",
+TEST_CASE("Gamer tile key parser rejects invalid setting data without clobbering outputs",
           "[kernel][xam_user]") {
   constexpr u32 kInvalidParameter = 0x57;
 
@@ -64,13 +65,17 @@ TEST_CASE("Gamer tile key parser validates the key before using fallback outputs
   CHECK(static_cast<u32>(out2) == 0xBBBBBBBBu);
   CHECK(static_cast<u32>(out3) == 0xCCCCCCCCu);
 
-  rex::be_u32 key_words[2] = {0x11111111u, 0x22222222u};
+  rex::system::xam::X_USER_PROFILE_SETTING_DATA int_data{};
+  int_data.type = static_cast<uint8_t>(rex::system::xam::UserProfile::Setting::Type::INT32);
+  int_data.s32 = 0x12345678;
+
   CHECK(rex::kernel::xam::XamParseGamerTileKey_entry(
-            mapped_u32(key_words, 0x40001000), mapped_u32(&out1, 0x40002000),
-            mapped_u32(&out2, 0x40002004), mapped_u32(&out3, 0x40002008)) == 0);
-  CHECK(static_cast<u32>(out1) == 0xC0DE0001u);
-  CHECK(static_cast<u32>(out2) == 0xC0DE0002u);
-  CHECK(static_cast<u32>(out3) == 0xC0DE0003u);
+            mapped_u32(reinterpret_cast<rex::be_u32*>(&int_data), 0x40001000),
+            mapped_u32(&out1, 0x40002000), mapped_u32(&out2, 0x40002004),
+            mapped_u32(&out3, 0x40002008)) == kInvalidParameter);
+  CHECK(static_cast<u32>(out1) == 0xAAAAAAAAu);
+  CHECK(static_cast<u32>(out2) == 0xBBBBBBBBu);
+  CHECK(static_cast<u32>(out3) == 0xCCCCCCCCu);
 }
 
 TEST_CASE("Gamer tile texture fallback validates inputs and fills white pixels",
