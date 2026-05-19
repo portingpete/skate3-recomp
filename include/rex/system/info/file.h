@@ -112,6 +112,11 @@ struct X_FILE_XCTD_COMPRESSION_INFORMATION {
 };
 static_assert_size(X_FILE_XCTD_COMPRESSION_INFORMATION, 4);
 
+struct X_FILE_SECTOR_INFORMATION {
+  be<uint32_t> sector_token;
+};
+static_assert_size(X_FILE_SECTOR_INFORMATION, 4);
+
 // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_completion_information
 struct X_FILE_COMPLETION_INFORMATION {
   be<uint32_t> handle;

@@ -86,12 +86,13 @@ uint32_t GetQueryFileInfoMinimumLength(uint32_t info_class) {
       return sizeof(X_FILE_POSITION_INFORMATION);
     case XFileXctdCompressionInformation:
       return sizeof(X_FILE_XCTD_COMPRESSION_INFORMATION);
+    case XFileSectorInformation:
+      return sizeof(X_FILE_SECTOR_INFORMATION);
     case XFileNetworkOpenInformation:
       return sizeof(X_FILE_NETWORK_OPEN_INFORMATION);
     // TODO(gibbed): structures to get the size of.
     case XFileModeInformation:
     case XFileAlignmentInformation:
-    case XFileSectorInformation:
     case XFileIoPriorityInformation:
       return 4;
     case XFileNameInformation:
@@ -141,11 +142,10 @@ u32 NtQueryInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> i
       break;
     }
     case XFileSectorInformation: {
-      REXKRNL_DEBUG("Stub XFileSectorInformation!");
-      auto info = info_ptr.as<uint32_t*>();
+      auto info = info_ptr.as<X_FILE_SECTOR_INFORMATION*>();
       size_t fname_hash = rex::memory::hash_combine(82589933LL, file->path());
-      *info = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
-      out_length = sizeof(uint32_t);
+      info->sector_token = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
+      out_length = sizeof(*info);
       break;
     }
     case XFileXctdCompressionInformation: {
