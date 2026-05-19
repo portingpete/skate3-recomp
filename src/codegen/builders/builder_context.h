@@ -231,6 +231,15 @@ struct BuilderContext {
   void emit_function_call(uint32_t address);
 
   /**
+   * @brief Emit C++ code for a native/import call.
+   * @param address Import thunk address used for profiling attribution
+   * @param func_name Generated import wrapper symbol to call
+   * @param indent Leading whitespace for the emitted statement
+   */
+  void emit_native_function_call(uint32_t address, std::string_view func_name,
+                                 std::string_view indent = "\t");
+
+  /**
    * @brief Emit C++ code for a conditional branch.
    * @param not_ If true, invert the condition
    * @param cond Condition field name ("eq", "lt", "gt")

@@ -60,6 +60,14 @@
   REX_EXTERN(__imp__##name)
 #endif
 
+#ifndef REX_CALL_NATIVE_FUNC
+#define REX_CALL_NATIVE_FUNC(address, symbol, fn)      \
+  do {                                                 \
+    PROFILE_GUEST_FUNCTION_SCOPE(address, symbol, 0); \
+    fn(ctx, base);                                     \
+  } while (0)
+#endif
+
 #if REX_PLATFORM_WIN32
 #define REX_PHYS_HOST_OFFSET(addr) (((u32)(addr) >= 0xE0000000u) ? 0x1000u : 0u)
 #else
@@ -177,4 +185,3 @@ inline std::atomic<i32>& ppc_global_lock_count_() {
     assert(old_count_ >= 1 && "LeaveGlobalLock called without matching EnterGlobalLock"); \
     rex::thread::global_critical_region::mutex().unlock();                                \
   } while (0)
-

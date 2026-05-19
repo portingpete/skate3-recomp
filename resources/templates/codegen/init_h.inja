@@ -65,6 +65,12 @@ extern PPCFuncMapping PPCFuncMappings[];
   __attribute__((alias("__imp__" #name))) REX_WEAK_FUNC(name); \
   REX_EXTERN(__imp__##name)
 
+#define REX_CALL_NATIVE_FUNC(address, symbol, fn)      \
+  do {                                                 \
+    PROFILE_GUEST_FUNCTION_SCOPE(address, symbol, 0); \
+    fn(ctx, base);                                     \
+  } while (0)
+
 //=============================================================================
 // Function Prologue
 //=============================================================================

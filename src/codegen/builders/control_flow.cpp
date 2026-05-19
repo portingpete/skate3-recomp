@@ -204,7 +204,11 @@ bool build_bctr(BuilderContext& ctx) {
         case TargetKind::Function:
         case TargetKind::Import:
           if (auto* targetFn = ctx.graph().getFunction(label)) {
-            ctx.println("\t\t{}(ctx, base);", targetFn->name());
+            if (targetFn->isImport()) {
+              ctx.emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t");
+            } else {
+              ctx.println("\t\t{}(ctx, base);", targetFn->name());
+            }
           } else {
             REXCODEGEN_ERROR(
                 "Jump target 0x{:08X} classified as function but not in graph at bctr 0x{:08X}",

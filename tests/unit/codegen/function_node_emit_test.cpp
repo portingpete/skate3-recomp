@@ -214,6 +214,105 @@ TEST_CASE("FunctionNode emit skips guest function profiling around longjmp helpe
   CHECK(cpp.find("PROFILE_GUEST_FUNCTION_SCOPE(") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit skips native import profiling around longjmp helpers",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 8> kImportCall = {
+      0x48, 0x00, 0x10, 0x01,  // 0x1000: bl 0x2000
+      0x4E, 0x80, 0x00, 0x20,  // 0x1004: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kImportCall);
+  rex::codegen::RecompilerConfig config;
+  config.setJmpAddress = 0x3000;
+  config.longJmpAddress = 0x4000;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  graph.addCallToFunction(0x1000, 0x1000,
+                          rex::codegen::CallTarget::import(
+                              0x2000, "__imp__KeDelayExecutionThread"));
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("REX_CALL_NATIVE_FUNC(") == std::string::npos);
+  CHECK(cpp.find("__imp__KeDelayExecutionThread(ctx, base);") != std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit wraps direct import calls for native profiling",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 8> kImportCall = {
+      0x48, 0x00, 0x10, 0x01,  // 0x1000: bl 0x2000
+      0x4E, 0x80, 0x00, 0x20,  // 0x1004: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kImportCall);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  graph.addCallToFunction(0x1000, 0x1000,
+                          rex::codegen::CallTarget::import(
+                              0x2000, "__imp__KeDelayExecutionThread"));
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find(
+            "REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__KeDelayExecutionThread\", "
+            "__imp__KeDelayExecutionThread);") != std::string::npos);
+  CHECK(cpp.find("__imp__KeDelayExecutionThread(ctx, base);") == std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit wraps import nodes resolved as function targets for native profiling",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 8> kImportCall = {
+      0x48, 0x00, 0x10, 0x01,  // 0x1000: bl 0x2000
+      0x4E, 0x80, 0x00, 0x20,  // 0x1004: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kImportCall);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  REQUIRE(node != nullptr);
+  auto* importNode = graph.addImportFunction(0x2000, "__imp__NtWaitForSingleObjectEx");
+  REQUIRE(importNode != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  graph.addCallToFunction(0x1000, 0x1000, rex::codegen::CallTarget::function(importNode));
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find(
+            "REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__NtWaitForSingleObjectEx\", "
+            "__imp__NtWaitForSingleObjectEx);") != std::string::npos);
+  CHECK(cpp.find("__imp__NtWaitForSingleObjectEx(ctx, base);") == std::string::npos);
+}
+
 TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
           "[codegen][FunctionNode]") {
   // 0x4C820421 = bnectrl cr0. The call is conditional and must preserve

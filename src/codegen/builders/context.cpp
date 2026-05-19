@@ -26,6 +26,68 @@ namespace rex::codegen {
 /// if the next instruction after a load/store is eieio, the access is MMIO.
 static constexpr uint32_t kEieioEncoding = 0xAC06007C;
 
+namespace {
+
+std::string EscapeCppString(std::string_view value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char ch : value) {
+    switch (ch) {
+      case '\\':
+        escaped += "\\\\";
+        break;
+      case '"':
+        escaped += "\\\"";
+        break;
+      case '\n':
+        escaped += "\\n";
+        break;
+      case '\r':
+        escaped += "\\r";
+        break;
+      case '\t':
+        escaped += "\\t";
+        break;
+      default:
+        escaped += ch;
+        break;
+    }
+  }
+  return escaped;
+}
+
+std::string SanitizeImportFunctionName(std::string name) {
+  std::replace(name.begin(), name.end(), '@', '_');
+  std::replace(name.begin(), name.end(), '.', '_');
+  return name;
+}
+
+std::string ResolveImportFunctionName(const EmitContext& emitCtx,
+                                      const CallTarget::ToImport& importTarget) {
+  if (importTarget.name.starts_with("__imp__")) {
+    return SanitizeImportFunctionName(importTarget.name);
+  }
+
+  auto at_pos = importTarget.name.find('@');
+  if (at_pos != std::string::npos && emitCtx.resolver) {
+    auto lib_name = importTarget.name.substr(0, at_pos);
+    auto ordinal_str = importTarget.name.substr(at_pos + 1);
+    uint16_t ordinal = static_cast<uint16_t>(std::stoul(ordinal_str));
+
+    auto* exp = emitCtx.resolver->GetExportByOrdinal(lib_name + ".xex", ordinal);
+    if (!exp)
+      exp = emitCtx.resolver->GetExportByOrdinal(lib_name, ordinal);
+
+    if (exp) {
+      return "__imp__" + std::string(exp->name);
+    }
+  }
+
+  return "__imp__" + SanitizeImportFunctionName(importTarget.name);
+}
+
+}  // namespace
+
 //=============================================================================
 // Convenience Accessors
 //=============================================================================
@@ -126,6 +188,17 @@ const char* BuilderContext::ea() {
   return "ea";
 }
 
+void BuilderContext::emit_native_function_call(uint32_t address, std::string_view func_name,
+                                               std::string_view indent) {
+  if (config().setJmpAddress != 0 || config().longJmpAddress != 0) {
+    println("{}{}(ctx, base);", indent, func_name);
+    return;
+  }
+
+  println("{}REX_CALL_NATIVE_FUNC(0x{:08X}, \"{}\", {});", indent, address,
+          EscapeCppString(func_name), func_name);
+}
+
 //=============================================================================
 // Output Helpers
 //=============================================================================
@@ -217,6 +290,11 @@ void BuilderContext::emit_function_call(uint32_t address) {
       auto* targetFn = target->asFunction();
       const auto& name = targetFn->name();
 
+      if (targetFn->isImport()) {
+        emit_native_function_call(targetFn->base(), name);
+        return;
+      }
+
       // Handle save/restore helpers
       if (cfg.nonVolatileRegistersAsLocalVariables &&
           (name.find("__rest") == 0 || name.find("__save") == 0)) {
@@ -230,31 +308,8 @@ void BuilderContext::emit_function_call(uint32_t address) {
 
     if (target->isImport()) {
       const auto& importTarget = std::get<CallTarget::ToImport>(target->value);
-      std::string func_name;
-
-      // Try to resolve ordinal to actual function name
-      auto at_pos = importTarget.name.find('@');
-      if (at_pos != std::string::npos && emitCtx.resolver) {
-        auto lib_name = importTarget.name.substr(0, at_pos);
-        auto ordinal_str = importTarget.name.substr(at_pos + 1);
-        uint16_t ordinal = static_cast<uint16_t>(std::stoul(ordinal_str));
-
-        auto* exp = emitCtx.resolver->GetExportByOrdinal(lib_name + ".xex", ordinal);
-        if (!exp)
-          exp = emitCtx.resolver->GetExportByOrdinal(lib_name, ordinal);
-
-        if (exp) {
-          func_name = "__imp__" + std::string(exp->name);
-        }
-      }
-
-      if (func_name.empty()) {
-        func_name = "__imp__" + importTarget.name;
-        std::replace(func_name.begin(), func_name.end(), '@', '_');
-        std::replace(func_name.begin(), func_name.end(), '.', '_');
-      }
-
-      println("\t{}(ctx, base);", func_name);
+      emit_native_function_call(importTarget.address,
+                                ResolveImportFunctionName(emitCtx, importTarget));
       return;
     }
 
@@ -291,16 +346,18 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
         if (callTarget->isFunction()) {
           auto* targetFn = callTarget->asFunction();
           println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
-          println("\t\t{}(ctx, base);", targetFn->name());
+          if (targetFn->isImport()) {
+            emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t");
+          } else {
+            println("\t\t{}(ctx, base);", targetFn->name());
+          }
           println("\t\treturn;");
           println("\t}}");
         } else if (callTarget->isImport()) {
           const auto& importTarget = std::get<CallTarget::ToImport>(callTarget->value);
-          std::string func_name = "__imp__" + importTarget.name;
-          std::replace(func_name.begin(), func_name.end(), '@', '_');
-          std::replace(func_name.begin(), func_name.end(), '.', '_');
           println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
-          println("\t\t{}(ctx, base);", func_name);
+          emit_native_function_call(importTarget.address,
+                                    ResolveImportFunctionName(emitCtx, importTarget), "\t\t");
           println("\t\treturn;");
           println("\t}}");
         }

@@ -206,6 +206,7 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);
+  CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: init_h includes SEH support for generated handlers",
@@ -249,6 +250,7 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
+  CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: cmake_var callback works", "[TemplateRegistry]") {
