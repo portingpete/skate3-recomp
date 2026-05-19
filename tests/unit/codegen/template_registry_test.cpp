@@ -303,6 +303,47 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }
 
+TEST_CASE("TemplateRegistry: trap helpers label service-trap metadata",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  const std::string codegen_json = R"({
+    "config_flags": {
+      "skip_lr": false,
+      "ctr_as_local": false,
+      "xer_as_local": false,
+      "reserved_as_local": false,
+      "skip_msr": false,
+      "cr_as_local": false,
+      "non_argument_as_local": false,
+      "non_volatile_as_local": false
+    },
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "thunk_reserve_size": "0x1000",
+    "rexcrt_heap": false,
+    "functions": [],
+    "imports": []
+  })";
+  const std::string test_json = R"({
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "thunk_reserve_size": "0x1000"
+  })";
+
+  for (const std::string& result :
+       {registry.render("codegen/init_h", codegen_json), registry.render("test/ppc_config_h", test_json)}) {
+    CHECK(result.find("const u32 trap_string_guest = ctx.r3.u32;") != std::string::npos);
+    CHECK(result.find("const u16 trap_string_length = ctx.r4.u16;") != std::string::npos);
+    CHECK(result.find("(service trap type={} str={:#010x} len={})") != std::string::npos);
+    CHECK(result.find("(service trap type={} str={:#010x} len={}) {}") != std::string::npos);
+    CHECK(result.find("(service trap) {}") == std::string::npos);
+  }
+}
+
 TEST_CASE("TemplateRegistry: indirect-call macro keeps legacy wrapper single-evaluation",
           "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
