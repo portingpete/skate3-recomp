@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <string>
 #include <string_view>
 
 namespace rex {
@@ -91,6 +92,30 @@ std::filesystem::path ReXApp::ResolveDefaultCacheRoot(
   }
 
   return {};
+}
+
+std::string ReXApp::BuildGameDataRootMissingMessage(std::string_view app_name) {
+  return fmt::format(
+      "Game data root was not provided for {}.\n\nLaunch with --game-data-root <folder> or pass "
+      "the game-data folder as the final positional argument.",
+      app_name);
+}
+
+std::string ReXApp::BuildGameDataRootNotFoundMessage(
+    const std::filesystem::path& game_data_root) {
+  auto message =
+      fmt::format("Game data root does not exist: {}\n\nLaunch with --game-data-root <folder> or "
+                  "pass the game-data folder as the final positional argument.",
+                  game_data_root.string());
+
+  const auto argument = game_data_root.string();
+  if (argument == "true" || argument == "false" || argument.starts_with("-")) {
+    message +=
+        "\n\nThe value shown above looks like an option value. Check for a boolean flag with an "
+        "extra value, or put the game-data folder after all options.";
+  }
+
+  return message;
 }
 
 bool ReXApp::OnInitialize() {
@@ -198,13 +223,13 @@ bool ReXApp::SetupEnvironment() {
 
 bool ReXApp::ConstructRuntime(const PathConfig& paths) {
   if (paths.game_data_root.empty()) {
-    auto msg = std::string("--game_data_root was not provided.");
+    auto msg = BuildGameDataRootMissingMessage(GetName());
     REXLOG_ERROR("{}", msg);
     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
     return false;
   }
   if (!std::filesystem::is_directory(paths.game_data_root)) {
-    auto msg = fmt::format("--game_data_root does not exist: {}", paths.game_data_root.string());
+    auto msg = BuildGameDataRootNotFoundMessage(paths.game_data_root);
     REXLOG_ERROR("{}", msg);
     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
     return false;

@@ -30,6 +30,15 @@ class TestReXApp final : public rex::ReXApp {
       const std::filesystem::path& game_root, std::string_view update_data_root) {
     return ResolveDefaultUpdateDataRoot(game_root, update_data_root);
   }
+
+  static std::string BuildGameDataRootMissingMessageForTest(std::string_view app_name) {
+    return BuildGameDataRootMissingMessage(app_name);
+  }
+
+  static std::string BuildGameDataRootNotFoundMessageForTest(
+      const std::filesystem::path& game_data_root) {
+    return BuildGameDataRootNotFoundMessage(game_data_root);
+  }
 };
 
 std::filesystem::path MakeTempGameRoot(std::string_view name) {
@@ -115,4 +124,23 @@ TEST_CASE("ReXApp falls back to user data cache when local cache root is unavail
 
   CHECK(TestReXApp::ResolveDefaultCacheRootForTest("test_app", user_root, {}, "") ==
         user_root / "cache");
+}
+
+TEST_CASE("ReXApp game data root errors explain expected launch argument",
+          "[ui][rex_app][paths]") {
+  auto missing = TestReXApp::BuildGameDataRootMissingMessageForTest("test_app");
+  CHECK(missing.find("Game data root was not provided for test_app.") != std::string::npos);
+  CHECK(missing.find("--game-data-root <folder>") != std::string::npos);
+  CHECK(missing.find("final positional argument") != std::string::npos);
+
+  auto option_value =
+      TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("true"));
+  CHECK(option_value.find("Game data root does not exist: true") != std::string::npos);
+  CHECK(option_value.find("--game-data-root <folder>") != std::string::npos);
+  CHECK(option_value.find("looks like an option value") != std::string::npos);
+
+  auto option_name =
+      TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("--log_level"));
+  CHECK(option_name.find("Game data root does not exist: --log_level") != std::string::npos);
+  CHECK(option_name.find("looks like an option value") != std::string::npos);
 }
