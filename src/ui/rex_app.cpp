@@ -98,6 +98,15 @@ std::string ReXApp::BuildHostBuildLine() {
   return fmt::format("  Host {}", REXGLUE_BUILD_STAMP);
 }
 
+std::string ReXApp::BuildGeneratedBuildLine(std::string_view generated_build_stamp) {
+  if (!generated_build_stamp.empty()) {
+    return fmt::format("  Generated code {}", generated_build_stamp);
+  }
+
+  return "  Generated code build: unavailable (regenerate with a newer rexglue to record codegen "
+         "provenance)";
+}
+
 std::string ReXApp::BuildExecutablePathLine(const std::filesystem::path& executable_path) {
   return fmt::format("  Executable:     {}", executable_path.string());
 }
@@ -216,6 +225,9 @@ bool ReXApp::SetupEnvironment() {
 
   REXLOG_INFO("{} starting", GetName());
   REXLOG_INFO("{}", BuildHostBuildLine());
+  REXLOG_INFO("{}", BuildGeneratedBuildLine(ppc_info_.generated_build_stamp != nullptr
+                                                ? ppc_info_.generated_build_stamp
+                                                : std::string_view{}));
   REXLOG_INFO("{}", BuildExecutablePathLine(rex::filesystem::GetExecutablePath()));
   if (!game_data_root_.empty()) {
     REXLOG_INFO("  Game directory: {}", game_data_root_.string());

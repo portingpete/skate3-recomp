@@ -34,6 +34,7 @@ struct PPCImageInfo {
   u32 image_size;
   const PPCFuncMapping* func_mappings;
   bool rexcrt_heap = false;  ///< Set by codegen when [rexcrt] has heap functions
+  const char* generated_build_stamp = nullptr;  ///< RexGlue build that emitted the generated C++.
   RegisterModulesFunc register_modules = nullptr;  ///< Set by codegen for multi-binary projects
 };
 

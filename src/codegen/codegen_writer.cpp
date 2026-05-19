@@ -26,6 +26,7 @@
 #include <rex/logging.h>
 #include <rex/runtime.h>
 #include <rex/system/export_resolver.h>
+#include <rex/version.h>
 
 #include "codegen_logging.h"
 #include "template_registry_internal.h"
@@ -97,6 +98,7 @@ nlohmann::json buildTemplateData(const rex::codegen::CodegenContext& ctx,
       {"code_base", fmt::format("0x{:X}", codeMin)},
       {"code_size", fmt::format("0x{:X}", codeMax - codeMin)},
       {"rexcrt_heap", cfg.rexcrtFunctions.contains("RtlAllocateHeap") ? 1 : 0},
+      {"generated_build_stamp", REXGLUE_BUILD_STAMP},
       {"thunk_reserve_size", fmt::format("0x{:X}", 0x10000u)},
       {"has_dll_modules", ctx.hasDllModules()},
       {"is_dll", ctx.isDllModule()},

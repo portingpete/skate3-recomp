@@ -118,6 +118,7 @@ TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
     "code_base": "0x82010000",
     "code_size": "0x100000",
     "rexcrt_heap": 1,
+    "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
     "has_dll_modules": false,
     "is_dll": false,
     "config_flags": {},
@@ -140,6 +141,7 @@ TEST_CASE("TemplateRegistry: generated function registration keeps stable ABI",
     "code_base": "0x82010000",
     "code_size": "0x100000",
     "rexcrt_heap": 1,
+    "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
     "has_dll_modules": false,
     "is_dll": false,
     "config_flags": {},
@@ -162,6 +164,32 @@ TEST_CASE("TemplateRegistry: generated function registration keeps stable ABI",
   CHECK(register_cpp.find("registrar->SetFunction(0x82011234, sub_82011234);") !=
         std::string::npos);
   CHECK(register_cpp.find("SetFunctionSymbol") == std::string::npos);
+}
+
+TEST_CASE("TemplateRegistry: init_cpp records generated code provenance",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "project": "test_proj",
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "rexcrt_heap": 0,
+    "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
+    "has_dll_modules": false,
+    "is_dll": false,
+    "config_flags": {},
+    "functions": [],
+    "imports": []
+  })";
+
+  std::string result = registry.render("codegen/init_cpp", json);
+
+  CHECK(result.find(
+            ".generated_build_stamp = "
+            "\"build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200\"") !=
+        std::string::npos);
 }
 
 TEST_CASE("Template: init cmake presets enable AMD64 baseline SIMD", "[TemplateRegistry]") {

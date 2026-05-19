@@ -40,6 +40,10 @@ class TestReXApp final : public rex::ReXApp {
     return BuildHostBuildLine();
   }
 
+  static std::string BuildGeneratedBuildLineForTest(std::string_view generated_build_stamp) {
+    return BuildGeneratedBuildLine(generated_build_stamp);
+  }
+
   static std::string BuildExecutablePathLineForTest(
       const std::filesystem::path& executable_path) {
     return BuildExecutablePathLine(executable_path);
@@ -160,6 +164,15 @@ TEST_CASE("ReXApp startup identity lines include host build and executable path"
   auto build_line = TestReXApp::BuildHostBuildLineForTest();
   CHECK(build_line.find("Host build:") != std::string::npos);
   CHECK(build_line.find(REXGLUE_BUILD_STAMP) != std::string::npos);
+
+  auto generated_line =
+      TestReXApp::BuildGeneratedBuildLineForTest("build: rexglue-v0.8.0-old-win-amd64-Debug");
+  CHECK(generated_line.find("Generated code build:") != std::string::npos);
+  CHECK(generated_line.find("rexglue-v0.8.0-old") != std::string::npos);
+
+  auto missing_generated_line = TestReXApp::BuildGeneratedBuildLineForTest("");
+  CHECK(missing_generated_line.find("Generated code build: unavailable") != std::string::npos);
+  CHECK(missing_generated_line.find("regenerate") != std::string::npos);
 
   auto executable = std::filesystem::path("C:/tmp/rex-hosts/gtaiv_disc1/gtaiv_disc1.exe");
   auto executable_line = TestReXApp::BuildExecutablePathLineForTest(executable);
