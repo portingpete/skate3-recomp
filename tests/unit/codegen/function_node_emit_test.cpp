@@ -469,7 +469,8 @@ TEST_CASE("FunctionNode emit lowers db16cyc spin hints to host pause hints",
   };
 
   const std::string cpp = node.emitCpp(ctx);
-  CHECK(cpp.find("// db16cyc \n\trex::ppc_delay_execution_hint();") != std::string::npos);
+  CHECK(cpp.find("// db16cyc \n\tPROFILE_GUEST_SPIN_HINT_EXECUTION();\n"
+                 "\trex::ppc_delay_execution_hint();") != std::string::npos);
 }
 
 TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of range",

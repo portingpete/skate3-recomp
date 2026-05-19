@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -20,6 +21,14 @@
 #endif
 
 namespace rex::perf {
+
+namespace detail {
+extern std::atomic<bool> g_guest_function_profile_enabled;
+}  // namespace detail
+
+inline bool IsGuestFunctionProfileEnabled() noexcept {
+  return detail::g_guest_function_profile_enabled.load(std::memory_order_relaxed);
+}
 
 enum class CounterId : uint16_t {
   // Frame
@@ -108,6 +117,8 @@ struct GuestFunctionProfileEntry {
   uint64_t active_exclusive_us = 0;
   // Static db16cyc/host-pause hint sites in the emitted function, not dynamic executions.
   uint32_t static_spin_hint_sites = 0;
+  // Dynamic db16cyc/host-pause hint executions observed while this function was active.
+  uint64_t dynamic_spin_hint_executions = 0;
 };
 
 struct GuestIndirectCallTargetProfileEntry {
@@ -123,8 +134,10 @@ struct GuestIndirectCallTargetProfileEntry {
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
-                                uint32_t static_spin_hint_sites = 0);
+                                uint32_t static_spin_hint_sites = 0,
+                                uint64_t dynamic_spin_hint_executions = 0);
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
+void AddGuestSpinHintExecution();
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 bool fast_path_hit);
@@ -273,6 +286,12 @@ class Profiler {
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
   rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
                                                           __LINE__)
+#define PROFILE_GUEST_SPIN_HINT_EXECUTION()                                                \
+  do {                                                                                    \
+    if (rex::perf::IsGuestFunctionProfileEnabled()) {                                     \
+      rex::perf::AddGuestSpinHintExecution();                                             \
+    }                                                                                     \
+  } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
                                            target_address, fast_path_hit)                 \
   rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,         \
@@ -332,6 +351,7 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
+#define PROFILE_GUEST_SPIN_HINT_EXECUTION()
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
                                            fast_path_hit)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \

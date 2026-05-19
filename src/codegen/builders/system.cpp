@@ -49,6 +49,7 @@ bool build_eieio(BuilderContext& ctx) {
 }
 
 bool build_db16cyc(BuilderContext& ctx) {
+  ctx.println("\tPROFILE_GUEST_SPIN_HINT_EXECUTION();");
   ctx.println("\trex::ppc_delay_execution_hint();");
   return true;
 }

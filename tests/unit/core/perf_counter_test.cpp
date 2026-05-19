@@ -238,6 +238,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[0].blocking_wait_us == 0);
   CHECK(entries[0].active_exclusive_us == 50);
   CHECK(entries[0].static_spin_hint_sites == 3);
+  CHECK(entries[0].dynamic_spin_hint_executions == 0);
 
   CHECK(entries[1].address == 0x82230000);
   CHECK(entries[1].symbol == "sub_82230000");
@@ -247,6 +248,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[1].blocking_wait_us == 0);
   CHECK(entries[1].active_exclusive_us == 20);
   CHECK(entries[1].static_spin_hint_sites == 0);
+  CHECK(entries[1].dynamic_spin_hint_executions == 0);
 
   CHECK(rex::perf::SnapshotGuestFunctionProfile(
             /*max_entries=*/8, /*min_exclusive_us=*/0)
@@ -335,6 +337,48 @@ TEST_CASE("guest function scope separates blocking wait from active exclusive ti
   CHECK(entries[0].exclusive_us >= entries[0].blocking_wait_us);
   CHECK(entries[0].active_exclusive_us == entries[0].exclusive_us - entries[0].blocking_wait_us);
   CHECK(rex::perf::GetCounter(rex::perf::CounterId::kGuestKernelWaitUs) == 25);
+}
+
+TEST_CASE("guest function scope counts dynamic spin hint executions", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_spin_scope_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "4"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    rex::perf::ScopedGuestFunctionProfile outer(0x82220000, "sub_82220000", 2);
+    rex::perf::AddGuestSpinHintExecution();
+    {
+      rex::perf::ScopedGuestFunctionProfile inner(0x82230000, "sub_82230000", 1);
+      rex::perf::AddGuestSpinHintExecution();
+      rex::perf::AddGuestSpinHintExecution();
+    }
+    rex::perf::AddGuestSpinHintExecution();
+  }
+
+  auto entries =
+      rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/4, /*min_exclusive_us=*/0);
+  REQUIRE(entries.size() == 2);
+
+  const auto find_entry = [&](uint32_t address) -> const rex::perf::GuestFunctionProfileEntry* {
+    for (const auto& entry : entries) {
+      if (entry.address == address) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  };
+
+  const auto* outer = find_entry(0x82220000);
+  const auto* inner = find_entry(0x82230000);
+  REQUIRE(outer != nullptr);
+  REQUIRE(inner != nullptr);
+  CHECK(outer->static_spin_hint_sites == 2);
+  CHECK(outer->dynamic_spin_hint_executions == 2);
+  CHECK(inner->static_spin_hint_sites == 1);
+  CHECK(inner->dynamic_spin_hint_executions == 2);
 }
 
 TEST_CASE("guest function scope is inert by default", "[perf][counter]") {
@@ -534,12 +578,13 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-        "blocking_wait_us,active_exclusive_us,static_spin_hint_sites");
+        "blocking_wait_us,active_exclusive_us,static_spin_hint_sites,"
+        "dynamic_spin_hint_executions");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 11);
-  REQUIRE(rank1_values.size() == 11);
+  REQUIRE(rank0_values.size() == 12);
+  REQUIRE(rank1_values.size() == 12);
 
   CHECK(rank0_values[0] == "0");
   CHECK(rank0_values[2] == "1");
@@ -551,6 +596,7 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   CHECK(rank0_values[8] == "0");
   CHECK(rank0_values[9] == "70");
   CHECK(rank0_values[10] == "4");
+  CHECK(rank0_values[11] == "0");
 
   CHECK(rank1_values[2] == "2");
   CHECK(rank1_values[3] == "0x82240000");
@@ -558,6 +604,7 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   CHECK(rank1_values[8] == "0");
   CHECK(rank1_values[9] == "60");
   CHECK(rank1_values[10] == "3");
+  CHECK(rank1_values[11] == "0");
 }
 
 TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when enabled",
@@ -594,12 +641,12 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,static_spin_hint_sites");
+        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 9);
-  REQUIRE(rank1_values.size() == 9);
+  REQUIRE(rank0_values.size() == 10);
+  REQUIRE(rank1_values.size() == 10);
 
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
@@ -610,6 +657,7 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
   CHECK(rank0_values[6] == "15");
   CHECK(rank0_values[7] == "105");
   CHECK(rank0_values[8] == "4");
+  CHECK(rank0_values[9] == "0");
 
   CHECK(rank1_values[0] == "2");
   CHECK(rank1_values[1] == "0x82240000");
@@ -620,6 +668,7 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
   CHECK(rank1_values[6] == "0");
   CHECK(rank1_values[7] == "60");
   CHECK(rank1_values[8] == "3");
+  CHECK(rank1_values[9] == "0");
 }
 
 TEST_CASE("perf_log_csv writes guest function summary beside previous csv when disabled",
@@ -654,15 +703,16 @@ TEST_CASE("perf_log_csv writes guest function summary beside previous csv when d
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,static_spin_hint_sites");
+        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions");
 
   auto rank0_values = SplitCsvRow(rank0);
-  REQUIRE(rank0_values.size() == 9);
+  REQUIRE(rank0_values.size() == 10);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[3] == "1");
   CHECK(rank0_values[5] == "70");
   CHECK(rank0_values[7] == "70");
+  CHECK(rank0_values[9] == "0");
 
   std::filesystem::remove(cwd_summary_path, ec);
 }
@@ -692,13 +742,14 @@ TEST_CASE("perf_log_csv refreshes guest function summary during periodic flush",
   REQUIRE(std::getline(summary_csv, rank0));
 
   auto rank0_values = SplitCsvRow(rank0);
-  REQUIRE(rank0_values.size() == 9);
+  REQUIRE(rank0_values.size() == 10);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[3] == "60");
   CHECK(rank0_values[4] == "6000");
   CHECK(rank0_values[5] == "4200");
   CHECK(rank0_values[7] == "4200");
+  CHECK(rank0_values[9] == "0");
 }
 
 TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {
@@ -729,13 +780,14 @@ TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[
   REQUIRE(std::getline(guest_csv, profiled_frame));
 
   auto values = SplitCsvRow(profiled_frame);
-  REQUIRE(values.size() == 11);
+  REQUIRE(values.size() == 12);
   CHECK(values[2] == "1");
   CHECK(values[3] == "0x82220000");
   CHECK(values[7] == "70");
   CHECK(values[8] == "0");
   CHECK(values[9] == "70");
   CHECK(values[10] == "0");
+  CHECK(values[11] == "0");
 }
 
 TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][counter]") {
@@ -760,5 +812,6 @@ TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][coun
   REQUIRE(std::getline(guest_csv, row));
 
   CHECK(row.find("0,") == 0);
-  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70,0,70,0") != std::string::npos);
+  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70,0,70,0,0") !=
+        std::string::npos);
 }
