@@ -80,6 +80,10 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFull, 8);
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFast, 9);
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFallback, 10);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kGuestFunctionDispatchUs, 11);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12SubmissionWaitUs, 12);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentUs, 13);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackUs, 14);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
@@ -120,6 +124,13 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   const size_t memexport_full_col = CsvColumnIndex(header_values, "memexport_readback_full");
   const size_t memexport_fast_col = CsvColumnIndex(header_values, "memexport_readback_fast");
   const size_t memexport_fallback_col = CsvColumnIndex(header_values, "memexport_readback_fallback");
+  const size_t guest_dispatch_us_col =
+      CsvColumnIndex(header_values, "guest_function_dispatch_us");
+  const size_t submission_wait_us_col =
+      CsvColumnIndex(header_values, "d3d12_submission_wait_us");
+  const size_t present_us_col = CsvColumnIndex(header_values, "d3d12_present_us");
+  const size_t memexport_readback_us_col =
+      CsvColumnIndex(header_values, "memexport_readback_us");
   REQUIRE(skipped_draws_col != std::string::npos);
   REQUIRE(pending_draws_col != std::string::npos);
   REQUIRE(failed_draws_col != std::string::npos);
@@ -128,6 +139,10 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   REQUIRE(memexport_full_col != std::string::npos);
   REQUIRE(memexport_fast_col != std::string::npos);
   REQUIRE(memexport_fallback_col != std::string::npos);
+  REQUIRE(guest_dispatch_us_col != std::string::npos);
+  REQUIRE(submission_wait_us_col != std::string::npos);
+  REQUIRE(present_us_col != std::string::npos);
+  REQUIRE(memexport_readback_us_col != std::string::npos);
 
   CHECK(frame0_values[0] == "0");
   CHECK(frame0_values[2] == "16666");
@@ -140,6 +155,10 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame0_values[memexport_full_col] == "8");
   CHECK(frame0_values[memexport_fast_col] == "9");
   CHECK(frame0_values[memexport_fallback_col] == "10");
+  CHECK(frame0_values[guest_dispatch_us_col] == "11");
+  CHECK(frame0_values[submission_wait_us_col] == "12");
+  CHECK(frame0_values[present_us_col] == "13");
+  CHECK(frame0_values[memexport_readback_us_col] == "14");
 
   CHECK(frame1_values[0] == "1");
   CHECK(std::stoull(frame1_values[1]) >= std::stoull(frame0_values[1]));
@@ -153,4 +172,8 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame1_values[memexport_full_col] == "0");
   CHECK(frame1_values[memexport_fast_col] == "0");
   CHECK(frame1_values[memexport_fallback_col] == "0");
+  CHECK(frame1_values[guest_dispatch_us_col] == "0");
+  CHECK(frame1_values[submission_wait_us_col] == "0");
+  CHECK(frame1_values[present_us_col] == "0");
+  CHECK(frame1_values[memexport_readback_us_col] == "0");
 }

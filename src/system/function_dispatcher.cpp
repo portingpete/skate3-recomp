@@ -79,7 +79,10 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
   uint64_t previous_lr = ctx->lr;
   ctx->lr = 0xBCBCBCBC;
 
-  fn(*ctx, memory_->virtual_membase());
+  {
+    PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE();
+    fn(*ctx, memory_->virtual_membase());
+  }
 
   ctx->lr = previous_lr;
   ctx->r1.u64 += 64 + 112;

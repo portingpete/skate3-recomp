@@ -11,6 +11,7 @@
 
 #include <rex/assert.h>
 #include <rex/logging.h>
+#include <rex/perf/counter.h>
 #include <rex/ui/d3d12/d3d12_submission_tracker.h>
 
 namespace rex::ui::d3d12 {
@@ -74,6 +75,7 @@ bool D3D12SubmissionTracker::AwaitSubmissionCompletion(UINT64 submission_index) 
     if (FAILED(fence_->SetEventOnCompletion(fence_value, fence_completion_event_))) {
       return false;
     }
+    PROFILE_D3D12_SUBMISSION_WAIT_SCOPE();
     if (WaitForSingleObject(fence_completion_event_, INFINITE) != WAIT_OBJECT_0) {
       return false;
     }

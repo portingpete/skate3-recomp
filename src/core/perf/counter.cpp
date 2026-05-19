@@ -47,6 +47,10 @@ constexpr const char* kCounterNames[] = {
     "memexport_readback_full",
     "memexport_readback_fast",
     "memexport_readback_fallback",
+    "guest_function_dispatch_us",
+    "d3d12_submission_wait_us",
+    "d3d12_present_us",
+    "memexport_readback_us",
     "xma_frames_decoded",
     "audio_frame_latency_us",
     "buffer_queue_depth",
@@ -78,6 +82,10 @@ constexpr bool kIsGauge[] = {
     false,  // kMemexportReadbackFull
     false,  // kMemexportReadbackFast
     false,  // kMemexportReadbackFallback
+    false,  // kGuestFunctionDispatchUs
+    false,  // kD3D12SubmissionWaitUs
+    false,  // kD3D12PresentUs
+    false,  // kMemexportReadbackUs
     false,  // kXmaFramesDecoded
     false,  // kAudioFrameLatencyUs
     false,  // kBufferQueueDepth  (set each frame)
@@ -114,6 +122,15 @@ void SetCounter(CounterId id, int64_t value) {
 
 void IncrementCounter(CounterId id, int64_t delta) {
   g_counters[static_cast<size_t>(id)].fetch_add(delta, std::memory_order_relaxed);
+}
+
+void AddCounterDurationSince(CounterId id, uint64_t start_tick) {
+  const uint64_t end_tick = rex::chrono::Clock::QueryHostTickCount();
+  const uint64_t freq = rex::chrono::Clock::QueryHostTickFrequency();
+  if (freq == 0 || end_tick <= start_tick) {
+    return;
+  }
+  IncrementCounter(id, static_cast<int64_t>((end_tick - start_tick) * UINT64_C(1000000) / freq));
 }
 
 int64_t GetCounter(CounterId id) {
@@ -214,6 +231,13 @@ void FlushCsv() {
   g_csv_path.clear();
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
+}
+
+ScopedCounterDuration::ScopedCounterDuration(CounterId id)
+    : id_(id), start_tick_(rex::chrono::Clock::QueryHostTickCount()) {}
+
+ScopedCounterDuration::~ScopedCounterDuration() {
+  AddCounterDurationSince(id_, start_tick_);
 }
 
 }  // namespace rex::perf

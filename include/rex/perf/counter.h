@@ -36,6 +36,10 @@ enum class CounterId : uint16_t {
   kMemexportReadbackFull,
   kMemexportReadbackFast,
   kMemexportReadbackFallback,
+  kGuestFunctionDispatchUs,
+  kD3D12SubmissionWaitUs,
+  kD3D12PresentUs,
+  kMemexportReadbackUs,
 
   // Audio
   kXmaFramesDecoded,
@@ -69,6 +73,9 @@ void SetCounter(CounterId id, int64_t value);
 // Atomically add to a counter
 void IncrementCounter(CounterId id, int64_t delta = 1);
 
+// Add the elapsed time since start_tick to a microsecond duration counter.
+void AddCounterDurationSince(CounterId id, uint64_t start_tick);
+
 // Read a counter's current live value
 int64_t GetCounter(CounterId id);
 
@@ -87,6 +94,19 @@ void ConfigureCsvLogPathFromCvar();
 void SetCsvLogPath(const std::string& path);
 void WriteCsvFrame();
 void FlushCsv();
+
+class ScopedCounterDuration {
+ public:
+  explicit ScopedCounterDuration(CounterId id);
+  ~ScopedCounterDuration();
+
+  ScopedCounterDuration(const ScopedCounterDuration&) = delete;
+  ScopedCounterDuration& operator=(const ScopedCounterDuration&) = delete;
+
+ private:
+  CounterId id_;
+  uint64_t start_tick_;
+};
 
 // Profiler -- coordinates Tracy frame marks and counter snapshots.
 // Moved here from rex::debug to consolidate all perf code under rex::perf.
@@ -150,6 +170,11 @@ class Profiler {
 #define PERF_counter_set(id, value) rex::perf::SetCounter(rex::perf::CounterId::id, value)
 #define PERF_counter_inc(id) rex::perf::IncrementCounter(rex::perf::CounterId::id)
 #define PERF_counter_add(id, delta) rex::perf::IncrementCounter(rex::perf::CounterId::id, delta)
+#define REX_PERF_CONCAT_INNER(a, b) a##b
+#define REX_PERF_CONCAT(a, b) REX_PERF_CONCAT_INNER(a, b)
+#define PERF_counter_duration_scope(id)                                                    \
+  rex::perf::ScopedCounterDuration REX_PERF_CONCAT(_rex_perf_duration_scope_, __LINE__)( \
+      rex::perf::CounterId::id)
 
 // Purpose-specific macros so callsites stay clean
 #define PROFILE_FRAME_TIME_US(value) PERF_counter_set(kFrameTimeUs, value)
@@ -168,6 +193,11 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FULL() PERF_counter_inc(kMemexportReadbackFull)
 #define PROFILE_MEMEXPORT_READBACK_FAST() PERF_counter_inc(kMemexportReadbackFast)
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK() PERF_counter_inc(kMemexportReadbackFallback)
+#define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE() \
+  PERF_counter_duration_scope(kGuestFunctionDispatchUs)
+#define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE() PERF_counter_duration_scope(kD3D12SubmissionWaitUs)
+#define PROFILE_D3D12_PRESENT_SCOPE() PERF_counter_duration_scope(kD3D12PresentUs)
+#define PROFILE_MEMEXPORT_READBACK_SCOPE() PERF_counter_duration_scope(kMemexportReadbackUs)
 #define PROFILE_AUDIO_LATENCY_US(value) PERF_counter_set(kAudioFrameLatencyUs, value)
 #define PROFILE_BUFFER_QUEUE_DEPTH(value) PERF_counter_set(kBufferQueueDepth, value)
 #define PROFILE_THREAD_CREATED() PERF_counter_inc(kActiveThreads)
@@ -184,6 +214,7 @@ class Profiler {
 #define PERF_counter_set(id, value)
 #define PERF_counter_inc(id)
 #define PERF_counter_add(id, delta)
+#define PERF_counter_duration_scope(id)
 
 #define PROFILE_FRAME_TIME_US(value)
 #define PROFILE_FPS(value)
@@ -201,6 +232,10 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FULL()
 #define PROFILE_MEMEXPORT_READBACK_FAST()
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
+#define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
+#define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
+#define PROFILE_D3D12_PRESENT_SCOPE()
+#define PROFILE_MEMEXPORT_READBACK_SCOPE()
 #define PROFILE_AUDIO_LATENCY_US(value)
 #define PROFILE_BUFFER_QUEUE_DEPTH(value)
 #define PROFILE_THREAD_CREATED()
