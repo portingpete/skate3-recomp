@@ -98,9 +98,10 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFast, 9);
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFallback, 10);
   rex::perf::IncrementCounter(rex::perf::CounterId::kGuestFunctionDispatchUs, 11);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12SubmissionWaitUs, 12);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentUs, 13);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackUs, 14);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kGuestKernelWaitUs, 12);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12SubmissionWaitUs, 13);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentUs, 14);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackUs, 15);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
@@ -143,6 +144,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   const size_t memexport_fallback_col = CsvColumnIndex(header_values, "memexport_readback_fallback");
   const size_t guest_dispatch_us_col =
       CsvColumnIndex(header_values, "guest_function_dispatch_us");
+  const size_t guest_wait_us_col = CsvColumnIndex(header_values, "guest_kernel_wait_us");
   const size_t submission_wait_us_col =
       CsvColumnIndex(header_values, "d3d12_submission_wait_us");
   const size_t present_us_col = CsvColumnIndex(header_values, "d3d12_present_us");
@@ -157,6 +159,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   REQUIRE(memexport_fast_col != std::string::npos);
   REQUIRE(memexport_fallback_col != std::string::npos);
   REQUIRE(guest_dispatch_us_col != std::string::npos);
+  REQUIRE(guest_wait_us_col != std::string::npos);
   REQUIRE(submission_wait_us_col != std::string::npos);
   REQUIRE(present_us_col != std::string::npos);
   REQUIRE(memexport_readback_us_col != std::string::npos);
@@ -173,9 +176,10 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame0_values[memexport_fast_col] == "9");
   CHECK(frame0_values[memexport_fallback_col] == "10");
   CHECK(frame0_values[guest_dispatch_us_col] == "11");
-  CHECK(frame0_values[submission_wait_us_col] == "12");
-  CHECK(frame0_values[present_us_col] == "13");
-  CHECK(frame0_values[memexport_readback_us_col] == "14");
+  CHECK(frame0_values[guest_wait_us_col] == "12");
+  CHECK(frame0_values[submission_wait_us_col] == "13");
+  CHECK(frame0_values[present_us_col] == "14");
+  CHECK(frame0_values[memexport_readback_us_col] == "15");
 
   CHECK(frame1_values[0] == "1");
   CHECK(std::stoull(frame1_values[1]) >= std::stoull(frame0_values[1]));
@@ -190,16 +194,17 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame1_values[memexport_fast_col] == "0");
   CHECK(frame1_values[memexport_fallback_col] == "0");
   CHECK(frame1_values[guest_dispatch_us_col] == "0");
+  CHECK(frame1_values[guest_wait_us_col] == "0");
   CHECK(frame1_values[submission_wait_us_col] == "0");
   CHECK(frame1_values[present_us_col] == "0");
   CHECK(frame1_values[memexport_readback_us_col] == "0");
 }
 
-TEST_CASE("guest function profile aggregates top exclusive durations", "[perf][counter]") {
+TEST_CASE("guest function profile aggregates top active exclusive durations", "[perf][counter]") {
   rex::perf::Init();
 
-  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
-  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 90, 60);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 65);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 90, 60, 55);
   rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 400, 20);
   rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 50, 50);
 
@@ -207,17 +212,21 @@ TEST_CASE("guest function profile aggregates top exclusive durations", "[perf][c
       rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/2, /*min_exclusive_us=*/1);
 
   REQUIRE(entries.size() == 2);
-  CHECK(entries[0].address == 0x82220000);
-  CHECK(entries[0].symbol == "sub_82220000");
-  CHECK(entries[0].calls == 2);
-  CHECK(entries[0].inclusive_us == 190);
-  CHECK(entries[0].exclusive_us == 130);
+  CHECK(entries[0].address == 0x82240000);
+  CHECK(entries[0].symbol == "sub_82240000");
+  CHECK(entries[0].calls == 1);
+  CHECK(entries[0].inclusive_us == 50);
+  CHECK(entries[0].exclusive_us == 50);
+  CHECK(entries[0].blocking_wait_us == 0);
+  CHECK(entries[0].active_exclusive_us == 50);
 
-  CHECK(entries[1].address == 0x82240000);
-  CHECK(entries[1].symbol == "sub_82240000");
+  CHECK(entries[1].address == 0x82230000);
+  CHECK(entries[1].symbol == "sub_82230000");
   CHECK(entries[1].calls == 1);
-  CHECK(entries[1].inclusive_us == 50);
-  CHECK(entries[1].exclusive_us == 50);
+  CHECK(entries[1].inclusive_us == 400);
+  CHECK(entries[1].exclusive_us == 20);
+  CHECK(entries[1].blocking_wait_us == 0);
+  CHECK(entries[1].active_exclusive_us == 20);
 
   CHECK(rex::perf::SnapshotGuestFunctionProfile(
             /*max_entries=*/8, /*min_exclusive_us=*/0)
@@ -264,6 +273,31 @@ TEST_CASE("guest function scope records nested samples when enabled", "[perf][co
   CHECK(outer->inclusive_us >= outer->exclusive_us);
   CHECK(outer->inclusive_us > outer->exclusive_us);
   CHECK(inner->inclusive_us >= inner->exclusive_us);
+}
+
+TEST_CASE("guest function scope separates blocking wait from active exclusive time",
+          "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_wait_scope_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "4"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    rex::perf::ScopedGuestFunctionProfile guest(0x82220000, "sub_82220000");
+    rex::perf::AddGuestKernelWaitDurationUs(25);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+
+  auto entries =
+      rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/4, /*min_exclusive_us=*/0);
+  REQUIRE(entries.size() == 1);
+  CHECK(entries[0].address == 0x82220000);
+  CHECK(entries[0].blocking_wait_us == 25);
+  CHECK(entries[0].exclusive_us >= entries[0].blocking_wait_us);
+  CHECK(entries[0].active_exclusive_us == entries[0].exclusive_us - entries[0].blocking_wait_us);
+  CHECK(rex::perf::GetCounter(rex::perf::CounterId::kGuestKernelWaitUs) == 25);
 }
 
 TEST_CASE("guest function scope is inert by default", "[perf][counter]") {
@@ -330,12 +364,14 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   REQUIRE(std::getline(guest_csv, rank0));
   REQUIRE(std::getline(guest_csv, rank1));
 
-  CHECK(header == "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us");
+  CHECK(header ==
+        "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
+        "blocking_wait_us,active_exclusive_us");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 8);
-  REQUIRE(rank1_values.size() == 8);
+  REQUIRE(rank0_values.size() == 10);
+  REQUIRE(rank1_values.size() == 10);
 
   CHECK(rank0_values[0] == "0");
   CHECK(rank0_values[2] == "1");
@@ -344,10 +380,14 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   CHECK(rank0_values[5] == "1");
   CHECK(rank0_values[6] == "100");
   CHECK(rank0_values[7] == "70");
+  CHECK(rank0_values[8] == "0");
+  CHECK(rank0_values[9] == "70");
 
   CHECK(rank1_values[2] == "2");
   CHECK(rank1_values[3] == "0x82240000");
   CHECK(rank1_values[7] == "60");
+  CHECK(rank1_values[8] == "0");
+  CHECK(rank1_values[9] == "60");
 }
 
 TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {
@@ -378,10 +418,12 @@ TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[
   REQUIRE(std::getline(guest_csv, profiled_frame));
 
   auto values = SplitCsvRow(profiled_frame);
-  REQUIRE(values.size() == 8);
+  REQUIRE(values.size() == 10);
   CHECK(values[2] == "1");
   CHECK(values[3] == "0x82220000");
   CHECK(values[7] == "70");
+  CHECK(values[8] == "0");
+  CHECK(values[9] == "70");
 }
 
 TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][counter]") {
@@ -406,5 +448,5 @@ TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][coun
   REQUIRE(std::getline(guest_csv, row));
 
   CHECK(row.find("0,") == 0);
-  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70") != std::string::npos);
+  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70,0,70") != std::string::npos);
 }

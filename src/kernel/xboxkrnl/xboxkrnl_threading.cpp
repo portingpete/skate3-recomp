@@ -22,6 +22,7 @@
 #include <rex/kernel/xboxkrnl/private.h>
 #include <rex/kernel/xboxkrnl/threading.h>
 #include <rex/logging.h>
+#include <rex/perf/counter.h>
 #include <rex/hook.h>
 #include <rex/types.h>
 #include <rex/system/kernel_state.h>
@@ -379,7 +380,11 @@ u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 i
     thread->DeliverAPCs();
   }
 
-  X_STATUS result = thread->Delay(processor_mode, alertable, *interval_ptr);
+  X_STATUS result = X_STATUS_SUCCESS;
+  {
+    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+    result = thread->Delay(processor_mode, alertable, *interval_ptr);
+  }
 
   if (alertable && result == X_STATUS_USER_APC) {
     thread->DeliverAPCs();
@@ -826,7 +831,11 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason, uint32_
     return X_STATUS_ABANDONED_WAIT_0;
   }
 
-  X_STATUS result = object->Wait(wait_reason, processor_mode, alertable, timeout_ptr);
+  X_STATUS result = X_STATUS_SUCCESS;
+  {
+    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+    result = object->Wait(wait_reason, processor_mode, alertable, timeout_ptr);
+  }
 
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
@@ -856,7 +865,10 @@ u32 NtWaitForSingleObjectEx_entry(u32 object_handle, u32 wait_mode, u32 alertabl
   auto object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(object_handle);
   if (object) {
     uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-    result = object->Wait(3, wait_mode, alertable, timeout_ptr ? &timeout : nullptr);
+    {
+      PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+      result = object->Wait(3, wait_mode, alertable, timeout_ptr ? &timeout : nullptr);
+    }
     if (alertable && result == X_STATUS_USER_APC) {
       XThread::GetCurrentThread()->DeliverAPCs();
     }
@@ -884,9 +896,14 @@ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_t
   }
 
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-  X_STATUS result = XObject::WaitMultiple(
-      uint32_t(objects.size()), reinterpret_cast<XObject**>(objects.data()), wait_type, wait_reason,
-      processor_mode, alertable, timeout_ptr ? &timeout : nullptr);
+  X_STATUS result = X_STATUS_SUCCESS;
+  {
+    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+    result = XObject::WaitMultiple(uint32_t(objects.size()),
+                                   reinterpret_cast<XObject**>(objects.data()), wait_type,
+                                   wait_reason, processor_mode, alertable,
+                                   timeout_ptr ? &timeout : nullptr);
+  }
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
   }
@@ -908,8 +925,12 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, rex::be<uint32_t>* handles
     objects.push_back(std::move(object));
   }
 
-  auto result = XObject::WaitMultiple(count, reinterpret_cast<XObject**>(objects.data()), wait_type,
-                                      6, wait_mode, alertable, timeout_ptr);
+  X_STATUS result = X_STATUS_SUCCESS;
+  {
+    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+    result = XObject::WaitMultiple(count, reinterpret_cast<XObject**>(objects.data()), wait_type, 6,
+                                   wait_mode, alertable, timeout_ptr);
+  }
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
   }
@@ -931,8 +952,11 @@ u32 NtSignalAndWaitForSingleObjectEx_entry(u32 signal_handle, u32 wait_handle, u
   auto wait_object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(wait_handle);
   if (signal_object && wait_object) {
     uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-    result = XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3, 1, alertable,
-                                    timeout_ptr ? &timeout : nullptr);
+    {
+      PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+      result = XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3, 1, alertable,
+                                      timeout_ptr ? &timeout : nullptr);
+    }
   } else {
     result = X_STATUS_INVALID_HANDLE;
   }

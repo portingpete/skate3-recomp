@@ -39,6 +39,7 @@ enum class CounterId : uint16_t {
   kMemexportReadbackFast,
   kMemexportReadbackFallback,
   kGuestFunctionDispatchUs,
+  kGuestKernelWaitUs,
   kD3D12SubmissionWaitUs,
   kD3D12PresentUs,
   kMemexportReadbackUs,
@@ -103,10 +104,13 @@ struct GuestFunctionProfileEntry {
   uint64_t calls = 0;
   uint64_t inclusive_us = 0;
   uint64_t exclusive_us = 0;
+  uint64_t blocking_wait_us = 0;
+  uint64_t active_exclusive_us = 0;
 };
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
-                                uint64_t exclusive_us);
+                                uint64_t exclusive_us, uint64_t blocking_wait_us = 0);
+void AddGuestKernelWaitDurationUs(uint64_t duration_us);
 
 // Returns the current top entries and clears the frame-local accumulator.
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
@@ -141,6 +145,18 @@ class ScopedGuestFunctionProfile {
   size_t stack_index_ = 0;
   uint64_t stack_token_ = 0;
   uint64_t generation_ = 0;
+};
+
+class ScopedGuestKernelWaitProfile {
+ public:
+  ScopedGuestKernelWaitProfile();
+  ~ScopedGuestKernelWaitProfile();
+
+  ScopedGuestKernelWaitProfile(const ScopedGuestKernelWaitProfile&) = delete;
+  ScopedGuestKernelWaitProfile& operator=(const ScopedGuestKernelWaitProfile&) = delete;
+
+ private:
+  uint64_t start_tick_ = 0;
 };
 
 // Profiler -- coordinates Tracy frame marks and counter snapshots.
@@ -230,6 +246,9 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK() PERF_counter_inc(kMemexportReadbackFallback)
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE() \
   PERF_counter_duration_scope(kGuestFunctionDispatchUs)
+#define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
+  rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
+                                                          __LINE__)
 #define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)                                      \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol)
@@ -271,6 +290,7 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FAST()
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
+#define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
 #define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
 #define PROFILE_D3D12_PRESENT_SCOPE()

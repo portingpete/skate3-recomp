@@ -33,7 +33,7 @@ REXCVAR_DEFINE_STRING(perf_log_csv, "", "Perf",
 REXCVAR_DEFINE_INT32(perf_guest_functions_top_n, 0, "Perf",
                      "Write the top N generated guest functions to a sidecar perf CSV");
 REXCVAR_DEFINE_INT64(perf_guest_functions_min_exclusive_us, 0, "Perf",
-                     "Minimum exclusive guest-function time, in microseconds, for sidecar perf CSV");
+                     "Minimum active exclusive guest-function time, in microseconds, for sidecar perf CSV");
 
 namespace rex::perf {
 
@@ -59,6 +59,7 @@ constexpr const char* kCounterNames[] = {
     "memexport_readback_fast",
     "memexport_readback_fallback",
     "guest_function_dispatch_us",
+    "guest_kernel_wait_us",
     "d3d12_submission_wait_us",
     "d3d12_present_us",
     "memexport_readback_us",
@@ -94,6 +95,7 @@ constexpr bool kIsGauge[] = {
     false,  // kMemexportReadbackFast
     false,  // kMemexportReadbackFallback
     false,  // kGuestFunctionDispatchUs
+    false,  // kGuestKernelWaitUs
     false,  // kD3D12SubmissionWaitUs
     false,  // kD3D12PresentUs
     false,  // kMemexportReadbackUs
@@ -123,6 +125,7 @@ struct GuestFunctionProfileTotals {
   uint64_t calls = 0;
   uint64_t inclusive_us = 0;
   uint64_t exclusive_us = 0;
+  uint64_t blocking_wait_us = 0;
 };
 
 struct GuestFunctionStackEntry {
@@ -130,6 +133,7 @@ struct GuestFunctionStackEntry {
   const char* symbol = nullptr;
   uint64_t start_tick = 0;
   uint64_t child_us = 0;
+  uint64_t blocking_wait_us = 0;
   uint64_t token = 0;
 };
 
@@ -207,7 +211,8 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
     return;
   }
 
-  std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us\n",
+  std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
+             "blocking_wait_us,active_exclusive_us\n",
              g_guest_function_csv_file);
   g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
   g_guest_function_profile_enabled.store(true, std::memory_order_relaxed);
@@ -261,10 +266,12 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(i + 1), entry.address);
     WriteCsvCell(g_guest_function_csv_file, entry.symbol);
     std::fprintf(g_guest_function_csv_file,
-                 ",%llu,%llu,%llu\n",
+                 ",%llu,%llu,%llu,%llu,%llu\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
-                 static_cast<unsigned long long>(entry.exclusive_us));
+                 static_cast<unsigned long long>(entry.exclusive_us),
+                 static_cast<unsigned long long>(entry.blocking_wait_us),
+                 static_cast<unsigned long long>(entry.active_exclusive_us));
   }
 }
 
@@ -410,7 +417,7 @@ ScopedCounterDuration::~ScopedCounterDuration() {
 }
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
-                                uint64_t exclusive_us) {
+                                uint64_t exclusive_us, uint64_t blocking_wait_us) {
   std::lock_guard lock(g_guest_function_profile_mutex);
   auto& entry = g_guest_function_profile[address];
   if (entry.symbol.empty() && symbol) {
@@ -419,6 +426,18 @@ void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t i
   ++entry.calls;
   entry.inclusive_us += inclusive_us;
   entry.exclusive_us += exclusive_us;
+  entry.blocking_wait_us += std::min(blocking_wait_us, exclusive_us);
+}
+
+void AddGuestKernelWaitDurationUs(uint64_t duration_us) {
+  if (duration_us == 0) {
+    return;
+  }
+
+  IncrementCounter(CounterId::kGuestKernelWaitUs, static_cast<int64_t>(duration_us));
+  if (!g_guest_function_stack.empty()) {
+    g_guest_function_stack.back().blocking_wait_us += duration_us;
+  }
 }
 
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
@@ -428,7 +447,9 @@ std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_e
     std::lock_guard lock(g_guest_function_profile_mutex);
     entries.reserve(g_guest_function_profile.size());
     for (const auto& [address, totals] : g_guest_function_profile) {
-      if (totals.exclusive_us < min_exclusive_us) {
+      const uint64_t blocking_wait_us = std::min(totals.blocking_wait_us, totals.exclusive_us);
+      const uint64_t active_exclusive_us = totals.exclusive_us - blocking_wait_us;
+      if (active_exclusive_us < min_exclusive_us) {
         continue;
       }
       entries.push_back({
@@ -437,12 +458,17 @@ std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_e
           .calls = totals.calls,
           .inclusive_us = totals.inclusive_us,
           .exclusive_us = totals.exclusive_us,
+          .blocking_wait_us = blocking_wait_us,
+          .active_exclusive_us = active_exclusive_us,
       });
     }
     g_guest_function_profile.clear();
   }
 
   std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.active_exclusive_us != rhs.active_exclusive_us) {
+      return lhs.active_exclusive_us > rhs.active_exclusive_us;
+    }
     if (lhs.exclusive_us != rhs.exclusive_us) {
       return lhs.exclusive_us > rhs.exclusive_us;
     }
@@ -498,6 +524,7 @@ ScopedGuestFunctionProfile::~ScopedGuestFunctionProfile() {
   const GuestFunctionStackEntry entry = g_guest_function_stack[stack_index_];
   const uint64_t inclusive_us = DurationUsSince(entry.start_tick);
   const uint64_t exclusive_us = inclusive_us > entry.child_us ? inclusive_us - entry.child_us : 0;
+  const uint64_t blocking_wait_us = std::min(entry.blocking_wait_us, exclusive_us);
 
   if (g_guest_function_stack.size() > stack_index_ + 1) {
     g_guest_function_stack.resize(stack_index_ + 1);
@@ -510,8 +537,16 @@ ScopedGuestFunctionProfile::~ScopedGuestFunctionProfile() {
 
   if (generation_ == g_guest_function_profile_generation.load(std::memory_order_relaxed) &&
       g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
-    AddGuestFunctionDurationUs(entry.address, entry.symbol, inclusive_us, exclusive_us);
+    AddGuestFunctionDurationUs(entry.address, entry.symbol, inclusive_us, exclusive_us,
+                               blocking_wait_us);
   }
+}
+
+ScopedGuestKernelWaitProfile::ScopedGuestKernelWaitProfile()
+    : start_tick_(rex::chrono::Clock::QueryHostTickCount()) {}
+
+ScopedGuestKernelWaitProfile::~ScopedGuestKernelWaitProfile() {
+  AddGuestKernelWaitDurationUs(DurationUsSince(start_tick_));
 }
 
 }  // namespace rex::perf
