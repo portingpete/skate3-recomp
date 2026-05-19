@@ -105,6 +105,29 @@ bool ShouldEmitGuestFunctionProfileScope(const EmitContext& ctx) {
   return ctx.config.setJmpAddress == 0 && ctx.config.longJmpAddress == 0;
 }
 
+uint32_t CountGuestSpinHintSites(const EmitContext& ctx, const std::vector<Block>& blocks) {
+  uint32_t count = 0;
+  ppc_insn insn;
+  for (const auto& block : blocks) {
+    uint32_t blockBase = block.base;
+    const uint32_t blockEnd = block.end();
+    auto* data = reinterpret_cast<const uint32_t*>(ctx.binary.translate(block.base));
+    if (!data) {
+      continue;
+    }
+
+    while (blockBase < blockEnd) {
+      Disassemble(data, 4, blockBase, insn);
+      if (insn.opcode && insn.opcode->id == PPC_INST_DB16CYC) {
+        ++count;
+      }
+      blockBase += 4;
+      ++data;
+    }
+  }
+  return count;
+}
+
 //=============================================================================
 // FunctionNode
 //=============================================================================
@@ -416,7 +439,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
     emit_println(out, "\tREX_FUNC_PROLOGUE();");
     if (ShouldEmitGuestFunctionProfileScope(ctx)) {
-      emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\");", base(), name);
+      emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", 0);", base(), name);
     }
     emit_println(out, "}}\n");
     return out;
@@ -568,10 +591,13 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
   }
 
   // Function signature with weak/alias pattern
+  const uint32_t guestSpinHintSites =
+      ShouldEmitGuestFunctionProfileScope(ctx) ? CountGuestSpinHintSites(ctx, blocks()) : 0;
   emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
   emit_println(out, "\tREX_FUNC_PROLOGUE();");
   if (ShouldEmitGuestFunctionProfileScope(ctx)) {
-    emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\");", base(), name);
+    emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", {});", base(), name,
+                 guestSpinHintSites);
   }
 
   // --- Second pass: emit instruction code ---

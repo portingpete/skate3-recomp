@@ -206,7 +206,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 65);
   rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 90, 60, 55);
   rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 400, 20);
-  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 50, 50);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 50, 50, 0, 3);
 
   auto entries =
       rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/2, /*min_exclusive_us=*/1);
@@ -219,6 +219,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[0].exclusive_us == 50);
   CHECK(entries[0].blocking_wait_us == 0);
   CHECK(entries[0].active_exclusive_us == 50);
+  CHECK(entries[0].spin_hint_sites == 3);
 
   CHECK(entries[1].address == 0x82230000);
   CHECK(entries[1].symbol == "sub_82230000");
@@ -227,10 +228,28 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[1].exclusive_us == 20);
   CHECK(entries[1].blocking_wait_us == 0);
   CHECK(entries[1].active_exclusive_us == 20);
+  CHECK(entries[1].spin_hint_sites == 0);
 
   CHECK(rex::perf::SnapshotGuestFunctionProfile(
             /*max_entries=*/8, /*min_exclusive_us=*/0)
             .empty());
+}
+
+TEST_CASE("guest function profile macro accepts legacy and spin-site forms", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_function_macro_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "4"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    PROFILE_GUEST_FUNCTION_SCOPE(0x82220000, "legacy_form");
+  }
+  {
+    PROFILE_GUEST_FUNCTION_SCOPE(0x82230000, "spin_form", 7);
+  }
+  SUCCEED("both macro forms compile");
 }
 
 TEST_CASE("guest function scope records nested samples when enabled", "[perf][counter]") {
@@ -347,9 +366,9 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_min_exclusive_us", "25"));
 
   rex::perf::ConfigureCsvLogPathFromCvar();
-  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 0, 4);
   rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 200, 20);
-  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 80, 60);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 80, 60, 0, 3);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
   rex::perf::FlushCsv();
@@ -366,12 +385,12 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-        "blocking_wait_us,active_exclusive_us");
+        "blocking_wait_us,active_exclusive_us,spin_hint_sites");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 10);
-  REQUIRE(rank1_values.size() == 10);
+  REQUIRE(rank0_values.size() == 11);
+  REQUIRE(rank1_values.size() == 11);
 
   CHECK(rank0_values[0] == "0");
   CHECK(rank0_values[2] == "1");
@@ -382,12 +401,14 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   CHECK(rank0_values[7] == "70");
   CHECK(rank0_values[8] == "0");
   CHECK(rank0_values[9] == "70");
+  CHECK(rank0_values[10] == "4");
 
   CHECK(rank1_values[2] == "2");
   CHECK(rank1_values[3] == "0x82240000");
   CHECK(rank1_values[7] == "60");
   CHECK(rank1_values[8] == "0");
   CHECK(rank1_values[9] == "60");
+  CHECK(rank1_values[10] == "3");
 }
 
 TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {
@@ -418,12 +439,13 @@ TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[
   REQUIRE(std::getline(guest_csv, profiled_frame));
 
   auto values = SplitCsvRow(profiled_frame);
-  REQUIRE(values.size() == 10);
+  REQUIRE(values.size() == 11);
   CHECK(values[2] == "1");
   CHECK(values[3] == "0x82220000");
   CHECK(values[7] == "70");
   CHECK(values[8] == "0");
   CHECK(values[9] == "70");
+  CHECK(values[10] == "0");
 }
 
 TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][counter]") {
@@ -448,5 +470,5 @@ TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][coun
   REQUIRE(std::getline(guest_csv, row));
 
   CHECK(row.find("0,") == 0);
-  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70,0,70") != std::string::npos);
+  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70,0,70,0") != std::string::npos);
 }

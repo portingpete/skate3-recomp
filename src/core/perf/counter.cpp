@@ -126,6 +126,7 @@ struct GuestFunctionProfileTotals {
   uint64_t inclusive_us = 0;
   uint64_t exclusive_us = 0;
   uint64_t blocking_wait_us = 0;
+  uint32_t spin_hint_sites = 0;
 };
 
 struct GuestFunctionStackEntry {
@@ -135,6 +136,7 @@ struct GuestFunctionStackEntry {
   uint64_t child_us = 0;
   uint64_t blocking_wait_us = 0;
   uint64_t token = 0;
+  uint32_t spin_hint_sites = 0;
 };
 
 std::mutex g_guest_function_profile_mutex;
@@ -212,7 +214,7 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
   }
 
   std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-             "blocking_wait_us,active_exclusive_us\n",
+             "blocking_wait_us,active_exclusive_us,spin_hint_sites\n",
              g_guest_function_csv_file);
   g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
   g_guest_function_profile_enabled.store(true, std::memory_order_relaxed);
@@ -266,12 +268,13 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(i + 1), entry.address);
     WriteCsvCell(g_guest_function_csv_file, entry.symbol);
     std::fprintf(g_guest_function_csv_file,
-                 ",%llu,%llu,%llu,%llu,%llu\n",
+                 ",%llu,%llu,%llu,%llu,%llu,%u\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
                  static_cast<unsigned long long>(entry.exclusive_us),
                  static_cast<unsigned long long>(entry.blocking_wait_us),
-                 static_cast<unsigned long long>(entry.active_exclusive_us));
+                 static_cast<unsigned long long>(entry.active_exclusive_us),
+                 entry.spin_hint_sites);
   }
 }
 
@@ -417,12 +420,14 @@ ScopedCounterDuration::~ScopedCounterDuration() {
 }
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
-                                uint64_t exclusive_us, uint64_t blocking_wait_us) {
+                                uint64_t exclusive_us, uint64_t blocking_wait_us,
+                                uint32_t spin_hint_sites) {
   std::lock_guard lock(g_guest_function_profile_mutex);
   auto& entry = g_guest_function_profile[address];
   if (entry.symbol.empty() && symbol) {
     entry.symbol = symbol;
   }
+  entry.spin_hint_sites = std::max(entry.spin_hint_sites, spin_hint_sites);
   ++entry.calls;
   entry.inclusive_us += inclusive_us;
   entry.exclusive_us += exclusive_us;
@@ -460,6 +465,7 @@ std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_e
           .exclusive_us = totals.exclusive_us,
           .blocking_wait_us = blocking_wait_us,
           .active_exclusive_us = active_exclusive_us,
+          .spin_hint_sites = totals.spin_hint_sites,
       });
     }
     g_guest_function_profile.clear();
@@ -486,8 +492,9 @@ std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_e
   return entries;
 }
 
-ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const char* symbol)
-    : address_(address), symbol_(symbol) {
+ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const char* symbol,
+                                                       uint32_t spin_hint_sites)
+    : address_(address), symbol_(symbol), spin_hint_sites_(spin_hint_sites) {
   if (!g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
     return;
   }
@@ -501,6 +508,7 @@ ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const c
       .symbol = symbol_,
       .start_tick = start_tick_,
       .token = stack_token_,
+      .spin_hint_sites = spin_hint_sites_,
   });
 }
 
@@ -538,7 +546,7 @@ ScopedGuestFunctionProfile::~ScopedGuestFunctionProfile() {
   if (generation_ == g_guest_function_profile_generation.load(std::memory_order_relaxed) &&
       g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
     AddGuestFunctionDurationUs(entry.address, entry.symbol, inclusive_us, exclusive_us,
-                               blocking_wait_us);
+                               blocking_wait_us, entry.spin_hint_sites);
   }
 }
 

@@ -106,10 +106,12 @@ struct GuestFunctionProfileEntry {
   uint64_t exclusive_us = 0;
   uint64_t blocking_wait_us = 0;
   uint64_t active_exclusive_us = 0;
+  uint32_t spin_hint_sites = 0;
 };
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
-                                uint64_t exclusive_us, uint64_t blocking_wait_us = 0);
+                                uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
+                                uint32_t spin_hint_sites = 0);
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
 
 // Returns the current top entries and clears the frame-local accumulator.
@@ -131,7 +133,7 @@ class ScopedCounterDuration {
 
 class ScopedGuestFunctionProfile {
  public:
-  ScopedGuestFunctionProfile(uint32_t address, const char* symbol);
+  ScopedGuestFunctionProfile(uint32_t address, const char* symbol, uint32_t spin_hint_sites = 0);
   ~ScopedGuestFunctionProfile();
 
   ScopedGuestFunctionProfile(const ScopedGuestFunctionProfile&) = delete;
@@ -145,6 +147,7 @@ class ScopedGuestFunctionProfile {
   size_t stack_index_ = 0;
   uint64_t stack_token_ = 0;
   uint64_t generation_ = 0;
+  uint32_t spin_hint_sites_ = 0;
 };
 
 class ScopedGuestKernelWaitProfile {
@@ -249,9 +252,17 @@ class Profiler {
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
   rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
                                                           __LINE__)
-#define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)                                      \
+#define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                  \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol)
+#define REX_PERF_GUEST_FUNCTION_SCOPE_3(address, symbol, spin_hint_sites)                 \
+  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
+                                                        __LINE__)(address, symbol,          \
+                                                                  spin_hint_sites)
+#define REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(_1, _2, _3, NAME, ...) NAME
+#define PROFILE_GUEST_FUNCTION_SCOPE(...)                                                 \
+  REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(__VA_ARGS__, REX_PERF_GUEST_FUNCTION_SCOPE_3,       \
+                                       REX_PERF_GUEST_FUNCTION_SCOPE_2)(__VA_ARGS__)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE() PERF_counter_duration_scope(kD3D12SubmissionWaitUs)
 #define PROFILE_D3D12_PRESENT_SCOPE() PERF_counter_duration_scope(kD3D12PresentUs)
 #define PROFILE_MEMEXPORT_READBACK_SCOPE() PERF_counter_duration_scope(kMemexportReadbackUs)
@@ -291,7 +302,7 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
-#define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)
+#define PROFILE_GUEST_FUNCTION_SCOPE(...)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
 #define PROFILE_D3D12_PRESENT_SCOPE()
 #define PROFILE_MEMEXPORT_READBACK_SCOPE()
