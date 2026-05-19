@@ -83,6 +83,18 @@ target_link_libraries(unit_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
+add_executable(sdk_import_smoke
+    core/perf_counter_sdk_import_smoke.cpp
+)
+target_link_libraries(sdk_import_smoke PRIVATE
+    rexruntime
+)
+set_target_properties(sdk_import_smoke PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:rexruntime>
+)
+add_dependencies(unit_tests sdk_import_smoke)
+add_test(NAME unit.sdk_import_smoke COMMAND sdk_import_smoke)
+
 # Strip Tracy/profiling instrumentation from test targets
 target_compile_options(unit_tests PRIVATE
     -UTRACY_ENABLE -UREXGLUE_ENABLE_PROFILING

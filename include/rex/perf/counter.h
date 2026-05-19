@@ -22,13 +22,21 @@
 
 namespace rex::perf {
 
+#if defined(_WIN32) && defined(REX_RUNTIME_DLL_IMPORT)
+#define REX_PERF_RUNTIME_DATA __declspec(dllimport)
+#else
+#define REX_PERF_RUNTIME_DATA
+#endif
+
+#ifdef REXGLUE_ENABLE_PERF_COUNTERS
 namespace detail {
-extern std::atomic<bool> g_guest_function_profile_enabled;
+extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_function_profile_enabled;
 }  // namespace detail
 
 inline bool IsGuestFunctionProfileEnabled() noexcept {
   return detail::g_guest_function_profile_enabled.load(std::memory_order_relaxed);
 }
+#endif
 
 enum class CounterId : uint16_t {
   // Frame
@@ -250,6 +258,8 @@ class Profiler {
 };
 
 }  // namespace rex::perf
+
+#undef REX_PERF_RUNTIME_DATA
 
 // Perf counter macros -- compile to no-ops when counters are disabled.
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS

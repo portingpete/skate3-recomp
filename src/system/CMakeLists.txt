@@ -85,7 +85,13 @@ endif()
 
 if(WIN32)
     target_link_libraries(rexruntime PRIVATE ws2_32 oldnames)
-    target_compile_definitions(rexruntime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(rexruntime
+        PUBLIC
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+        INTERFACE
+            REX_RUNTIME_DLL_IMPORT
+    )
 endif()
 
 if(REXGLUE_USE_D3D12)
