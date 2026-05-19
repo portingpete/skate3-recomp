@@ -436,13 +436,13 @@ TEST_CASE("perf_log_csv writes guest indirect target sidecar when enabled",
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-        "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits");
+        "call_site_symbol,target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits");
 
   CHECK(rank0.find("0,") == 0);
-  CHECK(rank0.find("1,0x82220000,\"sub,source\",0x82220010,0x82300000,"
+  CHECK(rank0.find("1,0x82220000,\"sub,source\",0x82220010,\"sub,source+0x10\",0x82300000,"
                    "\"sub,target\",2,1,1") !=
         std::string::npos);
-  CHECK(rank1.find("2,0x82220000,\"sub,source\",0x82220014,0x82400000,"
+  CHECK(rank1.find("2,0x82220000,\"sub,source\",0x82220014,\"sub,source+0x14\",0x82400000,"
                    "sub_82400000,1,0,1") !=
         std::string::npos);
 }
@@ -477,7 +477,8 @@ TEST_CASE("perf_log_csv can enable guest indirect target sidecar after csv start
   REQUIRE(std::getline(indirect_csv, header));
   REQUIRE(std::getline(indirect_csv, profiled_frame));
 
-  CHECK(profiled_frame.find("1,0x82220000,sub_82220000,0x82220010,0x82300000,"
+  CHECK(profiled_frame.find("1,0x82220000,sub_82220000,0x82220010,"
+                            "sub_82220000+0x10,0x82300000,"
                             "sub_82300000,1,0,1") != std::string::npos);
 }
 

@@ -175,6 +175,28 @@ std::string FormatGuestFunctionSymbol(uint32_t address) {
   return buffer;
 }
 
+std::string FormatGuestCallSiteSymbol(uint32_t source_address, std::string_view source_symbol,
+                                      uint32_t call_site) {
+  if (source_address != 0 && call_site >= source_address) {
+    std::string label = source_symbol.empty() ? FormatGuestFunctionSymbol(source_address)
+                                              : std::string(source_symbol);
+    const uint32_t offset = call_site - source_address;
+    if (offset == 0) {
+      return label;
+    }
+
+    char suffix[12] = {};
+    std::snprintf(suffix, sizeof(suffix), "+0x%X", offset);
+    label += suffix;
+    return label;
+  }
+
+  if (call_site == 0) {
+    return {};
+  }
+  return FormatGuestFunctionSymbol(call_site);
+}
+
 std::mutex g_guest_function_profile_mutex;
 std::unordered_map<uint32_t, GuestFunctionProfileTotals> g_guest_function_profile;
 std::atomic<bool> g_guest_function_profile_enabled{false};
@@ -303,7 +325,8 @@ void ConfigureGuestIndirectCallCsv(const std::string& path) {
   }
 
   std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-             "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits\n",
+             "call_site_symbol,target_guest_address,target_symbol,calls,fast_path_hits,"
+             "fallback_hits\n",
              g_guest_indirect_call_csv_file);
   g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
 }
@@ -413,8 +436,14 @@ void WriteGuestIndirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(i + 1), entry.source_address);
     WriteCsvCell(g_guest_indirect_call_csv_file, entry.source_symbol);
     std::fprintf(g_guest_indirect_call_csv_file,
-                 ",0x%08X,0x%08X,",
-                 entry.call_site, entry.target_address);
+                 ",0x%08X,",
+                 entry.call_site);
+    WriteCsvCell(g_guest_indirect_call_csv_file,
+                 FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
+                                           entry.call_site));
+    std::fprintf(g_guest_indirect_call_csv_file,
+                 ",0x%08X,",
+                 entry.target_address);
     WriteCsvCell(g_guest_indirect_call_csv_file, entry.target_symbol);
     std::fprintf(g_guest_indirect_call_csv_file,
                  ",%llu,%llu,%llu\n",
