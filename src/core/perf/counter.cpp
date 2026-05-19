@@ -34,6 +34,8 @@ REXCVAR_DEFINE_INT32(perf_guest_functions_top_n, 0, "Perf",
                      "Write the top N generated guest functions to a sidecar perf CSV");
 REXCVAR_DEFINE_INT64(perf_guest_functions_min_exclusive_us, 0, "Perf",
                      "Minimum active exclusive guest-function time, in microseconds, for sidecar perf CSV");
+REXCVAR_DEFINE_INT32(perf_guest_indirect_targets_top_n, 0, "Perf",
+                     "Write the top N generated indirect-call targets to a sidecar perf CSV");
 
 namespace rex::perf {
 
@@ -139,12 +141,47 @@ struct GuestFunctionStackEntry {
   uint32_t spin_hint_sites = 0;
 };
 
+struct GuestIndirectCallTargetKey {
+  uint32_t source_address = 0;
+  uint32_t call_site = 0;
+  uint32_t target_address = 0;
+
+  bool operator==(const GuestIndirectCallTargetKey& other) const {
+    return source_address == other.source_address && call_site == other.call_site &&
+           target_address == other.target_address;
+  }
+};
+
+struct GuestIndirectCallTargetKeyHash {
+  size_t operator()(const GuestIndirectCallTargetKey& key) const {
+    size_t hash = std::hash<uint32_t>{}(key.source_address);
+    hash ^= std::hash<uint32_t>{}(key.call_site) + 0x9E3779B9u + (hash << 6) + (hash >> 2);
+    hash ^= std::hash<uint32_t>{}(key.target_address) + 0x9E3779B9u + (hash << 6) + (hash >> 2);
+    return hash;
+  }
+};
+
+struct GuestIndirectCallTargetProfileTotals {
+  std::string source_symbol;
+  uint64_t calls = 0;
+  uint64_t fast_path_hits = 0;
+  uint64_t fallback_hits = 0;
+};
+
 std::mutex g_guest_function_profile_mutex;
 std::unordered_map<uint32_t, GuestFunctionProfileTotals> g_guest_function_profile;
 std::atomic<bool> g_guest_function_profile_enabled{false};
 std::atomic<uint64_t> g_guest_function_profile_generation{1};
 std::FILE* g_guest_function_csv_file = nullptr;
 std::string g_guest_function_csv_path;
+
+std::mutex g_guest_indirect_call_profile_mutex;
+std::unordered_map<GuestIndirectCallTargetKey, GuestIndirectCallTargetProfileTotals,
+                   GuestIndirectCallTargetKeyHash>
+    g_guest_indirect_call_profile;
+std::atomic<bool> g_guest_indirect_call_profile_enabled{false};
+std::FILE* g_guest_indirect_call_csv_file = nullptr;
+std::string g_guest_indirect_call_csv_path;
 
 thread_local std::vector<GuestFunctionStackEntry> g_guest_function_stack;
 thread_local uint64_t g_guest_function_stack_next_token = 0;
@@ -163,8 +200,17 @@ void ResetGuestFunctionProfile() {
   g_guest_function_profile.clear();
 }
 
+void ResetGuestIndirectCallProfile() {
+  std::lock_guard lock(g_guest_indirect_call_profile_mutex);
+  g_guest_indirect_call_profile.clear();
+}
+
 std::string BuildGuestFunctionCsvPath(const std::string& path) {
   return path + ".guest_functions.csv";
+}
+
+std::string BuildGuestIndirectCallCsvPath(const std::string& path) {
+  return path + ".guest_indirect_targets.csv";
 }
 
 void WriteCsvCell(std::FILE* file, std::string_view value) {
@@ -196,6 +242,17 @@ void CloseGuestFunctionCsv() {
   ResetGuestFunctionProfile();
 }
 
+void CloseGuestIndirectCallCsv() {
+  g_guest_indirect_call_profile_enabled.store(false, std::memory_order_relaxed);
+  if (g_guest_indirect_call_csv_file) {
+    std::fflush(g_guest_indirect_call_csv_file);
+    std::fclose(g_guest_indirect_call_csv_file);
+    g_guest_indirect_call_csv_file = nullptr;
+  }
+  g_guest_indirect_call_csv_path.clear();
+  ResetGuestIndirectCallProfile();
+}
+
 void ConfigureGuestFunctionCsv(const std::string& path) {
   CloseGuestFunctionCsv();
 
@@ -220,6 +277,30 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
   g_guest_function_profile_enabled.store(true, std::memory_order_relaxed);
 }
 
+void ConfigureGuestIndirectCallCsv(const std::string& path) {
+  CloseGuestIndirectCallCsv();
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_indirect_targets_top_n);
+  if (path.empty() || top_n <= 0) {
+    return;
+  }
+
+  g_guest_indirect_call_csv_path = BuildGuestIndirectCallCsvPath(path);
+  g_guest_indirect_call_csv_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_indirect_call_csv_path), "w");
+  if (!g_guest_indirect_call_csv_file) {
+    REXLOG_WARN("perf: failed to open guest indirect target CSV log: {}",
+                g_guest_indirect_call_csv_path);
+    g_guest_indirect_call_csv_path.clear();
+    return;
+  }
+
+  std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
+             "target_guest_address,calls,fast_path_hits,fallback_hits\n",
+             g_guest_indirect_call_csv_file);
+  g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
+}
+
 void SyncGuestFunctionCsv() {
   if (!g_csv_file || g_csv_path.empty()) {
     if (g_guest_function_csv_file ||
@@ -242,6 +323,31 @@ void SyncGuestFunctionCsv() {
 
   if (!g_guest_function_csv_file) {
     ConfigureGuestFunctionCsv(g_csv_path);
+  }
+}
+
+void SyncGuestIndirectCallCsv() {
+  if (!g_csv_file || g_csv_path.empty()) {
+    if (g_guest_indirect_call_csv_file ||
+        g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestIndirectCallCsv();
+    }
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_indirect_targets_top_n);
+  if (top_n <= 0) {
+    if (g_guest_indirect_call_csv_file ||
+        g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestIndirectCallCsv();
+    } else {
+      ResetGuestIndirectCallProfile();
+    }
+    return;
+  }
+
+  if (!g_guest_indirect_call_csv_file) {
+    ConfigureGuestIndirectCallCsv(g_csv_path);
   }
 }
 
@@ -275,6 +381,36 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(entry.blocking_wait_us),
                  static_cast<unsigned long long>(entry.active_exclusive_us),
                  entry.spin_hint_sites);
+  }
+}
+
+void WriteGuestIndirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
+  if (!g_guest_indirect_call_csv_file) {
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_indirect_targets_top_n);
+  if (top_n <= 0) {
+    CloseGuestIndirectCallCsv();
+    return;
+  }
+
+  const auto entries =
+      SnapshotGuestIndirectCallTargetProfile(static_cast<size_t>(top_n));
+  for (size_t i = 0; i < entries.size(); ++i) {
+    const auto& entry = entries[i];
+    std::fprintf(g_guest_indirect_call_csv_file,
+                 "%llu,%llu,%llu,0x%08X,",
+                 static_cast<unsigned long long>(frame_index),
+                 static_cast<unsigned long long>(elapsed_us),
+                 static_cast<unsigned long long>(i + 1), entry.source_address);
+    WriteCsvCell(g_guest_indirect_call_csv_file, entry.source_symbol);
+    std::fprintf(g_guest_indirect_call_csv_file,
+                 ",0x%08X,0x%08X,%llu,%llu,%llu\n",
+                 entry.call_site, entry.target_address,
+                 static_cast<unsigned long long>(entry.calls),
+                 static_cast<unsigned long long>(entry.fast_path_hits),
+                 static_cast<unsigned long long>(entry.fallback_hits));
   }
 }
 
@@ -329,6 +465,7 @@ void Init() {
   for (auto& s : g_snapshot)
     s.store(0, std::memory_order_relaxed);
   ResetGuestFunctionProfile();
+  ResetGuestIndirectCallProfile();
 }
 
 void SetCsvLogPath(const std::string& path) {
@@ -341,6 +478,7 @@ void SetCsvLogPath(const std::string& path) {
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
   CloseGuestFunctionCsv();
+  CloseGuestIndirectCallCsv();
 
   if (path.empty())
     return;
@@ -353,6 +491,7 @@ void SetCsvLogPath(const std::string& path) {
   }
   g_csv_start_tick = rex::chrono::Clock::QueryHostTickCount();
   ConfigureGuestFunctionCsv(path);
+  ConfigureGuestIndirectCallCsv(path);
 
   // Write header
   std::fputs("frame_index,elapsed_us", g_csv_file);
@@ -390,12 +529,17 @@ void WriteCsvFrame() {
   std::fputc('\n', g_csv_file);
 
   SyncGuestFunctionCsv();
+  SyncGuestIndirectCallCsv();
   WriteGuestFunctionCsvFrame(g_csv_frame_count, elapsed_us);
+  WriteGuestIndirectCallCsvFrame(g_csv_frame_count, elapsed_us);
 
   if (++g_csv_frame_count % 60 == 0) {
     std::fflush(g_csv_file);
     if (g_guest_function_csv_file) {
       std::fflush(g_guest_function_csv_file);
+    }
+    if (g_guest_indirect_call_csv_file) {
+      std::fflush(g_guest_indirect_call_csv_file);
     }
   }
 }
@@ -410,6 +554,7 @@ void FlushCsv() {
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
   CloseGuestFunctionCsv();
+  CloseGuestIndirectCallCsv();
 }
 
 ScopedCounterDuration::ScopedCounterDuration(CounterId id)
@@ -442,6 +587,32 @@ void AddGuestKernelWaitDurationUs(uint64_t duration_us) {
   IncrementCounter(CounterId::kGuestKernelWaitUs, static_cast<int64_t>(duration_us));
   if (!g_guest_function_stack.empty()) {
     g_guest_function_stack.back().blocking_wait_us += duration_us;
+  }
+}
+
+void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
+                                uint32_t call_site, uint32_t target_address,
+                                bool fast_path_hit) {
+  if (!g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+
+  const GuestIndirectCallTargetKey key{
+      .source_address = source_address,
+      .call_site = call_site,
+      .target_address = target_address,
+  };
+
+  std::lock_guard lock(g_guest_indirect_call_profile_mutex);
+  auto& entry = g_guest_indirect_call_profile[key];
+  if (entry.source_symbol.empty() && source_symbol) {
+    entry.source_symbol = source_symbol;
+  }
+  ++entry.calls;
+  if (fast_path_hit) {
+    ++entry.fast_path_hits;
+  } else {
+    ++entry.fallback_hits;
   }
 }
 
@@ -485,6 +656,50 @@ std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_e
       return lhs.calls > rhs.calls;
     }
     return lhs.address < rhs.address;
+  });
+  if (entries.size() > max_entries) {
+    entries.resize(max_entries);
+  }
+  return entries;
+}
+
+std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTargetProfile(
+    size_t max_entries) {
+  std::vector<GuestIndirectCallTargetProfileEntry> entries;
+  {
+    std::lock_guard lock(g_guest_indirect_call_profile_mutex);
+    entries.reserve(g_guest_indirect_call_profile.size());
+    for (const auto& [key, totals] : g_guest_indirect_call_profile) {
+      entries.push_back({
+          .source_address = key.source_address,
+          .source_symbol = totals.source_symbol,
+          .call_site = key.call_site,
+          .target_address = key.target_address,
+          .calls = totals.calls,
+          .fast_path_hits = totals.fast_path_hits,
+          .fallback_hits = totals.fallback_hits,
+      });
+    }
+    g_guest_indirect_call_profile.clear();
+  }
+
+  std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.calls != rhs.calls) {
+      return lhs.calls > rhs.calls;
+    }
+    if (lhs.fallback_hits != rhs.fallback_hits) {
+      return lhs.fallback_hits > rhs.fallback_hits;
+    }
+    if (lhs.fast_path_hits != rhs.fast_path_hits) {
+      return lhs.fast_path_hits > rhs.fast_path_hits;
+    }
+    if (lhs.source_address != rhs.source_address) {
+      return lhs.source_address < rhs.source_address;
+    }
+    if (lhs.call_site != rhs.call_site) {
+      return lhs.call_site < rhs.call_site;
+    }
+    return lhs.target_address < rhs.target_address;
   });
   if (entries.size() > max_entries) {
     entries.resize(max_entries);

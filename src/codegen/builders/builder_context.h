@@ -240,6 +240,17 @@ struct BuilderContext {
                                  std::string_view indent = "\t");
 
   /**
+   * @brief Emit C++ code for an indirect function call.
+   * @param target_expr Runtime expression that yields the guest target address
+   * @param indent Leading whitespace for the emitted statement
+   *
+   * Attaches static source/call-site metadata for optional indirect target
+   * profiling while preserving the legacy indirect dispatch path.
+   */
+  void emit_indirect_function_call(std::string_view target_expr,
+                                   std::string_view indent = "\t");
+
+  /**
    * @brief Emit C++ code for a conditional branch.
    * @param not_ If true, invert the condition
    * @param cond Condition field name ("eq", "lt", "gt")

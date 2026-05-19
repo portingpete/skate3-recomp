@@ -341,7 +341,9 @@ TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
   CHECK(cpp.find("if (!ctx.cr0.eq) {") != std::string::npos);
   CHECK(cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
-  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+                 "ctx.ctr.u32);") !=
+        std::string::npos);
   CHECK(cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
@@ -374,7 +376,9 @@ TEST_CASE("FunctionNode emit handles raw branch-to-register BO/BI forms",
   CHECK(ctr_link_cpp.find("if (!ctx.cr0.eq) {") != std::string::npos);
   CHECK(ctr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(ctr_link_cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
-  CHECK(ctr_link_cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(ctr_link_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", "
+                          "0x00001000, ctx.ctr.u32);") !=
+        std::string::npos);
   CHECK(ctr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
 
   constexpr std::array<uint8_t, 8> kRawConditionalLrLink = {
@@ -387,7 +391,9 @@ TEST_CASE("FunctionNode emit handles raw branch-to-register BO/BI forms",
   CHECK(lr_link_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
   CHECK(lr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(lr_link_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
-  CHECK(lr_link_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(lr_link_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", "
+                         "0x00001000, uint32_t(old_lr));") !=
+        std::string::npos);
   CHECK(lr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
@@ -421,7 +427,9 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(ne_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
   CHECK(ne_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(ne_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
-  CHECK(ne_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(ne_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+                    "uint32_t(old_lr));") !=
+        std::string::npos);
   CHECK(ne_cpp.find("UNIMPLEMENTED") == std::string::npos);
 
   constexpr std::array<uint8_t, 8> kEqLrLink = {
@@ -433,7 +441,9 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(eq_cpp.find("auto old_lr = ctx.lr;") != std::string::npos);
   CHECK(eq_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(eq_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
-  CHECK(eq_cpp.find("REX_CALL_INDIRECT_FUNC(uint32_t(old_lr));") != std::string::npos);
+  CHECK(eq_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+                    "uint32_t(old_lr));") !=
+        std::string::npos);
   CHECK(eq_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
@@ -498,7 +508,9 @@ TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of r
   CHECK(cpp.find("case 0:") != std::string::npos);
   CHECK(cpp.find("goto loc_1004;") != std::string::npos);
   CHECK(cpp.find("default:") != std::string::npos);
-  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+                 "ctx.ctr.u32);") !=
+        std::string::npos);
   CHECK(cpp.find("__builtin_trap(); // Switch case out of range") == std::string::npos);
 }
 

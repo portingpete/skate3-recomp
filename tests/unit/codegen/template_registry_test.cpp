@@ -32,6 +32,16 @@ static void WriteTempFile(const fs::path& path, const std::string& content) {
   f << content;
 }
 
+static size_t CountOccurrences(const std::string& text, const std::string& needle) {
+  size_t count = 0;
+  size_t pos = 0;
+  while ((pos = text.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
+}
+
 TEST_CASE("TemplateRegistry: registeredIds returns all template IDs", "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
   auto ids = registry.registeredIds();
@@ -203,6 +213,7 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("REX_LOOKUP_FUNC") != std::string::npos);
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
+  CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);
@@ -249,8 +260,38 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   std::string result = registry.render("test/ppc_config_h", json);
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
+  CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
+}
+
+TEST_CASE("TemplateRegistry: indirect-call macro keeps legacy wrapper single-evaluation",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "thunk_reserve_size": "0x1000"
+  })";
+  std::string result = registry.render("test/ppc_config_h", json);
+
+  CHECK(result.find("#define REX_CALL_INDIRECT_FUNC(x) "
+                    "REX_CALL_INDIRECT_FUNC_AT(0, \"\", 0, (x))") !=
+        std::string::npos);
+
+  const std::string at_define = "#define REX_CALL_INDIRECT_FUNC_AT";
+  const std::string legacy_define = "#define REX_CALL_INDIRECT_FUNC(x)";
+  const size_t at_pos = result.find(at_define);
+  REQUIRE(at_pos != std::string::npos);
+  const size_t legacy_pos = result.find(legacy_define, at_pos);
+  REQUIRE(legacy_pos != std::string::npos);
+  const std::string at_macro = result.substr(at_pos, legacy_pos - at_pos);
+
+  CHECK(CountOccurrences(at_macro, "(uint32_t)(x)") == 1);
+  CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_target_)") != std::string::npos);
+  CHECK(at_macro.find("ResolveIndirectFunction(rex_indirect_target_)") != std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: cmake_var callback works", "[TemplateRegistry]") {

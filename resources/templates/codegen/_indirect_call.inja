@@ -9,24 +9,39 @@
 // which queries the global FunctionDispatcher across every loaded module.
 //=============================================================================
 
-#ifdef REXGLUE_ENABLE_PROFILING
+#if defined(REXGLUE_ENABLE_PROFILING) || defined(REXGLUE_ENABLE_PERF_COUNTERS)
 #include <rex/perf/counter.h>
+#endif
+
+#ifdef REXGLUE_ENABLE_PROFILING
 #define REX_PROFILE_INDIRECT_DISPATCH() PROFILE_FUNCTION_DISPATCHED()
 #else
 #define REX_PROFILE_INDIRECT_DISPATCH()
 #endif
 
+#ifdef REXGLUE_ENABLE_PERF_COUNTERS
+#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
+                                               target_address, fast_path_hit)                  \
+  PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
+                                     fast_path_hit)
+#else
+#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
+                                               target_address, fast_path_hit)
+#endif
+
 #define REX_LOOKUP_FUNC(x, y) \
   (*(PPCFunc**)(x + REX_IMAGE_BASE + REX_IMAGE_SIZE + (u64(u32(y) - REX_CODE_BASE) * 2)))
 
-#define REX_CALL_INDIRECT_FUNC(x)                                                          \
+#define REX_CALL_INDIRECT_FUNC_AT(source_address, source_symbol, call_site, x)              \
   do {                                                                                     \
     REX_PROFILE_INDIRECT_DISPATCH();                                                       \
     uint32_t rex_indirect_target_ = (uint32_t)(x);                                         \
     PPCFunc* rex_indirect_func_;                                                           \
+    bool rex_indirect_fast_path_hit_ = false;                                              \
     if ((uint32_t)(rex_indirect_target_ - REX_CODE_BASE) <                                 \
         REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {                               \
       rex_indirect_func_ = REX_LOOKUP_FUNC(base, rex_indirect_target_);                    \
+      rex_indirect_fast_path_hit_ = rex_indirect_func_ != nullptr;                         \
     } else {                                                                               \
       rex_indirect_func_ = nullptr;                                                        \
     }                                                                                      \
@@ -34,5 +49,11 @@
       ctx.last_indirect_target = rex_indirect_target_;                                     \
       rex_indirect_func_ = rex::runtime::ResolveIndirectFunction(rex_indirect_target_);    \
     }                                                                                      \
+    REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
+                                           rex_indirect_target_,                           \
+                                           rex_indirect_fast_path_hit_);                   \
+    (void)rex_indirect_fast_path_hit_;                                                     \
     rex_indirect_func_(ctx, base);                                                         \
   } while (0)
+
+#define REX_CALL_INDIRECT_FUNC(x) REX_CALL_INDIRECT_FUNC_AT(0, "", 0, (x))

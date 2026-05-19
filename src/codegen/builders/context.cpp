@@ -199,6 +199,12 @@ void BuilderContext::emit_native_function_call(uint32_t address, std::string_vie
           EscapeCppString(func_name), func_name);
 }
 
+void BuilderContext::emit_indirect_function_call(std::string_view target_expr,
+                                                 std::string_view indent) {
+  println("{}REX_CALL_INDIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, {});", indent,
+          fn.base(), EscapeCppString(fn.name()), base, target_expr);
+}
+
 //=============================================================================
 // Output Helpers
 //=============================================================================

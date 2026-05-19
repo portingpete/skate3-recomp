@@ -109,14 +109,29 @@ struct GuestFunctionProfileEntry {
   uint32_t spin_hint_sites = 0;
 };
 
+struct GuestIndirectCallTargetProfileEntry {
+  uint32_t source_address = 0;
+  std::string source_symbol;
+  uint32_t call_site = 0;
+  uint32_t target_address = 0;
+  uint64_t calls = 0;
+  uint64_t fast_path_hits = 0;
+  uint64_t fallback_hits = 0;
+};
+
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
                                 uint32_t spin_hint_sites = 0);
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
+void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
+                                uint32_t call_site, uint32_t target_address,
+                                bool fast_path_hit);
 
 // Returns the current top entries and clears the frame-local accumulator.
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
                                                                     uint64_t min_exclusive_us);
+std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTargetProfile(
+    size_t max_entries);
 
 class ScopedCounterDuration {
  public:
@@ -252,6 +267,10 @@ class Profiler {
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
   rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
                                                           __LINE__)
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
+                                           target_address, fast_path_hit)                 \
+  rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,         \
+                                        target_address, fast_path_hit)
 #define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                  \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol)
@@ -302,6 +321,8 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
+                                           fast_path_hit)
 #define PROFILE_GUEST_FUNCTION_SCOPE(...)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
 #define PROFILE_D3D12_PRESENT_SCOPE()

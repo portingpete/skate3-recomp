@@ -101,7 +101,8 @@ bool build_blrl(BuilderContext& ctx) {
   ctx.println("\t{{ auto old_lr = ctx.lr;");
   if (!ctx.config().skipLr)
     ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
-  ctx.println("\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr)); }}");
+  ctx.emit_indirect_function_call("uint32_t(old_lr)");
+  ctx.println("\t}}");
   ctx.csrState = CSRState::Unknown;
   return true;
 }
@@ -128,10 +129,10 @@ bool emit_bclr_from_bo_bi(BuilderContext& ctx, uint32_t bo, uint32_t bi, bool li
       ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
 
     if (conditions.empty()) {
-      ctx.println("\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr));");
+      ctx.emit_indirect_function_call("uint32_t(old_lr)");
     } else {
       ctx.println("\tif ({}) {{", fmt::join(conditions, " && "));
-      ctx.println("\t\tREX_CALL_INDIRECT_FUNC(uint32_t(old_lr));");
+      ctx.emit_indirect_function_call("uint32_t(old_lr)", "\t\t");
       ctx.println("\t}}");
     }
 
@@ -229,7 +230,7 @@ bool build_bctr(BuilderContext& ctx) {
     }
 
     ctx.println("\tdefault:");
-    ctx.println("\t\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    ctx.emit_indirect_function_call(fmt::format("{}.u32", ctx.ctr()), "\t\t");
     ctx.println("\t\treturn;");
     ctx.println("\t}}");
 
@@ -239,7 +240,7 @@ bool build_bctr(BuilderContext& ctx) {
     // NOTE(tomc): If this is actually an unresolved switch table, the code after
     // will be unreachable. This is caught during analysis by discover_blocks.
     // The validation phase will report missing switch tables.
-    ctx.println("\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    ctx.emit_indirect_function_call(fmt::format("{}.u32", ctx.ctr()));
     ctx.println("\treturn;");
   }
   return true;
@@ -248,7 +249,7 @@ bool build_bctr(BuilderContext& ctx) {
 bool build_bctrl(BuilderContext& ctx) {
   if (!ctx.config().skipLr)
     ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
-  ctx.println("\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+  ctx.emit_indirect_function_call(fmt::format("{}.u32", ctx.ctr()));
   ctx.csrState = CSRState::Unknown;  // the call could change it
   return true;
 }
@@ -260,7 +261,7 @@ bool emit_conditional_ctr(BuilderContext& ctx, bool invert, uint32_t crField, co
   if (link && !ctx.config().skipLr)
     ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
   ctx.println("\tif ({}{}.{}) {{", invert ? "!" : "", ctx.cr(crField), bit);
-  ctx.println("\t\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+  ctx.emit_indirect_function_call(fmt::format("{}.u32", ctx.ctr()), "\t\t");
   if (!link)
     ctx.println("\t\treturn;");
   ctx.println("\t}}");
@@ -287,7 +288,7 @@ bool emit_ctr_from_bo_bi(BuilderContext& ctx, bool link) {
   if ((bo & 0x10) != 0) {
     if (link && !ctx.config().skipLr)
       ctx.println("\tctx.lr = 0x{:X};", ctx.base + 4);
-    ctx.println("\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    ctx.emit_indirect_function_call(fmt::format("{}.u32", ctx.ctr()));
     if (!link)
       ctx.println("\treturn;");
     if (link)
