@@ -130,6 +130,40 @@ TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
   CHECK(result.find("test_proj") != std::string::npos);
 }
 
+TEST_CASE("TemplateRegistry: generated function registration keeps stable ABI",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({
+    "project": "test_proj",
+    "image_base": "0x82000000",
+    "image_size": "0x1000000",
+    "code_base": "0x82010000",
+    "code_size": "0x100000",
+    "rexcrt_heap": 1,
+    "has_dll_modules": false,
+    "is_dll": false,
+    "config_flags": {},
+    "functions": [
+      {
+        "address": "0x82011234",
+        "name": "sub_82011234",
+        "below_code_base": false,
+        "is_import": false
+      }
+    ],
+    "imports": []
+  })";
+
+  const std::string init_cpp = registry.render("codegen/init_cpp", json);
+  CHECK(init_cpp.find("{ 0x82011234, sub_82011234 }") != std::string::npos);
+  CHECK(init_cpp.find("sub_82011234, \"sub_82011234\"") == std::string::npos);
+
+  const std::string register_cpp = registry.render("codegen/register_cpp", json);
+  CHECK(register_cpp.find("registrar->SetFunction(0x82011234, sub_82011234);") !=
+        std::string::npos);
+  CHECK(register_cpp.find("SetFunctionSymbol") == std::string::npos);
+}
+
 TEST_CASE("Template: init cmake presets enable AMD64 baseline SIMD", "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
   std::string result = registry.render("init/cmake_presets", "{}");
@@ -212,8 +246,12 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   std::string result = registry.render("codegen/init_h", json);
   CHECK(result.find("REX_LOOKUP_FUNC") != std::string::npos);
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
+  CHECK(result.find("ResolveIndirectFunctionSymbol") == std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("std::string rex_indirect_target_symbol_") == std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,"
+                    " target_address,") != std::string::npos);
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);

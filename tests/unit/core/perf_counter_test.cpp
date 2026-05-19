@@ -366,11 +366,11 @@ TEST_CASE("guest indirect target profile aggregates current generated source",
 
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
-                                        true);
+                                        "sub,target", true);
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
-                                        false);
+                                        "sub,target", false);
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220014, 0x82400000,
-                                        false);
+                                        "sub_82400000", false);
   rex::perf::AddGuestIndirectCallTarget(0x82230000, "sub_82230000", 0x82230008, 0x82500000,
                                         true);
 
@@ -380,6 +380,7 @@ TEST_CASE("guest indirect target profile aggregates current generated source",
   CHECK(entries[0].source_symbol == "sub,source");
   CHECK(entries[0].call_site == 0x82220010);
   CHECK(entries[0].target_address == 0x82300000);
+  CHECK(entries[0].target_symbol == "sub,target");
   CHECK(entries[0].calls == 2);
   CHECK(entries[0].fast_path_hits == 1);
   CHECK(entries[0].fallback_hits == 1);
@@ -387,6 +388,7 @@ TEST_CASE("guest indirect target profile aggregates current generated source",
   CHECK(entries[1].source_address == 0x82220000);
   CHECK(entries[1].call_site == 0x82220014);
   CHECK(entries[1].target_address == 0x82400000);
+  CHECK(entries[1].target_symbol == "sub_82400000");
   CHECK(entries[1].calls == 1);
   CHECK(entries[1].fast_path_hits == 0);
   CHECK(entries[1].fallback_hits == 1);
@@ -394,6 +396,7 @@ TEST_CASE("guest indirect target profile aggregates current generated source",
   CHECK(entries[2].source_address == 0x82230000);
   CHECK(entries[2].call_site == 0x82230008);
   CHECK(entries[2].target_address == 0x82500000);
+  CHECK(entries[2].target_symbol == "sub_82500000");
   CHECK(entries[2].calls == 1);
   CHECK(entries[2].fast_path_hits == 1);
   CHECK(entries[2].fallback_hits == 0);
@@ -412,11 +415,11 @@ TEST_CASE("perf_log_csv writes guest indirect target sidecar when enabled",
 
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
-                                        true);
+                                        "sub,target", true);
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
-                                        false);
+                                        "sub,target", false);
   rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub,source", 0x82220014, 0x82400000,
-                                        false);
+                                        "sub_82400000", false);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
   rex::perf::FlushCsv();
@@ -433,12 +436,14 @@ TEST_CASE("perf_log_csv writes guest indirect target sidecar when enabled",
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-        "target_guest_address,calls,fast_path_hits,fallback_hits");
+        "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits");
 
   CHECK(rank0.find("0,") == 0);
-  CHECK(rank0.find("1,0x82220000,\"sub,source\",0x82220010,0x82300000,2,1,1") !=
+  CHECK(rank0.find("1,0x82220000,\"sub,source\",0x82220010,0x82300000,"
+                   "\"sub,target\",2,1,1") !=
         std::string::npos);
-  CHECK(rank1.find("2,0x82220000,\"sub,source\",0x82220014,0x82400000,1,0,1") !=
+  CHECK(rank1.find("2,0x82220000,\"sub,source\",0x82220014,0x82400000,"
+                   "sub_82400000,1,0,1") !=
         std::string::npos);
 }
 
@@ -472,8 +477,8 @@ TEST_CASE("perf_log_csv can enable guest indirect target sidecar after csv start
   REQUIRE(std::getline(indirect_csv, header));
   REQUIRE(std::getline(indirect_csv, profiled_frame));
 
-  CHECK(profiled_frame.find("1,0x82220000,sub_82220000,0x82220010,0x82300000,1,0,1") !=
-        std::string::npos);
+  CHECK(profiled_frame.find("1,0x82220000,sub_82220000,0x82220010,0x82300000,"
+                            "sub_82300000,1,0,1") != std::string::npos);
 }
 
 TEST_CASE("guest function scope drops live samples when csv closes", "[perf][counter]") {

@@ -163,10 +163,17 @@ struct GuestIndirectCallTargetKeyHash {
 
 struct GuestIndirectCallTargetProfileTotals {
   std::string source_symbol;
+  std::string target_symbol;
   uint64_t calls = 0;
   uint64_t fast_path_hits = 0;
   uint64_t fallback_hits = 0;
 };
+
+std::string FormatGuestFunctionSymbol(uint32_t address) {
+  char buffer[13] = {};
+  std::snprintf(buffer, sizeof(buffer), "sub_%08X", address);
+  return buffer;
+}
 
 std::mutex g_guest_function_profile_mutex;
 std::unordered_map<uint32_t, GuestFunctionProfileTotals> g_guest_function_profile;
@@ -296,7 +303,7 @@ void ConfigureGuestIndirectCallCsv(const std::string& path) {
   }
 
   std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-             "target_guest_address,calls,fast_path_hits,fallback_hits\n",
+             "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits\n",
              g_guest_indirect_call_csv_file);
   g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
 }
@@ -406,8 +413,11 @@ void WriteGuestIndirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(i + 1), entry.source_address);
     WriteCsvCell(g_guest_indirect_call_csv_file, entry.source_symbol);
     std::fprintf(g_guest_indirect_call_csv_file,
-                 ",0x%08X,0x%08X,%llu,%llu,%llu\n",
-                 entry.call_site, entry.target_address,
+                 ",0x%08X,0x%08X,",
+                 entry.call_site, entry.target_address);
+    WriteCsvCell(g_guest_indirect_call_csv_file, entry.target_symbol);
+    std::fprintf(g_guest_indirect_call_csv_file,
+                 ",%llu,%llu,%llu\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.fast_path_hits),
                  static_cast<unsigned long long>(entry.fallback_hits));
@@ -597,6 +607,18 @@ void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symb
     return;
   }
 
+  const std::string target_symbol = FormatGuestFunctionSymbol(target_address);
+  AddGuestIndirectCallTarget(source_address, source_symbol, call_site, target_address,
+                             target_symbol.c_str(), fast_path_hit);
+}
+
+void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
+                                uint32_t call_site, uint32_t target_address,
+                                const char* target_symbol, bool fast_path_hit) {
+  if (!g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+
   const GuestIndirectCallTargetKey key{
       .source_address = source_address,
       .call_site = call_site,
@@ -607,6 +629,13 @@ void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symb
   auto& entry = g_guest_indirect_call_profile[key];
   if (entry.source_symbol.empty() && source_symbol) {
     entry.source_symbol = source_symbol;
+  }
+  if (entry.target_symbol.empty()) {
+    if (target_symbol && target_symbol[0] != '\0') {
+      entry.target_symbol = target_symbol;
+    } else {
+      entry.target_symbol = FormatGuestFunctionSymbol(target_address);
+    }
   }
   ++entry.calls;
   if (fast_path_hit) {
@@ -675,6 +704,7 @@ std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTarget
           .source_symbol = totals.source_symbol,
           .call_site = key.call_site,
           .target_address = key.target_address,
+          .target_symbol = totals.target_symbol,
           .calls = totals.calls,
           .fast_path_hits = totals.fast_path_hits,
           .fallback_hits = totals.fallback_hits,
