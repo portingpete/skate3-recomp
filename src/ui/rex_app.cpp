@@ -94,6 +94,14 @@ std::filesystem::path ReXApp::ResolveDefaultCacheRoot(
   return {};
 }
 
+std::string ReXApp::BuildHostBuildLine() {
+  return fmt::format("  Host {}", REXGLUE_BUILD_STAMP);
+}
+
+std::string ReXApp::BuildExecutablePathLine(const std::filesystem::path& executable_path) {
+  return fmt::format("  Executable:     {}", executable_path.string());
+}
+
 std::string ReXApp::BuildGameDataRootMissingMessage(std::string_view app_name) {
   return fmt::format(
       "Game data root was not provided for {}.\n\nLaunch with --game-data-root <folder> or pass "
@@ -207,6 +215,8 @@ bool ReXApp::SetupEnvironment() {
     REXLOG_INFO("Loaded config: {}", config_path_.filename().string());
 
   REXLOG_INFO("{} starting", GetName());
+  REXLOG_INFO("{}", BuildHostBuildLine());
+  REXLOG_INFO("{}", BuildExecutablePathLine(rex::filesystem::GetExecutablePath()));
   if (!game_data_root_.empty()) {
     REXLOG_INFO("  Game directory: {}", game_data_root_.string());
   }

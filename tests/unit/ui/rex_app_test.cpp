@@ -1,4 +1,5 @@
 #include <rex/rex_app.h>
+#include <rex/version.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -33,6 +34,15 @@ class TestReXApp final : public rex::ReXApp {
 
   static std::string BuildGameDataRootMissingMessageForTest(std::string_view app_name) {
     return BuildGameDataRootMissingMessage(app_name);
+  }
+
+  static std::string BuildHostBuildLineForTest() {
+    return BuildHostBuildLine();
+  }
+
+  static std::string BuildExecutablePathLineForTest(
+      const std::filesystem::path& executable_path) {
+    return BuildExecutablePathLine(executable_path);
   }
 
   static std::string BuildGameDataRootNotFoundMessageForTest(
@@ -143,4 +153,16 @@ TEST_CASE("ReXApp game data root errors explain expected launch argument",
       TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("--log_level"));
   CHECK(option_name.find("Game data root does not exist: --log_level") != std::string::npos);
   CHECK(option_name.find("looks like an option value") != std::string::npos);
+}
+
+TEST_CASE("ReXApp startup identity lines include host build and executable path",
+          "[ui][rex_app][paths]") {
+  auto build_line = TestReXApp::BuildHostBuildLineForTest();
+  CHECK(build_line.find("Host build:") != std::string::npos);
+  CHECK(build_line.find(REXGLUE_BUILD_STAMP) != std::string::npos);
+
+  auto executable = std::filesystem::path("C:/tmp/rex-hosts/gtaiv_disc1/gtaiv_disc1.exe");
+  auto executable_line = TestReXApp::BuildExecutablePathLineForTest(executable);
+  CHECK(executable_line.find("Executable:") != std::string::npos);
+  CHECK(executable_line.find(executable.string()) != std::string::npos);
 }
