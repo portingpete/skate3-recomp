@@ -278,8 +278,10 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("std::string rex_indirect_target_symbol_") == std::string::npos);
-  CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,"
-                    " target_address,") != std::string::npos);
+  CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,") !=
+        std::string::npos);
+  CHECK(result.find("target_address, fast_path_hit);") != std::string::npos);
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);
@@ -327,6 +329,7 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }

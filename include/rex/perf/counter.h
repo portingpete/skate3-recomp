@@ -31,10 +31,15 @@ namespace rex::perf {
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
 namespace detail {
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_function_profile_enabled;
+extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_indirect_call_profile_enabled;
 }  // namespace detail
 
 inline bool IsGuestFunctionProfileEnabled() noexcept {
   return detail::g_guest_function_profile_enabled.load(std::memory_order_relaxed);
+}
+
+inline bool IsGuestIndirectCallProfileEnabled() noexcept {
+  return detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed);
 }
 #endif
 
@@ -304,13 +309,21 @@ class Profiler {
   } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
                                            target_address, fast_path_hit)                 \
-  rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,         \
-                                        target_address, fast_path_hit)
+  do {                                                                                   \
+    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                \
+      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,     \
+                                            target_address, fast_path_hit);               \
+    }                                                                                    \
+  } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \
                                                        target_address, target_symbol,            \
                                                        fast_path_hit)                             \
-  rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,                 \
-                                        target_address, target_symbol, fast_path_hit)
+  do {                                                                                           \
+    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                        \
+      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,             \
+                                            target_address, target_symbol, fast_path_hit);        \
+    }                                                                                            \
+  } while (false)
 #define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                  \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol)

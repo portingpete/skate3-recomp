@@ -41,6 +41,7 @@ namespace rex::perf {
 
 namespace detail {
 std::atomic<bool> g_guest_function_profile_enabled{false};
+std::atomic<bool> g_guest_indirect_call_profile_enabled{false};
 }  // namespace detail
 
 namespace {
@@ -220,7 +221,6 @@ std::unordered_map<GuestIndirectCallTargetKey, GuestIndirectCallTargetProfileTot
 std::unordered_map<GuestIndirectCallTargetKey, GuestIndirectCallTargetProfileTotals,
                    GuestIndirectCallTargetKeyHash>
     g_guest_indirect_call_summary_profile;
-std::atomic<bool> g_guest_indirect_call_profile_enabled{false};
 std::FILE* g_guest_indirect_call_csv_file = nullptr;
 std::string g_guest_indirect_call_csv_path;
 std::string g_guest_indirect_call_summary_csv_path;
@@ -539,7 +539,7 @@ void CloseGuestFunctionCsv() {
 }
 
 void CloseGuestIndirectCallCsv() {
-  g_guest_indirect_call_profile_enabled.store(false, std::memory_order_relaxed);
+  detail::g_guest_indirect_call_profile_enabled.store(false, std::memory_order_relaxed);
   WriteGuestIndirectCallSummaryCsv();
   if (g_guest_indirect_call_csv_file) {
     std::fflush(g_guest_indirect_call_csv_file);
@@ -608,7 +608,7 @@ void ConfigureGuestIndirectCallCsv(const std::string& path) {
              "fallback_hits\n",
              g_guest_indirect_call_csv_file);
   g_guest_indirect_call_summary_top_n = static_cast<size_t>(top_n);
-  g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
+  detail::g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
 }
 
 void SyncGuestFunctionCsv() {
@@ -639,7 +639,7 @@ void SyncGuestFunctionCsv() {
 void SyncGuestIndirectCallCsv() {
   if (!g_csv_file || g_csv_path.empty()) {
     if (g_guest_indirect_call_csv_file ||
-        g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+        detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
       CloseGuestIndirectCallCsv();
     }
     return;
@@ -648,7 +648,7 @@ void SyncGuestIndirectCallCsv() {
   const int32_t top_n = REXCVAR_GET(perf_guest_indirect_targets_top_n);
   if (top_n <= 0) {
     if (g_guest_indirect_call_csv_file ||
-        g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+        detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
       CloseGuestIndirectCallCsv();
     } else {
       ResetGuestIndirectCallProfile();
@@ -921,7 +921,7 @@ void AddGuestSpinHintExecution() {
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 bool fast_path_hit) {
-  if (!g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+  if (!detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
     return;
   }
 
@@ -933,7 +933,7 @@ void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symb
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 const char* target_symbol, bool fast_path_hit) {
-  if (!g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
+  if (!detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
     return;
   }
 
