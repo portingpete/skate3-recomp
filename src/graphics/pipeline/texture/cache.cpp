@@ -10,7 +10,10 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <mutex>
+#include <unordered_set>
 #include <utility>
 
 #include <rex/assert.h>
@@ -126,6 +129,34 @@ REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
 //     "GPU");
 
 namespace rex::graphics {
+
+namespace {
+
+using TextureFetchConstantKey = std::array<uint32_t, 6>;
+
+struct TextureFetchConstantKeyHasher {
+  size_t operator()(const TextureFetchConstantKey& key) const noexcept {
+    size_t hash = 1469598103934665603ull;
+    for (uint32_t dword : key) {
+      hash ^= dword;
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+};
+
+bool ShouldWarnInvalidTextureFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch) {
+  static std::mutex mutex;
+  static std::unordered_set<TextureFetchConstantKey, TextureFetchConstantKeyHasher> warned;
+
+  const TextureFetchConstantKey key{
+      fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5,
+  };
+  std::lock_guard lock(mutex);
+  return warned.insert(key).second;
+}
+
+}  // namespace
 
 const TextureCache::LoadShaderInfo TextureCache::load_shader_info_[kLoadShaderCount] = {
     // k8bpb
@@ -910,12 +941,21 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
       if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
         break;
       }
-      REXGPU_WARN(
-          "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-          "has \"invalid\" type! This is incorrect behavior, but you can try "
-          "bypassing this by launching Xenia with "
-          "--gpu_allow_invalid_fetch_constants=true.",
-          fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
+      if (ShouldWarnInvalidTextureFetchConstant(fetch)) {
+        REXGPU_WARN(
+            "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
+            "has \"invalid\" type! This is incorrect behavior, but you can try "
+            "bypassing this by launching Xenia with "
+            "--gpu_allow_invalid_fetch_constants=true.",
+            fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4,
+            fetch.dword_5);
+      } else {
+        REXGPU_NOISY_DEBUG(
+            "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
+            "has repeated \"invalid\" type.",
+            fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4,
+            fetch.dword_5);
+      }
       return;
     default:
       REXGPU_WARN(
