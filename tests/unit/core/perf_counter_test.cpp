@@ -36,6 +36,7 @@ struct PerfCsvTestScope {
     std::filesystem::remove(GuestFunctionsCsvPath(), ec);
     std::filesystem::remove(GuestFunctionsSummaryCsvPath(), ec);
     std::filesystem::remove(GuestIndirectTargetsCsvPath(), ec);
+    std::filesystem::remove(GuestIndirectTargetsSummaryCsvPath(), ec);
   }
 
   ~PerfCsvTestScope() {
@@ -51,6 +52,7 @@ struct PerfCsvTestScope {
     std::filesystem::remove(GuestFunctionsCsvPath(), ec);
     std::filesystem::remove(GuestFunctionsSummaryCsvPath(), ec);
     std::filesystem::remove(GuestIndirectTargetsCsvPath(), ec);
+    std::filesystem::remove(GuestIndirectTargetsSummaryCsvPath(), ec);
   }
 
   std::filesystem::path GuestFunctionsCsvPath() const {
@@ -63,6 +65,10 @@ struct PerfCsvTestScope {
 
   std::filesystem::path GuestIndirectTargetsCsvPath() const {
     return std::filesystem::path(csv_path.string() + ".guest_indirect_targets.csv");
+  }
+
+  std::filesystem::path GuestIndirectTargetsSummaryCsvPath() const {
+    return std::filesystem::path(csv_path.string() + ".guest_indirect_targets.summary.csv");
   }
 
   std::string old_perf_log_csv;
@@ -495,6 +501,169 @@ TEST_CASE("perf_log_csv writes guest indirect target sidecar when enabled",
   CHECK(rank1.find("2,0x82220000,\"sub,source\",0x82220014,\"sub,source+0x14\",0x82400000,"
                    "sub_82400000,1,0,1") !=
         std::string::npos);
+}
+
+TEST_CASE("perf_log_csv writes aggregate guest indirect target summary sidecar when enabled",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() / "rex_perf_guest_indirect_target_summary_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "2"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
+                                        0x82300000, true);
+  rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
+                                        0x82300000, false);
+  rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220014,
+                                        0x82400000, false);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+
+  rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
+                                        0x82300000, true);
+  rex::perf::AddGuestIndirectCallTarget(0x82230000, "sub_82230000", 0x82230008,
+                                        0x82500000, false);
+  rex::perf::AddGuestIndirectCallTarget(0x82230000, "sub_82230000", 0x82230008,
+                                        0x82500000, false);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  std::ifstream summary_csv(scope.GuestIndirectTargetsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  std::string rank1;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+  REQUIRE(std::getline(summary_csv, rank1));
+
+  CHECK(header ==
+        "rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
+        "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits,"
+        "fast_path_hits_per_call,fallback_hits_per_call");
+
+  const auto rank0_values = SplitCsvRow(rank0);
+  const auto rank1_values = SplitCsvRow(rank1);
+  REQUIRE(rank0_values.size() == 12);
+  REQUIRE(rank1_values.size() == 12);
+
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[2] == "sub_82220000");
+  CHECK(rank0_values[3] == "0x82220010");
+  CHECK(rank0_values[4] == "sub_82220000+0x10");
+  CHECK(rank0_values[5] == "0x82300000");
+  CHECK(rank0_values[6] == "sub_82300000");
+  CHECK(rank0_values[7] == "3");
+  CHECK(rank0_values[8] == "2");
+  CHECK(rank0_values[9] == "1");
+  CHECK(rank0_values[10] == "0.667");
+  CHECK(rank0_values[11] == "0.333");
+
+  CHECK(rank1_values[0] == "2");
+  CHECK(rank1_values[1] == "0x82230000");
+  CHECK(rank1_values[2] == "sub_82230000");
+  CHECK(rank1_values[3] == "0x82230008");
+  CHECK(rank1_values[4] == "sub_82230000+0x8");
+  CHECK(rank1_values[5] == "0x82500000");
+  CHECK(rank1_values[6] == "sub_82500000");
+  CHECK(rank1_values[7] == "2");
+  CHECK(rank1_values[8] == "0");
+  CHECK(rank1_values[9] == "2");
+  CHECK(rank1_values[10] == "0.000");
+  CHECK(rank1_values[11] == "1.000");
+}
+
+TEST_CASE("perf_log_csv writes guest indirect target summary beside previous csv when disabled",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() /
+      "rex_perf_guest_indirect_target_summary_disable_test.csv";
+  PerfCsvTestScope scope(csv_path);
+  const auto cwd_summary_path = std::filesystem::path(".guest_indirect_targets.summary.csv");
+  std::error_code ec;
+  std::filesystem::remove(cwd_summary_path, ec);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "1"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
+                                        0x82300000, false);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", ""));
+  rex::perf::ConfigureCsvLogPathFromCvar();
+
+  CHECK_FALSE(std::filesystem::exists(cwd_summary_path));
+
+  std::ifstream summary_csv(scope.GuestIndirectTargetsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+
+  CHECK(header ==
+        "rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
+        "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits,"
+        "fast_path_hits_per_call,fallback_hits_per_call");
+
+  const auto rank0_values = SplitCsvRow(rank0);
+  REQUIRE(rank0_values.size() == 12);
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[7] == "1");
+  CHECK(rank0_values[8] == "0");
+  CHECK(rank0_values[9] == "1");
+  CHECK(rank0_values[10] == "0.000");
+  CHECK(rank0_values[11] == "1.000");
+
+  std::filesystem::remove(cwd_summary_path, ec);
+}
+
+TEST_CASE("perf_log_csv refreshes guest indirect target summary during periodic flush",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() /
+      "rex_perf_guest_indirect_target_summary_live_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "1"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  for (int frame = 0; frame < 60; ++frame) {
+    rex::perf::AddGuestIndirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, true);
+    rex::perf::ResetFrameCounters();
+    rex::perf::WriteCsvFrame();
+  }
+
+  std::ifstream summary_csv(scope.GuestIndirectTargetsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+
+  const auto rank0_values = SplitCsvRow(rank0);
+  REQUIRE(rank0_values.size() == 12);
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[7] == "60");
+  CHECK(rank0_values[8] == "60");
+  CHECK(rank0_values[9] == "0");
+  CHECK(rank0_values[10] == "1.000");
+  CHECK(rank0_values[11] == "0.000");
 }
 
 TEST_CASE("perf_log_csv can enable guest indirect target sidecar after csv startup",
