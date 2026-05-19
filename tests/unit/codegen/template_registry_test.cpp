@@ -328,7 +328,12 @@ TEST_CASE("TemplateRegistry: indirect-call macro keeps legacy wrapper single-eva
   const std::string at_macro = result.substr(at_pos, legacy_pos - at_pos);
 
   CHECK(CountOccurrences(at_macro, "(uint32_t)(x)") == 1);
-  CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_target_)") != std::string::npos);
+  CHECK(at_macro.find("const uint32_t rex_indirect_offset_ = "
+                      "(uint32_t)(rex_indirect_target_ - REX_CODE_BASE);") !=
+        std::string::npos);
+  CHECK(at_macro.find("if (rex_indirect_offset_ <") != std::string::npos);
+  CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_offset_)") != std::string::npos);
+  CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_target_)") == std::string::npos);
   CHECK(at_macro.find("ResolveIndirectFunction(rex_indirect_target_)") != std::string::npos);
 }
 

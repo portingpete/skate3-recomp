@@ -29,18 +29,18 @@
                                                target_address, fast_path_hit)
 #endif
 
-#define REX_LOOKUP_FUNC(x, y) \
-  (*(PPCFunc**)(x + REX_IMAGE_BASE + REX_IMAGE_SIZE + (u64(u32(y) - REX_CODE_BASE) * 2)))
+#define REX_LOOKUP_FUNC(x, offset) \
+  (*(PPCFunc**)(x + REX_IMAGE_BASE + REX_IMAGE_SIZE + (u64(u32(offset)) * 2)))
 
 #define REX_CALL_INDIRECT_FUNC_AT(source_address, source_symbol, call_site, x)              \
   do {                                                                                     \
     REX_PROFILE_INDIRECT_DISPATCH();                                                       \
     uint32_t rex_indirect_target_ = (uint32_t)(x);                                         \
+    const uint32_t rex_indirect_offset_ = (uint32_t)(rex_indirect_target_ - REX_CODE_BASE); \
     PPCFunc* rex_indirect_func_;                                                           \
     bool rex_indirect_fast_path_hit_ = false;                                              \
-    if ((uint32_t)(rex_indirect_target_ - REX_CODE_BASE) <                                 \
-        REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {                               \
-      rex_indirect_func_ = REX_LOOKUP_FUNC(base, rex_indirect_target_);                    \
+    if (rex_indirect_offset_ < REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {        \
+      rex_indirect_func_ = REX_LOOKUP_FUNC(base, rex_indirect_offset_);                    \
       rex_indirect_fast_path_hit_ = rex_indirect_func_ != nullptr;                         \
     } else {                                                                               \
       rex_indirect_func_ = nullptr;                                                        \
