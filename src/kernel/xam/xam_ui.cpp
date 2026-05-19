@@ -549,92 +549,92 @@ u32 XamShowCommunitySessionsUI_entry(u32 r3, u32 r4) {
 u32 XamShowAchievementsUI_entry(u32 user_index, u32 title_id) {
   (void)user_index;
   (void)title_id;
-  REXKRNL_WARN("XamShowAchievementsUI no-op");
+  REXKRNL_DEBUG("XamShowAchievementsUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowFriendsUI_entry(u32 user_index) {
   (void)user_index;
-  REXKRNL_WARN("XamShowFriendsUI no-op");
+  REXKRNL_DEBUG("XamShowFriendsUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowGamerCardUIForXUID_entry(u32 user_index, u64 xuid) {
   (void)user_index;
   (void)xuid;
-  REXKRNL_WARN("XamShowGamerCardUIForXUID no-op");
+  REXKRNL_DEBUG("XamShowGamerCardUIForXUID no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowFriendRequestUI_entry() {
-  REXKRNL_WARN("XamShowFriendRequestUI no-op");
+  REXKRNL_DEBUG("XamShowFriendRequestUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowGameInviteUI_entry() {
-  REXKRNL_WARN("XamShowGameInviteUI no-op");
+  REXKRNL_DEBUG("XamShowGameInviteUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMarketplaceUI_entry() {
-  REXKRNL_WARN("XamShowMarketplaceUI no-op");
+  REXKRNL_DEBUG("XamShowMarketplaceUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMarketplaceUIEx_entry() {
-  REXKRNL_WARN("XamShowMarketplaceUIEx no-op");
+  REXKRNL_DEBUG("XamShowMarketplaceUIEx no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMarketplaceDownloadItemsUI_entry() {
-  REXKRNL_WARN("XamShowMarketplaceDownloadItemsUI no-op");
+  REXKRNL_DEBUG("XamShowMarketplaceDownloadItemsUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMessageComposeUI_entry() {
-  REXKRNL_WARN("XamShowMessageComposeUI no-op");
+  REXKRNL_DEBUG("XamShowMessageComposeUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMessagesUI_entry() {
-  REXKRNL_WARN("XamShowMessagesUI no-op");
+  REXKRNL_DEBUG("XamShowMessagesUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowMessagesUIEx_entry() {
-  REXKRNL_WARN("XamShowMessagesUIEx no-op");
+  REXKRNL_DEBUG("XamShowMessagesUIEx no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowPlayerReviewUI_entry() {
-  REXKRNL_WARN("XamShowPlayerReviewUI no-op");
+  REXKRNL_DEBUG("XamShowPlayerReviewUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowPlayersUI_entry() {
-  REXKRNL_WARN("XamShowPlayersUI no-op");
+  REXKRNL_DEBUG("XamShowPlayersUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowQuickChatUI_entry() {
-  REXKRNL_WARN("XamShowQuickChatUI no-op");
+  REXKRNL_DEBUG("XamShowQuickChatUI no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowQuickChatUIp_entry() {
-  REXKRNL_WARN("XamShowQuickChatUIp no-op");
+  REXKRNL_DEBUG("XamShowQuickChatUIp no-op");
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowSigninUIp_entry() {
-  REXKRNL_WARN("XamShowSigninUIp no-op");
+  REXKRNL_DEBUG("XamShowSigninUIp no-op");
   REX_KERNEL_STATE()->BroadcastNotification(0x0000000A, 1);
   REX_KERNEL_STATE()->BroadcastNotification(0x00000009, 0);
   return X_ERROR_SUCCESS;
 }
 
 u32 XamShowVoiceMailUI_entry() {
-  REXKRNL_WARN("XamShowVoiceMailUI no-op");
+  REXKRNL_DEBUG("XamShowVoiceMailUI no-op");
   return X_ERROR_SUCCESS;
 }
 

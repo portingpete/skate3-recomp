@@ -22,14 +22,51 @@
 REXCVAR_DECLARE(bool, headless);
 
 namespace rex::kernel::xam {
+u32 XamShowAchievementsUI_entry(u32 user_index, u32 title_id);
+u32 XamShowFriendsUI_entry(u32 user_index);
+u32 XamShowGamerCardUIForXUID_entry(u32 user_index, u64 xuid);
+u32 XamShowFriendRequestUI_entry();
+u32 XamShowGameInviteUI_entry();
+u32 XamShowMarketplaceUI_entry();
+u32 XamShowMarketplaceUIEx_entry();
+u32 XamShowMarketplaceDownloadItemsUI_entry();
+u32 XamShowMessageComposeUI_entry();
+u32 XamShowMessagesUI_entry();
+u32 XamShowMessagesUIEx_entry();
 u32 XamShowMessageBoxUIEx_entry(u32 user_index, mapped_wstring title_ptr,
                                 mapped_wstring text_ptr, u32 button_count,
                                 mapped_u32 button_ptrs, u32 active_button, u32 flags,
                                 u32 unknown_unused, mapped_u32 result_ptr,
                                 mapped_void overlapped);
+u32 XamShowPlayerReviewUI_entry();
+u32 XamShowPlayersUI_entry();
+u32 XamShowQuickChatUI_entry();
+u32 XamShowQuickChatUIp_entry();
+u32 XamShowSigninUIp_entry();
+u32 XamShowVoiceMailUI_entry();
 }  // namespace rex::kernel::xam
 
 namespace {
+
+bool IsUnavailableGuideUiLog(std::string_view text) {
+  return text.find("XamShowAchievementsUI") != std::string_view::npos ||
+         text.find("XamShowFriendsUI") != std::string_view::npos ||
+         text.find("XamShowGamerCardUIForXUID") != std::string_view::npos ||
+         text.find("XamShowFriendRequestUI") != std::string_view::npos ||
+         text.find("XamShowGameInviteUI") != std::string_view::npos ||
+         text.find("XamShowMarketplaceUI") != std::string_view::npos ||
+         text.find("XamShowMarketplaceUIEx") != std::string_view::npos ||
+         text.find("XamShowMarketplaceDownloadItemsUI") != std::string_view::npos ||
+         text.find("XamShowMessageComposeUI") != std::string_view::npos ||
+         text.find("XamShowMessagesUI") != std::string_view::npos ||
+         text.find("XamShowMessagesUIEx") != std::string_view::npos ||
+         text.find("XamShowPlayerReviewUI") != std::string_view::npos ||
+         text.find("XamShowPlayersUI") != std::string_view::npos ||
+         text.find("XamShowQuickChatUI") != std::string_view::npos ||
+         text.find("XamShowQuickChatUIp") != std::string_view::npos ||
+         text.find("XamShowSigninUIp") != std::string_view::npos ||
+         text.find("XamShowVoiceMailUI") != std::string_view::npos;
+}
 
 bool IsMessageBoxUiExLog(std::string_view text) {
   return text.find("XamShowMessageBoxUIEx") != std::string_view::npos;
@@ -45,6 +82,58 @@ u32 StoreUtf16(rex::memory::Memory* memory, const std::u16string& value) {
 }
 
 }  // namespace
+
+TEST_CASE("Unavailable social guide UI no-op successes are debug-only",
+          "[runtime][kernel][xam_ui]") {
+  using namespace rex::kernel::xam;
+  constexpr u32 kSuccess = 0;
+  constexpr size_t kExpectedUnavailableGuideLogs = 17;
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+
+  rex::Runtime runtime({}, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == 0);
+
+  auto sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), sink);
+
+  CHECK(XamShowAchievementsUI_entry(0, 0) == kSuccess);
+  CHECK(XamShowFriendsUI_entry(0) == kSuccess);
+  CHECK(XamShowGamerCardUIForXUID_entry(0, 0x1234) == kSuccess);
+  CHECK(XamShowFriendRequestUI_entry() == kSuccess);
+  CHECK(XamShowGameInviteUI_entry() == kSuccess);
+  CHECK(XamShowMarketplaceUI_entry() == kSuccess);
+  CHECK(XamShowMarketplaceUIEx_entry() == kSuccess);
+  CHECK(XamShowMarketplaceDownloadItemsUI_entry() == kSuccess);
+  CHECK(XamShowMessageComposeUI_entry() == kSuccess);
+  CHECK(XamShowMessagesUI_entry() == kSuccess);
+  CHECK(XamShowMessagesUIEx_entry() == kSuccess);
+  CHECK(XamShowPlayerReviewUI_entry() == kSuccess);
+  CHECK(XamShowPlayersUI_entry() == kSuccess);
+  CHECK(XamShowQuickChatUI_entry() == kSuccess);
+  CHECK(XamShowQuickChatUIp_entry() == kSuccess);
+  CHECK(XamShowSigninUIp_entry() == kSuccess);
+  CHECK(XamShowVoiceMailUI_entry() == kSuccess);
+
+  std::vector<rex::LogEntry> entries;
+  sink->CopyEntries(entries);
+  rex::RemoveSink(rex::log::krnl(), sink);
+
+  const auto warning_count =
+      std::count_if(entries.begin(), entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsUnavailableGuideUiLog(entry.text);
+      });
+  const auto debug_count =
+      std::count_if(entries.begin(), entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsUnavailableGuideUiLog(entry.text);
+      });
+  CHECK(warning_count == 0);
+  CHECK(debug_count == kExpectedUnavailableGuideLogs);
+}
 
 TEST_CASE("XamShowMessageBoxUIEx follows headless message-box selection",
           "[runtime][kernel][xam_ui]") {
