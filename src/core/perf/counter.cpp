@@ -15,14 +15,25 @@
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
 
 REXCVAR_DEFINE_STRING(perf_log_csv, "", "Perf",
                       "Path to write per-frame CSV log (empty = disabled)");
+REXCVAR_DEFINE_INT32(perf_guest_functions_top_n, 0, "Perf",
+                     "Write the top N generated guest functions to a sidecar perf CSV");
+REXCVAR_DEFINE_INT64(perf_guest_functions_min_exclusive_us, 0, "Perf",
+                     "Minimum exclusive guest-function time, in microseconds, for sidecar perf CSV");
 
 namespace rex::perf {
 
@@ -107,6 +118,156 @@ std::string g_csv_path;
 uint64_t g_csv_frame_count = 0;
 uint64_t g_csv_start_tick = 0;
 
+struct GuestFunctionProfileTotals {
+  std::string symbol;
+  uint64_t calls = 0;
+  uint64_t inclusive_us = 0;
+  uint64_t exclusive_us = 0;
+};
+
+struct GuestFunctionStackEntry {
+  uint32_t address = 0;
+  const char* symbol = nullptr;
+  uint64_t start_tick = 0;
+  uint64_t child_us = 0;
+  uint64_t token = 0;
+};
+
+std::mutex g_guest_function_profile_mutex;
+std::unordered_map<uint32_t, GuestFunctionProfileTotals> g_guest_function_profile;
+std::atomic<bool> g_guest_function_profile_enabled{false};
+std::atomic<uint64_t> g_guest_function_profile_generation{1};
+std::FILE* g_guest_function_csv_file = nullptr;
+std::string g_guest_function_csv_path;
+
+thread_local std::vector<GuestFunctionStackEntry> g_guest_function_stack;
+thread_local uint64_t g_guest_function_stack_next_token = 0;
+
+uint64_t DurationUsSince(uint64_t start_tick) {
+  const uint64_t end_tick = rex::chrono::Clock::QueryHostTickCount();
+  const uint64_t freq = rex::chrono::Clock::QueryHostTickFrequency();
+  if (freq == 0 || end_tick <= start_tick) {
+    return 0;
+  }
+  return (end_tick - start_tick) * UINT64_C(1000000) / freq;
+}
+
+void ResetGuestFunctionProfile() {
+  std::lock_guard lock(g_guest_function_profile_mutex);
+  g_guest_function_profile.clear();
+}
+
+std::string BuildGuestFunctionCsvPath(const std::string& path) {
+  return path + ".guest_functions.csv";
+}
+
+void WriteCsvCell(std::FILE* file, std::string_view value) {
+  const bool needs_quotes = value.find_first_of(",\"\r\n") != std::string_view::npos;
+  if (!needs_quotes) {
+    std::fwrite(value.data(), 1, value.size(), file);
+    return;
+  }
+
+  std::fputc('"', file);
+  for (const char ch : value) {
+    if (ch == '"') {
+      std::fputc('"', file);
+    }
+    std::fputc(ch, file);
+  }
+  std::fputc('"', file);
+}
+
+void CloseGuestFunctionCsv() {
+  g_guest_function_profile_enabled.store(false, std::memory_order_relaxed);
+  g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
+  if (g_guest_function_csv_file) {
+    std::fflush(g_guest_function_csv_file);
+    std::fclose(g_guest_function_csv_file);
+    g_guest_function_csv_file = nullptr;
+  }
+  g_guest_function_csv_path.clear();
+  ResetGuestFunctionProfile();
+}
+
+void ConfigureGuestFunctionCsv(const std::string& path) {
+  CloseGuestFunctionCsv();
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_functions_top_n);
+  if (path.empty() || top_n <= 0) {
+    return;
+  }
+
+  g_guest_function_csv_path = BuildGuestFunctionCsvPath(path);
+  g_guest_function_csv_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_function_csv_path), "w");
+  if (!g_guest_function_csv_file) {
+    REXLOG_WARN("perf: failed to open guest-function CSV log: {}", g_guest_function_csv_path);
+    g_guest_function_csv_path.clear();
+    return;
+  }
+
+  std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us\n",
+             g_guest_function_csv_file);
+  g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
+  g_guest_function_profile_enabled.store(true, std::memory_order_relaxed);
+}
+
+void SyncGuestFunctionCsv() {
+  if (!g_csv_file || g_csv_path.empty()) {
+    if (g_guest_function_csv_file ||
+        g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestFunctionCsv();
+    }
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_functions_top_n);
+  if (top_n <= 0) {
+    if (g_guest_function_csv_file ||
+        g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestFunctionCsv();
+    } else {
+      ResetGuestFunctionProfile();
+    }
+    return;
+  }
+
+  if (!g_guest_function_csv_file) {
+    ConfigureGuestFunctionCsv(g_csv_path);
+  }
+}
+
+void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
+  if (!g_guest_function_csv_file) {
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_functions_top_n);
+  if (top_n <= 0) {
+    CloseGuestFunctionCsv();
+    return;
+  }
+
+  const int64_t min_exclusive = REXCVAR_GET(perf_guest_functions_min_exclusive_us);
+  const auto entries = SnapshotGuestFunctionProfile(
+      static_cast<size_t>(top_n), static_cast<uint64_t>(std::max<int64_t>(0, min_exclusive)));
+  for (size_t i = 0; i < entries.size(); ++i) {
+    const auto& entry = entries[i];
+    std::fprintf(g_guest_function_csv_file,
+                 "%llu,%llu,%llu,0x%08X,",
+                 static_cast<unsigned long long>(frame_index),
+                 static_cast<unsigned long long>(elapsed_us),
+                 static_cast<unsigned long long>(i + 1), entry.address);
+    WriteCsvCell(g_guest_function_csv_file, entry.symbol);
+    std::fprintf(g_guest_function_csv_file,
+                 ",%llu,%llu,%llu\n",
+                 static_cast<unsigned long long>(entry.calls),
+                 static_cast<unsigned long long>(entry.inclusive_us),
+                 static_cast<unsigned long long>(entry.exclusive_us));
+  }
+}
+
 }  // anonymous namespace
 
 const char* CounterName(CounterId id) {
@@ -125,12 +286,10 @@ void IncrementCounter(CounterId id, int64_t delta) {
 }
 
 void AddCounterDurationSince(CounterId id, uint64_t start_tick) {
-  const uint64_t end_tick = rex::chrono::Clock::QueryHostTickCount();
-  const uint64_t freq = rex::chrono::Clock::QueryHostTickFrequency();
-  if (freq == 0 || end_tick <= start_tick) {
-    return;
+  const uint64_t duration_us = DurationUsSince(start_tick);
+  if (duration_us != 0) {
+    IncrementCounter(id, static_cast<int64_t>(duration_us));
   }
-  IncrementCounter(id, static_cast<int64_t>((end_tick - start_tick) * UINT64_C(1000000) / freq));
 }
 
 int64_t GetCounter(CounterId id) {
@@ -159,6 +318,7 @@ void Init() {
     c.store(0, std::memory_order_relaxed);
   for (auto& s : g_snapshot)
     s.store(0, std::memory_order_relaxed);
+  ResetGuestFunctionProfile();
 }
 
 void SetCsvLogPath(const std::string& path) {
@@ -170,6 +330,7 @@ void SetCsvLogPath(const std::string& path) {
   g_csv_path = path;
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
+  CloseGuestFunctionCsv();
 
   if (path.empty())
     return;
@@ -181,6 +342,7 @@ void SetCsvLogPath(const std::string& path) {
     return;
   }
   g_csv_start_tick = rex::chrono::Clock::QueryHostTickCount();
+  ConfigureGuestFunctionCsv(path);
 
   // Write header
   std::fputs("frame_index,elapsed_us", g_csv_file);
@@ -217,8 +379,14 @@ void WriteCsvFrame() {
   }
   std::fputc('\n', g_csv_file);
 
+  SyncGuestFunctionCsv();
+  WriteGuestFunctionCsvFrame(g_csv_frame_count, elapsed_us);
+
   if (++g_csv_frame_count % 60 == 0) {
     std::fflush(g_csv_file);
+    if (g_guest_function_csv_file) {
+      std::fflush(g_guest_function_csv_file);
+    }
   }
 }
 
@@ -231,6 +399,7 @@ void FlushCsv() {
   g_csv_path.clear();
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
+  CloseGuestFunctionCsv();
 }
 
 ScopedCounterDuration::ScopedCounterDuration(CounterId id)
@@ -238,6 +407,111 @@ ScopedCounterDuration::ScopedCounterDuration(CounterId id)
 
 ScopedCounterDuration::~ScopedCounterDuration() {
   AddCounterDurationSince(id_, start_tick_);
+}
+
+void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
+                                uint64_t exclusive_us) {
+  std::lock_guard lock(g_guest_function_profile_mutex);
+  auto& entry = g_guest_function_profile[address];
+  if (entry.symbol.empty() && symbol) {
+    entry.symbol = symbol;
+  }
+  ++entry.calls;
+  entry.inclusive_us += inclusive_us;
+  entry.exclusive_us += exclusive_us;
+}
+
+std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
+                                                                    uint64_t min_exclusive_us) {
+  std::vector<GuestFunctionProfileEntry> entries;
+  {
+    std::lock_guard lock(g_guest_function_profile_mutex);
+    entries.reserve(g_guest_function_profile.size());
+    for (const auto& [address, totals] : g_guest_function_profile) {
+      if (totals.exclusive_us < min_exclusive_us) {
+        continue;
+      }
+      entries.push_back({
+          .address = address,
+          .symbol = totals.symbol,
+          .calls = totals.calls,
+          .inclusive_us = totals.inclusive_us,
+          .exclusive_us = totals.exclusive_us,
+      });
+    }
+    g_guest_function_profile.clear();
+  }
+
+  std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.exclusive_us != rhs.exclusive_us) {
+      return lhs.exclusive_us > rhs.exclusive_us;
+    }
+    if (lhs.inclusive_us != rhs.inclusive_us) {
+      return lhs.inclusive_us > rhs.inclusive_us;
+    }
+    if (lhs.calls != rhs.calls) {
+      return lhs.calls > rhs.calls;
+    }
+    return lhs.address < rhs.address;
+  });
+  if (entries.size() > max_entries) {
+    entries.resize(max_entries);
+  }
+  return entries;
+}
+
+ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const char* symbol)
+    : address_(address), symbol_(symbol) {
+  if (!g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+  active_ = true;
+  start_tick_ = rex::chrono::Clock::QueryHostTickCount();
+  stack_index_ = g_guest_function_stack.size();
+  stack_token_ = ++g_guest_function_stack_next_token;
+  generation_ = g_guest_function_profile_generation.load(std::memory_order_relaxed);
+  g_guest_function_stack.push_back({
+      .address = address_,
+      .symbol = symbol_,
+      .start_tick = start_tick_,
+      .token = stack_token_,
+  });
+}
+
+ScopedGuestFunctionProfile::~ScopedGuestFunctionProfile() {
+  if (!active_) {
+    return;
+  }
+
+  if (stack_index_ >= g_guest_function_stack.size() ||
+      g_guest_function_stack[stack_index_].token != stack_token_) {
+    auto it = std::find_if(g_guest_function_stack.begin(), g_guest_function_stack.end(),
+                           [token = stack_token_](const GuestFunctionStackEntry& entry) {
+                             return entry.token == token;
+                           });
+    if (it == g_guest_function_stack.end()) {
+      return;
+    }
+    stack_index_ = static_cast<size_t>(std::distance(g_guest_function_stack.begin(), it));
+  }
+
+  const GuestFunctionStackEntry entry = g_guest_function_stack[stack_index_];
+  const uint64_t inclusive_us = DurationUsSince(entry.start_tick);
+  const uint64_t exclusive_us = inclusive_us > entry.child_us ? inclusive_us - entry.child_us : 0;
+
+  if (g_guest_function_stack.size() > stack_index_ + 1) {
+    g_guest_function_stack.resize(stack_index_ + 1);
+  }
+  g_guest_function_stack.pop_back();
+
+  if (!g_guest_function_stack.empty()) {
+    g_guest_function_stack.back().child_us += inclusive_us;
+  }
+
+  if (generation_ == g_guest_function_profile_generation.load(std::memory_order_relaxed) &&
+      g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
+    AddGuestFunctionDurationUs(entry.address, entry.symbol, inclusive_us, exclusive_us);
+  }
 }
 
 }  // namespace rex::perf

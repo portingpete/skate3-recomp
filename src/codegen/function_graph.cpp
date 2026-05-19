@@ -101,6 +101,10 @@ std::string getFunctionCallName(const EmitContext& ctx, uint32_t address) {
   return fmt::format("sub_{:08X}", address);
 }
 
+bool ShouldEmitGuestFunctionProfileScope(const EmitContext& ctx) {
+  return ctx.config.setJmpAddress == 0 && ctx.config.longJmpAddress == 0;
+}
+
 //=============================================================================
 // FunctionNode
 //=============================================================================
@@ -411,6 +415,9 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(out, "// STUB: Function at 0x{:08X} has no discovered code blocks", base());
     emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
     emit_println(out, "\tREX_FUNC_PROLOGUE();");
+    if (ShouldEmitGuestFunctionProfileScope(ctx)) {
+      emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\");", base(), name);
+    }
     emit_println(out, "}}\n");
     return out;
   }
@@ -563,6 +570,9 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
   // Function signature with weak/alias pattern
   emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
   emit_println(out, "\tREX_FUNC_PROLOGUE();");
+  if (ShouldEmitGuestFunctionProfileScope(ctx)) {
+    emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\");", base(), name);
+  }
 
   // --- Second pass: emit instruction code ---
   const JumpTable* activeJt = nullptr;

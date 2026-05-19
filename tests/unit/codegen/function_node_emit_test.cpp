@@ -160,6 +160,59 @@ TEST_CASE("FunctionNode emit starts promoted alternate entries at the entry labe
   CHECK(cpp.find("loc_1080:") != std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit profiles generated guest function addresses",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 4> kReturn = {
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kReturn);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 4, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 4}}, {}, {});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  RequireTokenOrder(cpp, "REX_FUNC_PROLOGUE();",
+                    "\tPROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\");");
+}
+
+TEST_CASE("FunctionNode emit skips guest function profiling around longjmp helpers",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 4> kReturn = {
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kReturn);
+  rex::codegen::RecompilerConfig config;
+  config.setJmpAddress = 0x2000;
+  config.longJmpAddress = 0x3000;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 4, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 4}}, {}, {});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  CHECK(cpp.find("PROFILE_GUEST_FUNCTION_SCOPE(") == std::string::npos);
+}
+
 TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
           "[codegen][FunctionNode]") {
   // 0x4C820421 = bnectrl cr0. The call is conditional and must preserve

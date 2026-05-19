@@ -6,9 +6,11 @@
  * @license     BSD 3-Clause License
  */
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -20,20 +22,35 @@ namespace {
 
 struct PerfCsvTestScope {
   explicit PerfCsvTestScope(std::filesystem::path path)
-      : old_perf_log_csv(rex::cvar::GetFlagByName("perf_log_csv")), csv_path(std::move(path)) {
+      : old_perf_log_csv(rex::cvar::GetFlagByName("perf_log_csv")),
+        old_guest_functions_top_n(rex::cvar::GetFlagByName("perf_guest_functions_top_n")),
+        old_guest_functions_min_exclusive_us(
+            rex::cvar::GetFlagByName("perf_guest_functions_min_exclusive_us")),
+        csv_path(std::move(path)) {
     rex::perf::FlushCsv();
     std::error_code ec;
     std::filesystem::remove(csv_path, ec);
+    std::filesystem::remove(GuestFunctionsCsvPath(), ec);
   }
 
   ~PerfCsvTestScope() {
     rex::perf::FlushCsv();
     rex::cvar::SetFlagByName("perf_log_csv", old_perf_log_csv);
+    rex::cvar::SetFlagByName("perf_guest_functions_top_n", old_guest_functions_top_n);
+    rex::cvar::SetFlagByName("perf_guest_functions_min_exclusive_us",
+                             old_guest_functions_min_exclusive_us);
     std::error_code ec;
     std::filesystem::remove(csv_path, ec);
+    std::filesystem::remove(GuestFunctionsCsvPath(), ec);
+  }
+
+  std::filesystem::path GuestFunctionsCsvPath() const {
+    return std::filesystem::path(csv_path.string() + ".guest_functions.csv");
   }
 
   std::string old_perf_log_csv;
+  std::string old_guest_functions_top_n;
+  std::string old_guest_functions_min_exclusive_us;
   std::filesystem::path csv_path;
 };
 
@@ -176,4 +193,218 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame1_values[submission_wait_us_col] == "0");
   CHECK(frame1_values[present_us_col] == "0");
   CHECK(frame1_values[memexport_readback_us_col] == "0");
+}
+
+TEST_CASE("guest function profile aggregates top exclusive durations", "[perf][counter]") {
+  rex::perf::Init();
+
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 90, 60);
+  rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 400, 20);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 50, 50);
+
+  auto entries =
+      rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/2, /*min_exclusive_us=*/1);
+
+  REQUIRE(entries.size() == 2);
+  CHECK(entries[0].address == 0x82220000);
+  CHECK(entries[0].symbol == "sub_82220000");
+  CHECK(entries[0].calls == 2);
+  CHECK(entries[0].inclusive_us == 190);
+  CHECK(entries[0].exclusive_us == 130);
+
+  CHECK(entries[1].address == 0x82240000);
+  CHECK(entries[1].symbol == "sub_82240000");
+  CHECK(entries[1].calls == 1);
+  CHECK(entries[1].inclusive_us == 50);
+  CHECK(entries[1].exclusive_us == 50);
+
+  CHECK(rex::perf::SnapshotGuestFunctionProfile(
+            /*max_entries=*/8, /*min_exclusive_us=*/0)
+            .empty());
+}
+
+TEST_CASE("guest function scope records nested samples when enabled", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_scope_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "4"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    rex::perf::ScopedGuestFunctionProfile outer(0x82220000, "sub_82220000");
+    {
+      rex::perf::ScopedGuestFunctionProfile inner(0x82230000, "sub_82230000");
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  }
+
+  auto entries =
+      rex::perf::SnapshotGuestFunctionProfile(/*max_entries=*/4, /*min_exclusive_us=*/0);
+  REQUIRE(entries.size() == 2);
+
+  const auto find_entry = [&](uint32_t address) -> const rex::perf::GuestFunctionProfileEntry* {
+    for (const auto& entry : entries) {
+      if (entry.address == address) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  };
+
+  const auto* outer = find_entry(0x82220000);
+  const auto* inner = find_entry(0x82230000);
+  REQUIRE(outer != nullptr);
+  REQUIRE(inner != nullptr);
+  CHECK(outer->symbol == "sub_82220000");
+  CHECK(inner->symbol == "sub_82230000");
+  CHECK(outer->calls == 1);
+  CHECK(inner->calls == 1);
+  CHECK(outer->inclusive_us >= outer->exclusive_us);
+  CHECK(outer->inclusive_us > outer->exclusive_us);
+  CHECK(inner->inclusive_us >= inner->exclusive_us);
+}
+
+TEST_CASE("guest function scope is inert by default", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_default_off_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    rex::perf::ScopedGuestFunctionProfile guest(0x82220000, "sub_82220000");
+  }
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  CHECK_FALSE(std::filesystem::exists(scope.GuestFunctionsCsvPath()));
+  CHECK(rex::perf::SnapshotGuestFunctionProfile(
+            /*max_entries=*/4, /*min_exclusive_us=*/0)
+            .empty());
+}
+
+TEST_CASE("guest function scope drops live samples when csv closes", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_live_close_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "4"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  {
+    rex::perf::ScopedGuestFunctionProfile guest(0x82220000, "sub_82220000");
+    rex::perf::FlushCsv();
+  }
+
+  CHECK(rex::perf::SnapshotGuestFunctionProfile(
+            /*max_entries=*/4, /*min_exclusive_us=*/0)
+            .empty());
+}
+
+TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_function_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "2"));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_min_exclusive_us", "25"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+  rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 200, 20);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 80, 60);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  std::ifstream guest_csv(scope.GuestFunctionsCsvPath());
+  REQUIRE(guest_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  std::string rank1;
+  REQUIRE(std::getline(guest_csv, header));
+  REQUIRE(std::getline(guest_csv, rank0));
+  REQUIRE(std::getline(guest_csv, rank1));
+
+  CHECK(header == "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us");
+
+  auto rank0_values = SplitCsvRow(rank0);
+  auto rank1_values = SplitCsvRow(rank1);
+  REQUIRE(rank0_values.size() == 8);
+  REQUIRE(rank1_values.size() == 8);
+
+  CHECK(rank0_values[0] == "0");
+  CHECK(rank0_values[2] == "1");
+  CHECK(rank0_values[3] == "0x82220000");
+  CHECK(rank0_values[4] == "sub_82220000");
+  CHECK(rank0_values[5] == "1");
+  CHECK(rank0_values[6] == "100");
+  CHECK(rank0_values[7] == "70");
+
+  CHECK(rank1_values[2] == "2");
+  CHECK(rank1_values[3] == "0x82240000");
+  CHECK(rank1_values[7] == "60");
+}
+
+TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_function_toggle_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  CHECK_FALSE(std::filesystem::exists(scope.GuestFunctionsCsvPath()));
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "1"));
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  std::ifstream guest_csv(scope.GuestFunctionsCsvPath());
+  REQUIRE(guest_csv.is_open());
+
+  std::string header;
+  std::string profiled_frame;
+  REQUIRE(std::getline(guest_csv, header));
+  REQUIRE(std::getline(guest_csv, profiled_frame));
+
+  auto values = SplitCsvRow(profiled_frame);
+  REQUIRE(values.size() == 8);
+  CHECK(values[2] == "1");
+  CHECK(values[3] == "0x82220000");
+  CHECK(values[7] == "70");
+}
+
+TEST_CASE("perf_log_csv escapes guest function symbols in sidecar", "[perf][counter]") {
+  auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_guest_function_escape_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "1"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub,quo\"te", 100, 70);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  std::ifstream guest_csv(scope.GuestFunctionsCsvPath());
+  REQUIRE(guest_csv.is_open());
+
+  std::string header;
+  std::string row;
+  REQUIRE(std::getline(guest_csv, header));
+  REQUIRE(std::getline(guest_csv, row));
+
+  CHECK(row.find("0,") == 0);
+  CHECK(row.find(",1,0x82220000,\"sub,quo\"\"te\",1,100,70") != std::string::npos);
 }

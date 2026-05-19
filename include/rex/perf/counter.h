@@ -10,8 +10,10 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #ifdef REXGLUE_ENABLE_PROFILING
 #include <tracy/Tracy.hpp>
@@ -95,6 +97,21 @@ void SetCsvLogPath(const std::string& path);
 void WriteCsvFrame();
 void FlushCsv();
 
+struct GuestFunctionProfileEntry {
+  uint32_t address = 0;
+  std::string symbol;
+  uint64_t calls = 0;
+  uint64_t inclusive_us = 0;
+  uint64_t exclusive_us = 0;
+};
+
+void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
+                                uint64_t exclusive_us);
+
+// Returns the current top entries and clears the frame-local accumulator.
+std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
+                                                                    uint64_t min_exclusive_us);
+
 class ScopedCounterDuration {
  public:
   explicit ScopedCounterDuration(CounterId id);
@@ -106,6 +123,24 @@ class ScopedCounterDuration {
  private:
   CounterId id_;
   uint64_t start_tick_;
+};
+
+class ScopedGuestFunctionProfile {
+ public:
+  ScopedGuestFunctionProfile(uint32_t address, const char* symbol);
+  ~ScopedGuestFunctionProfile();
+
+  ScopedGuestFunctionProfile(const ScopedGuestFunctionProfile&) = delete;
+  ScopedGuestFunctionProfile& operator=(const ScopedGuestFunctionProfile&) = delete;
+
+ private:
+  bool active_ = false;
+  uint32_t address_ = 0;
+  const char* symbol_ = nullptr;
+  uint64_t start_tick_ = 0;
+  size_t stack_index_ = 0;
+  uint64_t stack_token_ = 0;
+  uint64_t generation_ = 0;
 };
 
 // Profiler -- coordinates Tracy frame marks and counter snapshots.
@@ -195,6 +230,9 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK() PERF_counter_inc(kMemexportReadbackFallback)
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE() \
   PERF_counter_duration_scope(kGuestFunctionDispatchUs)
+#define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)                                      \
+  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
+                                                        __LINE__)(address, symbol)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE() PERF_counter_duration_scope(kD3D12SubmissionWaitUs)
 #define PROFILE_D3D12_PRESENT_SCOPE() PERF_counter_duration_scope(kD3D12PresentUs)
 #define PROFILE_MEMEXPORT_READBACK_SCOPE() PERF_counter_duration_scope(kMemexportReadbackUs)
@@ -233,6 +271,7 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FAST()
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK()
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
+#define PROFILE_GUEST_FUNCTION_SCOPE(address, symbol)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
 #define PROFILE_D3D12_PRESENT_SCOPE()
 #define PROFILE_MEMEXPORT_READBACK_SCOPE()
