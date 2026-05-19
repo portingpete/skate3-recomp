@@ -22,6 +22,7 @@
 #include <rex/graphics/d3d12/command_processor.h>
 #include <rex/graphics/d3d12/graphics_system.h>
 #include <rex/graphics/d3d12/shader.h>
+#include <rex/graphics/draw_diagnostics.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
@@ -2301,6 +2302,23 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
 
   ID3D12Device* device = GetD3D12Provider().GetDevice();
   const RegisterFile& regs = *register_file_;
+  auto draw_fail = [&](const char* stage) {
+    auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+    const IssueDrawFailureInfo failure_info{
+        .backend = "D3D12",
+        .stage = stage,
+        .prim_type = uint32_t(primitive_type),
+        .index_count = index_count,
+        .source_select = uint32_t(vgt_draw_initiator.source_select),
+        .major_mode = uint32_t(vgt_draw_initiator.major_mode),
+        .explicit_major = major_mode_explicit,
+        .path_select = uint32_t(regs.Get<reg::VGT_OUTPUT_PATH_CNTL>().path_select),
+        .tess_mode = uint32_t(regs.Get<reg::VGT_HOS_CNTL>().tess_mode),
+        .edram_mode = uint32_t(regs.Get<reg::RB_MODECONTROL>().edram_mode),
+    };
+    REXGPU_ERROR("{}", FormatIssueDrawFailure(failure_info));
+    return false;
+  };
 
   xenos::EdramMode edram_mode = regs.Get<reg::RB_MODECONTROL>().edram_mode;
   if (edram_mode == xenos::EdramMode::kCopy) {
@@ -2314,7 +2332,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   auto vertex_shader = static_cast<D3D12Shader*>(active_vertex_shader());
   if (!vertex_shader) {
     // Always need a vertex shader.
-    return false;
+    return draw_fail("missing_vertex_shader");
   }
   pipeline_cache_->AnalyzeShaderUcode(*vertex_shader);
   bool memexport_used_vertex = vertex_shader->memexport_eM_written() != 0;
@@ -2352,13 +2370,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   bool memexport_used = memexport_used_vertex || memexport_used_pixel;
 
   if (!BeginSubmission(true)) {
-    return false;
+    return draw_fail("begin_submission");
   }
 
   // Process primitives.
   PrimitiveProcessor::ProcessingResult primitive_processing_result;
   if (!primitive_processor_->Process(primitive_processing_result)) {
-    return false;
+    return draw_fail("primitive_processing");
   }
   if (!primitive_processing_result.host_draw_vertex_count) {
     // Nothing to draw.
@@ -2390,7 +2408,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
                    : 0;
   if (!render_target_cache_->Update(is_rasterization_done, normalized_depth_control,
                                     normalized_color_mask, *vertex_shader)) {
-    return false;
+    return draw_fail("render_target_update");
   }
 
   // Create the pipeline (for this, need the actually used render target formats
@@ -2420,7 +2438,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
           vertex_shader_translation, pixel_shader_translation, primitive_processing_result,
           normalized_depth_control, normalized_color_mask, bound_depth_and_color_render_target_bits,
           bound_depth_and_color_render_target_formats, &pipeline_handle, &root_signature)) {
-    return false;
+    return draw_fail("configure_pipeline");
   }
   if (REXCVAR_GET(async_shader_compilation)) {
     const pipeline_util::PipelineCreationStatus pipeline_status =
@@ -2504,7 +2522,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
 
   // Update constant buffers, descriptors and root parameters.
   if (!UpdateBindings(vertex_shader, pixel_shader, root_signature, memexport_used)) {
-    return false;
+    return draw_fail("update_bindings");
   }
   // Must not call anything that can change the descriptor heap from now on!
 
@@ -2683,7 +2701,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
           scratch_index_buffer = RequestScratchGPUBuffer(index_buffer_view.SizeInBytes,
                                                          D3D12_RESOURCE_STATE_COPY_DEST);
           if (scratch_index_buffer == nullptr) {
-            return false;
+            return draw_fail("guest_dma_index_scratch_buffer");
           }
           shared_memory_->UseAsCopySource();
           SubmitBarriers();
@@ -2709,7 +2727,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
         break;
       default:
         assert_unhandled_case(primitive_processing_result.index_buffer_type);
-        return false;
+        return draw_fail("unexpected_index_buffer_type");
     }
     deferred_command_list_.D3DIASetIndexBuffer(&index_buffer_view);
     if (memexport_used) {

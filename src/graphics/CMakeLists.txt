@@ -16,6 +16,7 @@ set(REXGRAPHICS_CORE_SOURCES
 
 # GPU system files - full backend
 set(REXGRAPHICS_SYSTEM_SOURCES
+    draw_diagnostics.cpp
     graphics_system.cpp
     command_processor.cpp
     trace_writer.cpp
@@ -148,4 +149,3 @@ if(REXGLUE_USE_D3D12)
     )
     target_compile_definitions(rexgraphics PUBLIC REX_HAS_D3D12=1)
 endif()
-
