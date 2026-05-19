@@ -618,13 +618,13 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
   REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_min_exclusive_us", "25"));
 
   rex::perf::ConfigureCsvLogPathFromCvar();
-  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 10, 4);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 10, 4, 32);
   rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 200, 20);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
-  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 80, 50, 5, 4);
-  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 90, 60, 0, 3);
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 80, 50, 5, 4, 64);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 90, 60, 0, 3, 32);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
   rex::perf::FlushCsv();
@@ -641,12 +641,13 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions");
+        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
+        "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 10);
-  REQUIRE(rank1_values.size() == 10);
+  REQUIRE(rank0_values.size() == 12);
+  REQUIRE(rank1_values.size() == 12);
 
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
@@ -657,7 +658,9 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
   CHECK(rank0_values[6] == "15");
   CHECK(rank0_values[7] == "105");
   CHECK(rank0_values[8] == "4");
-  CHECK(rank0_values[9] == "0");
+  CHECK(rank0_values[9] == "96");
+  CHECK(rank0_values[10] == "52.500");
+  CHECK(rank0_values[11] == "48.000");
 
   CHECK(rank1_values[0] == "2");
   CHECK(rank1_values[1] == "0x82240000");
@@ -668,7 +671,9 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
   CHECK(rank1_values[6] == "0");
   CHECK(rank1_values[7] == "60");
   CHECK(rank1_values[8] == "3");
-  CHECK(rank1_values[9] == "0");
+  CHECK(rank1_values[9] == "32");
+  CHECK(rank1_values[10] == "60.000");
+  CHECK(rank1_values[11] == "32.000");
 }
 
 TEST_CASE("perf_log_csv writes guest function summary beside previous csv when disabled",
@@ -703,16 +708,19 @@ TEST_CASE("perf_log_csv writes guest function summary beside previous csv when d
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions");
+        "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
+        "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call");
 
   auto rank0_values = SplitCsvRow(rank0);
-  REQUIRE(rank0_values.size() == 10);
+  REQUIRE(rank0_values.size() == 12);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[3] == "1");
   CHECK(rank0_values[5] == "70");
   CHECK(rank0_values[7] == "70");
   CHECK(rank0_values[9] == "0");
+  CHECK(rank0_values[10] == "70.000");
+  CHECK(rank0_values[11] == "0.000");
 
   std::filesystem::remove(cwd_summary_path, ec);
 }
@@ -742,7 +750,7 @@ TEST_CASE("perf_log_csv refreshes guest function summary during periodic flush",
   REQUIRE(std::getline(summary_csv, rank0));
 
   auto rank0_values = SplitCsvRow(rank0);
-  REQUIRE(rank0_values.size() == 10);
+  REQUIRE(rank0_values.size() == 12);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[3] == "60");
@@ -750,6 +758,8 @@ TEST_CASE("perf_log_csv refreshes guest function summary during periodic flush",
   CHECK(rank0_values[5] == "4200");
   CHECK(rank0_values[7] == "4200");
   CHECK(rank0_values[9] == "0");
+  CHECK(rank0_values[10] == "70.000");
+  CHECK(rank0_values[11] == "0.000");
 }
 
 TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {

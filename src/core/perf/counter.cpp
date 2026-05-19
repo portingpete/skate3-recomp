@@ -256,6 +256,17 @@ std::string BuildGuestIndirectCallCsvPath(const std::string& path) {
   return path + ".guest_indirect_targets.csv";
 }
 
+std::string FormatPerCallMetric(uint64_t total, uint64_t calls) {
+  if (calls == 0) {
+    return "0.000";
+  }
+
+  char buffer[64] = {};
+  std::snprintf(buffer, sizeof(buffer), "%.3f",
+                static_cast<double>(total) / static_cast<double>(calls));
+  return buffer;
+}
+
 void WriteCsvCell(std::FILE* file, std::string_view value) {
   const bool needs_quotes = value.find_first_of(",\"\r\n") != std::string_view::npos;
   if (!needs_quotes) {
@@ -356,21 +367,28 @@ void WriteGuestFunctionSummaryCsv() {
   }
 
   std::fputs("rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-             "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions\n",
+             "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
+             "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call\n",
              summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
     std::fprintf(summary_file, "%llu,0x%08X,",
                  static_cast<unsigned long long>(i + 1), entry.address);
     WriteCsvCell(summary_file, entry.symbol);
-    std::fprintf(summary_file, ",%llu,%llu,%llu,%llu,%llu,%u,%llu\n",
+    const std::string active_us_per_call =
+        FormatPerCallMetric(entry.active_exclusive_us, entry.calls);
+    const std::string spin_hints_per_call =
+        FormatPerCallMetric(entry.dynamic_spin_hint_executions, entry.calls);
+    std::fprintf(summary_file, ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
                  static_cast<unsigned long long>(entry.exclusive_us),
                  static_cast<unsigned long long>(entry.blocking_wait_us),
                  static_cast<unsigned long long>(entry.active_exclusive_us),
                  entry.static_spin_hint_sites,
-                 static_cast<unsigned long long>(entry.dynamic_spin_hint_executions));
+                 static_cast<unsigned long long>(entry.dynamic_spin_hint_executions),
+                 active_us_per_call.c_str(),
+                 spin_hints_per_call.c_str());
   }
 
   std::fflush(summary_file);
