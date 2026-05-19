@@ -131,6 +131,9 @@ std::string ReXApp::BuildGameDataRootNotFoundMessage(
         "\n\nThe value shown above looks like an option value. Check for a boolean flag with an "
         "extra value, or put the game-data folder after all options.";
   }
+  if (argument == "--user-root") {
+    message += "\n\nDid you mean --user-data-root?";
+  }
 
   return message;
 }

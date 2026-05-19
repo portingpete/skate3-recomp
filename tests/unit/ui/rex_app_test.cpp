@@ -157,6 +157,11 @@ TEST_CASE("ReXApp game data root errors explain expected launch argument",
       TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("--log_level"));
   CHECK(option_name.find("Game data root does not exist: --log_level") != std::string::npos);
   CHECK(option_name.find("looks like an option value") != std::string::npos);
+
+  auto user_root_alias =
+      TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("--user-root"));
+  CHECK(user_root_alias.find("Game data root does not exist: --user-root") != std::string::npos);
+  CHECK(user_root_alias.find("Did you mean --user-data-root?") != std::string::npos);
 }
 
 TEST_CASE("ReXApp startup identity lines include host build and executable path",
