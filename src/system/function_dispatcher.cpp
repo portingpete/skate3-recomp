@@ -25,11 +25,21 @@
 
 namespace rex::runtime {
 
+namespace detail {
+
+std::atomic<uint64_t> g_indirect_dispatch_generation{1};
+
+}  // namespace detail
+
 namespace {
 
 FunctionDispatcher* GetBoundFunctionDispatcher() {
   Runtime* runtime = Runtime::instance();
   return runtime ? runtime->function_dispatcher() : nullptr;
+}
+
+void BumpIndirectDispatchGeneration() noexcept {
+  detail::g_indirect_dispatch_generation.fetch_add(1, std::memory_order_acq_rel);
 }
 
 }  // namespace
@@ -261,6 +271,7 @@ bool FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
   if (recording_) {
     recording_addresses_.push_back(guest_address);
   }
+  BumpIndirectDispatchGeneration();
   return true;
 }
 
@@ -384,6 +395,7 @@ std::optional<std::pair<uint32_t, uint32_t>> FunctionDispatcher::UnregisterModul
   }
 
   module_addresses_.erase(it);
+  BumpIndirectDispatchGeneration();
 
   return cleared_range;
 }

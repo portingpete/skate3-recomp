@@ -1,9 +1,14 @@
 #include <rex/perf/counter.h>
+#include <rex/ppc/context.h>
 #include <rex/cvar.h>
 
 #include <filesystem>
 
 int main() {
+  if (rex::runtime::IndirectDispatchGeneration() == 0) {
+    return 10;
+  }
+
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
   const auto csv_path =
       std::filesystem::temp_directory_path() / "rex_perf_sdk_import_smoke.csv";

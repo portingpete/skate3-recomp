@@ -42,6 +42,23 @@ struct PPCContext;
 using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 
 namespace rex::runtime {
+
+#if defined(_WIN32) && defined(REX_RUNTIME_DLL_IMPORT)
+#define REX_RUNTIME_DATA __declspec(dllimport)
+#else
+#define REX_RUNTIME_DATA
+#endif
+
+namespace detail {
+extern REX_RUNTIME_DATA std::atomic<uint64_t> g_indirect_dispatch_generation;
+}  // namespace detail
+
+#undef REX_RUNTIME_DATA
+
+inline uint64_t IndirectDispatchGeneration() noexcept {
+  return detail::g_indirect_dispatch_generation.load(std::memory_order_acquire);
+}
+
 PPCFunc* ResolveIndirectFunction(uint32_t guest_address);
 }  // namespace rex::runtime
 

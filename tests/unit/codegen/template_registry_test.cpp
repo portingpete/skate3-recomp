@@ -402,14 +402,22 @@ TEST_CASE("TemplateRegistry: indirect-call macro keeps legacy wrapper single-eva
   CHECK(CountOccurrences(at_macro, "(uint32_t)(x)") == 1);
   CHECK(result.find("struct IndirectCallResolution") != std::string::npos);
   CHECK(result.find("REX_GENERATED_FORCE_INLINE") != std::string::npos);
+  CHECK(result.find("struct IndirectCallCache") != std::string::npos);
+  CHECK(result.find("rex::runtime::IndirectDispatchGeneration()") != std::string::npos);
+  CHECK(result.find("thread_local rex::generated::IndirectCallCache") != std::string::npos);
+  CHECK(result.find("__COUNTER__") != std::string::npos);
   CHECK(result.find("ResolveIndirectCallTarget(") != std::string::npos);
   CHECK(result.find("PPCContext& ctx") != std::string::npos);
   CHECK(result.find("uint8_t* base") != std::string::npos);
-  CHECK(result.find("uint32_t target)") != std::string::npos);
+  CHECK(result.find("uint32_t target, IndirectCallCache& cache)") != std::string::npos);
+  CHECK(result.find("cache.generation == generation") != std::string::npos);
+  CHECK(result.find("cache.target == target") != std::string::npos);
+  CHECK(result.find("if (result.fast_path_hit)") != std::string::npos);
   CHECK(result.find("const uint32_t offset = static_cast<uint32_t>(target - REX_CODE_BASE);") !=
         std::string::npos);
-  CHECK(at_macro.find("rex::generated::ResolveIndirectCallTarget(ctx, base, "
-                      "rex_indirect_target_)") != std::string::npos);
+  CHECK(at_macro.find("rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_,") !=
+        std::string::npos);
+  CHECK(at_macro.find("REX_JOIN(rex_indirect_cache_, cache_id)") != std::string::npos);
   CHECK(at_macro.find("const uint32_t rex_indirect_offset_") == std::string::npos);
   CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_target_)") == std::string::npos);
   CHECK(at_macro.find("ResolveIndirectFunction(rex_indirect_target_)") == std::string::npos);

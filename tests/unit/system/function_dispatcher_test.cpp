@@ -107,6 +107,53 @@ TEST_CASE("FunctionDispatcher: AllocateThunk rejects caller_address outside any 
   CHECK(thunk == 0);
 }
 
+TEST_CASE("FunctionDispatcher: indirect dispatch generation tracks mapping changes",
+          "[runtime][dispatcher]") {
+  auto& memory = GetTestMemory();
+  rex::runtime::ExportResolver resolver;
+  rex::runtime::FunctionDispatcher dispatcher(&memory, &resolver);
+
+  constexpr uint32_t kModA = 0x87000000u;
+  constexpr uint32_t kModB = 0x87200000u;
+  constexpr uint32_t kCodeSize = 0x10000u;
+  constexpr uint32_t kImageSize = 0x100000u;
+
+  const uint64_t before_init = rex::runtime::IndirectDispatchGeneration();
+  REQUIRE(dispatcher.InitializeFunctionTable(kModA, kCodeSize, kModA, kImageSize));
+  CHECK(rex::runtime::IndirectDispatchGeneration() == before_init);
+
+  CHECK_FALSE(dispatcher.SetFunction(0xDEADBEEFu, &DummyFn));
+  CHECK(rex::runtime::IndirectDispatchGeneration() == before_init);
+
+  REQUIRE(dispatcher.SetFunction(kModA + 0x10, &DummyFn));
+  const uint64_t after_set = rex::runtime::IndirectDispatchGeneration();
+  CHECK(after_set > before_init);
+
+  CHECK(dispatcher.AllocateThunk(&DummyFn, 0xDEADBEEFu) == 0);
+  CHECK(rex::runtime::IndirectDispatchGeneration() == after_set);
+
+  const uint32_t thunk = dispatcher.AllocateThunk(&DummyFn, kModA + 0x100);
+  REQUIRE(thunk != 0);
+  const uint64_t after_thunk = rex::runtime::IndirectDispatchGeneration();
+  CHECK(after_thunk > after_set);
+
+  REQUIRE(dispatcher.InitializeFunctionTable(kModB, kCodeSize, kModB, kImageSize));
+  CHECK(rex::runtime::IndirectDispatchGeneration() == after_thunk);
+
+  dispatcher.RegisterModule("modGeneration", kModB, [](rex::runtime::IModuleRegistrar* registrar) {
+    registrar->SetFunction(0x87200020u, &DummyFn);
+  });
+  const uint64_t after_register = rex::runtime::IndirectDispatchGeneration();
+  CHECK(after_register > after_thunk);
+
+  CHECK_FALSE(dispatcher.UnregisterModule("missingGeneration").has_value());
+  CHECK(rex::runtime::IndirectDispatchGeneration() == after_register);
+
+  auto cleared = dispatcher.UnregisterModule("modGeneration");
+  REQUIRE(cleared.has_value());
+  CHECK(rex::runtime::IndirectDispatchGeneration() > after_register);
+}
+
 namespace {
 constexpr uint32_t kRegisterModBase = 0x85000000u;
 void RegisterOne(rex::runtime::IModuleRegistrar* registrar) {

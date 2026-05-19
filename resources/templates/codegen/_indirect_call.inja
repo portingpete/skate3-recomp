@@ -49,8 +49,20 @@ struct IndirectCallResolution {
   bool fast_path_hit = false;
 };
 
+struct IndirectCallCache {
+  uint64_t generation = 0;
+  uint32_t target = 0;
+  PPCFunc* func = nullptr;
+  bool fast_path_hit = false;
+};
+
 static REX_GENERATED_FORCE_INLINE IndirectCallResolution ResolveIndirectCallTarget(
-    PPCContext& ctx, uint8_t* base, uint32_t target) {
+    PPCContext& ctx, uint8_t* base, uint32_t target, IndirectCallCache& cache) {
+  const uint64_t generation = rex::runtime::IndirectDispatchGeneration();
+  if (cache.generation == generation && cache.target == target && cache.func) [[likely]] {
+    return {.func = cache.func, .fast_path_hit = cache.fast_path_hit};
+  }
+
   IndirectCallResolution result;
   const uint32_t offset = static_cast<uint32_t>(target - REX_CODE_BASE);
   if (offset < REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {
@@ -62,6 +74,14 @@ static REX_GENERATED_FORCE_INLINE IndirectCallResolution ResolveIndirectCallTarg
     ctx.last_indirect_target = target;
     result.func = rex::runtime::ResolveIndirectFunction(target);
   }
+  if (result.fast_path_hit) {
+    cache = {
+        .generation = generation,
+        .target = target,
+        .func = result.func,
+        .fast_path_hit = true,
+    };
+  }
   return result;
 }
 
@@ -69,12 +89,21 @@ static REX_GENERATED_FORCE_INLINE IndirectCallResolution ResolveIndirectCallTarg
 
 #undef REX_GENERATED_FORCE_INLINE
 
-#define REX_CALL_INDIRECT_FUNC_AT(source_address, source_symbol, call_site, x)              \
+#define REX_CALL_INDIRECT_FUNC_AT(source_address, source_symbol, call_site, x) \
+  REX_CALL_INDIRECT_FUNC_AT_IMPL(__COUNTER__, source_address, source_symbol, call_site, x)
+
+#define REX_CALL_INDIRECT_FUNC_AT_IMPL(cache_id, source_address, source_symbol, call_site, x) \
+  REX_CALL_INDIRECT_FUNC_AT_IMPL2(cache_id, source_address, source_symbol, call_site, x)
+
+#define REX_CALL_INDIRECT_FUNC_AT_IMPL2(cache_id, source_address, source_symbol, call_site, x) \
   do {                                                                                     \
     REX_PROFILE_INDIRECT_DISPATCH();                                                       \
+    static thread_local rex::generated::IndirectCallCache REX_JOIN(rex_indirect_cache_,    \
+                                                                   cache_id);              \
     uint32_t rex_indirect_target_ = (uint32_t)(x);                                         \
     const auto rex_indirect_call_ =                                                         \
-        rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_);         \
+        rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_,          \
+                                                  REX_JOIN(rex_indirect_cache_, cache_id)); \
     REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
                                            rex_indirect_target_,                           \
                                            rex_indirect_call_.fast_path_hit);               \
