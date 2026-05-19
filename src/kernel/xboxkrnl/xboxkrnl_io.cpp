@@ -260,6 +260,7 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
       (uint32_t)buffer_length, byte_offset_ptr ? (int64_t)byte_offset : -1);
   X_STATUS result = X_STATUS_SUCCESS;
   bool apc_queued = false;
+  uint32_t bytes_read = 0;
 
   bool signal_event = false;
   auto ev = REX_KERNEL_OBJECTS()->LookupObject<XEvent>(event_handle);
@@ -275,7 +276,6 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
   if (XSUCCEEDED(result)) {
     if (true || file->is_synchronous()) {
       // Synchronous.
-      uint32_t bytes_read = 0;
       result = file->Read(buffer.guest_address(), buffer_length,
                           byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : -1,
                           &bytes_read, apc_context.guest_address());
@@ -346,9 +346,10 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
   if (file) {
     REXKRNL_IMPORT_RESULT(
         "NtReadFile",
-        "{:#x} (sync={}, iosb_status={:#x}, iosb_info={}, ev_signaled={}, apc_requested={}, "
-        "apc_queued={})",
-        result, file->is_synchronous(),
+        "{:#x} path='{}' len={:#x} offset={} bytes={} (sync={}, iosb_status={:#x}, "
+        "iosb_info={}, ev_signaled={}, apc_requested={}, apc_queued={})",
+        result, file->path(), (uint32_t)buffer_length,
+        byte_offset_ptr ? (int64_t)byte_offset : -1, bytes_read, file->is_synchronous(),
         io_status_block ? (uint32_t)io_status_block->status : 0xDEAD,
         io_status_block ? (uint32_t)io_status_block->information : 0, ev && signal_event,
         apc_requested, apc_queued);

@@ -32,6 +32,10 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
                        ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
                        mapped_u64 allocation_size_ptr, u32 file_attributes, u32 share_access,
                        u32 creation_disposition, u32 create_options);
+u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_ptr,
+                     mapped_void apc_context,
+                     ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+                     mapped_void buffer, u32 buffer_length, mapped_u64 byte_offset_ptr);
 u32 NtQueryFullAttributesFile_entry(
     ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> object_attrs,
     ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION> file_info);
@@ -114,6 +118,14 @@ bool IsOptionalStorageRootProbeLog(std::string_view text) {
                      });
 }
 
+bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
+  return text.find("NtReadFile") != std::string_view::npos &&
+         text.find("GenericVS.xvu") != std::string_view::npos &&
+         text.find("len=0") != std::string_view::npos &&
+         text.find("bytes=0") != std::string_view::npos &&
+         text.find("0x0") != std::string_view::npos;
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -129,6 +141,75 @@ u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   return string_guest;
 }
 }  // namespace
+
+TEST_CASE("NtReadFile noisy result logs path and byte counts for zero-length reads",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_ntreadfile_zero_length_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "shaders");
+  {
+    std::ofstream file(root / "shaders" / "GenericVS.xvu", std::ios::binary);
+    REQUIRE(file.good());
+  }
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+
+  const bool old_noisy = REXCVAR_GET(log_noisy);
+  REXCVAR_SET(log_noisy, true);
+
+  auto krnl_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), krnl_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "game:\\shaders\\GenericVS.xvu");
+
+  rex::system::X_OBJECT_ATTRIBUTES attrs{};
+  attrs.root_directory = 0;
+  attrs.name_ptr = path_guest;
+  attrs.attributes = 0x40;
+
+  rex::system::X_IO_STATUS_BLOCK create_iosb{};
+  rex::be_u32 handle = X_INVALID_HANDLE_VALUE;
+  REQUIRE(rex::kernel::xboxkrnl::NtCreateFile_entry(
+              mapped_u32(&handle, 0x40001000), rex::filesystem::FileAccess::kGenericRead,
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&create_iosb, 0x40003000),
+              mapped_u64(nullptr), rex::system::X_FILE_ATTRIBUTE_NORMAL, 1,
+              static_cast<u32>(rex::filesystem::FileDisposition::kOpen), 0x20u) ==
+          X_STATUS_SUCCESS);
+
+  rex::system::X_IO_STATUS_BLOCK read_iosb{};
+  CHECK(rex::kernel::xboxkrnl::NtReadFile_entry(
+            static_cast<u32>(handle), 0, mapped_void(nullptr), mapped_void(nullptr),
+            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&read_iosb, 0x40004000),
+            mapped_void(nullptr, 0x40005000), 0, mapped_u64(nullptr)) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(read_iosb.status) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(read_iosb.information) == 0);
+
+  std::vector<rex::LogEntry> krnl_entries;
+  krnl_sink->CopyEntries(krnl_entries);
+  rex::RemoveSink(rex::log::krnl(), krnl_sink);
+  REXCVAR_SET(log_noisy, old_noisy);
+
+  const auto read_result_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::trace && IsNtReadFileZeroLengthShaderLog(entry.text);
+      });
+  CHECK(read_result_count == 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
 
 TEST_CASE("Shader dump backend probes miss devices without warning",
           "[runtime][kernel][xboxkrnl][io]") {
