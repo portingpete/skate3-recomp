@@ -53,6 +53,20 @@ using namespace rex::literals;
 
 uint32_t next_xthread_id_ = 0;
 
+std::string DescribeGuestThreadStart(uint32_t entry_address, uint32_t start_address,
+                                     uint32_t start_context, uint32_t xapi_thread_startup) {
+  const auto describe = [](uint32_t address) {
+    return fmt::format("0x{:08X} (sub_{:08X})", address, address);
+  };
+
+  if (xapi_thread_startup != 0) {
+    return fmt::format("entry={}, start={}, context=0x{:08X}", describe(entry_address),
+                       describe(start_address), start_context);
+  }
+
+  return fmt::format("entry={}, context=0x{:08X}", describe(entry_address), start_context);
+}
+
 namespace {
 
 struct GuestThreadEntryResult {
@@ -675,9 +689,13 @@ void XThread::Execute() {
   REXSYS_NOISY_DEBUG("XThread::Execute - Calling function at {:08X}", address);
   const auto entry_result = RunGuestThreadEntry(func, ctx, base);
   if (!entry_result.completed) {
-    REXSYS_WARN("XThread::Execute - guest exception escaped thread boundary "
-                "(thid={}, code=0x{:08X}, address=0x{:08X})",
-                thread_id_, entry_result.exception_code,
+    const auto thread_start =
+        DescribeGuestThreadStart(address, creation_params_.start_address,
+                                 creation_params_.start_context,
+                                 creation_params_.xapi_thread_startup);
+    REXSYS_WARN("XThread::Execute - unhandled guest exception terminated thread "
+                "(thid={}, {}, code=0x{:08X}, fault=0x{:08X})",
+                thread_id_, thread_start, entry_result.exception_code,
                 static_cast<uint32_t>(entry_result.exception_address));
     Exit(entry_result.exit_code);
     return;

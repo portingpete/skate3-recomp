@@ -47,6 +47,7 @@ add_executable(unit_tests
     ppc/stack_test.cpp
     system/guest_path_test.cpp
     system/function_dispatcher_test.cpp
+    system/xthread_test.cpp
     codegen/manifest_test.cpp
     rexglue/codegen_command_test.cpp
     rexglue/init_command_test.cpp

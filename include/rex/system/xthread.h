@@ -68,6 +68,9 @@ constexpr uint32_t X_CREATE_SUSPENDED = 0x00000001;
 
 constexpr uint32_t X_TLS_OUT_OF_INDEXES = UINT32_MAX;
 
+std::string DescribeGuestThreadStart(uint32_t entry_address, uint32_t start_address,
+                                     uint32_t start_context, uint32_t xapi_thread_startup);
+
 struct XDPC {
   rex::be<uint16_t> type;
   uint8_t selected_cpu_number;
