@@ -126,6 +126,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12SubmissionWaitUs, 13);
   rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentUs, 14);
   rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackUs, 15);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kAudioSilenceFrames, 3);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
@@ -174,6 +175,8 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   const size_t present_us_col = CsvColumnIndex(header_values, "d3d12_present_us");
   const size_t memexport_readback_us_col =
       CsvColumnIndex(header_values, "memexport_readback_us");
+  const size_t audio_silence_frames_col =
+      CsvColumnIndex(header_values, "audio_silence_frames");
   REQUIRE(skipped_draws_col != std::string::npos);
   REQUIRE(pending_draws_col != std::string::npos);
   REQUIRE(failed_draws_col != std::string::npos);
@@ -187,6 +190,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   REQUIRE(submission_wait_us_col != std::string::npos);
   REQUIRE(present_us_col != std::string::npos);
   REQUIRE(memexport_readback_us_col != std::string::npos);
+  REQUIRE(audio_silence_frames_col != std::string::npos);
 
   CHECK(frame0_values[0] == "0");
   CHECK(frame0_values[2] == "16666");
@@ -204,6 +208,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame0_values[submission_wait_us_col] == "13");
   CHECK(frame0_values[present_us_col] == "14");
   CHECK(frame0_values[memexport_readback_us_col] == "15");
+  CHECK(frame0_values[audio_silence_frames_col] == "3");
 
   CHECK(frame1_values[0] == "1");
   CHECK(std::stoull(frame1_values[1]) >= std::stoull(frame0_values[1]));
@@ -222,6 +227,7 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame1_values[submission_wait_us_col] == "0");
   CHECK(frame1_values[present_us_col] == "0");
   CHECK(frame1_values[memexport_readback_us_col] == "0");
+  CHECK(frame1_values[audio_silence_frames_col] == "0");
 }
 
 TEST_CASE("guest function profile aggregates top active exclusive durations", "[perf][counter]") {

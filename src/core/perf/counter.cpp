@@ -72,6 +72,7 @@ constexpr const char* kCounterNames[] = {
     "memexport_readback_us",
     "xma_frames_decoded",
     "audio_frame_latency_us",
+    "audio_silence_frames",
     "buffer_queue_depth",
     "functions_dispatched",
     "interrupt_dispatches",
@@ -108,6 +109,7 @@ constexpr bool kIsGauge[] = {
     false,  // kMemexportReadbackUs
     false,  // kXmaFramesDecoded
     false,  // kAudioFrameLatencyUs
+    false,  // kAudioSilenceFrames
     false,  // kBufferQueueDepth  (set each frame)
     false,  // kFunctionsDispatched
     false,  // kInterruptDispatches

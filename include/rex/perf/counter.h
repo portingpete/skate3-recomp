@@ -69,6 +69,7 @@ enum class CounterId : uint16_t {
   // Audio
   kXmaFramesDecoded,
   kAudioFrameLatencyUs,
+  kAudioSilenceFrames,
   kBufferQueueDepth,
 
   // Dispatch
@@ -339,6 +340,7 @@ class Profiler {
 #define PROFILE_D3D12_PRESENT_SCOPE() PERF_counter_duration_scope(kD3D12PresentUs)
 #define PROFILE_MEMEXPORT_READBACK_SCOPE() PERF_counter_duration_scope(kMemexportReadbackUs)
 #define PROFILE_AUDIO_LATENCY_US(value) PERF_counter_set(kAudioFrameLatencyUs, value)
+#define PROFILE_AUDIO_SILENCE_FRAME() PERF_counter_inc(kAudioSilenceFrames)
 #define PROFILE_BUFFER_QUEUE_DEPTH(value) PERF_counter_set(kBufferQueueDepth, value)
 #define PROFILE_THREAD_CREATED() PERF_counter_inc(kActiveThreads)
 #define PROFILE_THREAD_EXITED() PERF_counter_add(kActiveThreads, -1)
@@ -384,6 +386,7 @@ class Profiler {
 #define PROFILE_D3D12_PRESENT_SCOPE()
 #define PROFILE_MEMEXPORT_READBACK_SCOPE()
 #define PROFILE_AUDIO_LATENCY_US(value)
+#define PROFILE_AUDIO_SILENCE_FRAME()
 #define PROFILE_BUFFER_QUEUE_DEPTH(value)
 #define PROFILE_THREAD_CREATED()
 #define PROFILE_THREAD_EXITED()
