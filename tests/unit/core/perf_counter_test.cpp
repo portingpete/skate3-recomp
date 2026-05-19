@@ -237,7 +237,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[0].exclusive_us == 50);
   CHECK(entries[0].blocking_wait_us == 0);
   CHECK(entries[0].active_exclusive_us == 50);
-  CHECK(entries[0].spin_hint_sites == 3);
+  CHECK(entries[0].static_spin_hint_sites == 3);
 
   CHECK(entries[1].address == 0x82230000);
   CHECK(entries[1].symbol == "sub_82230000");
@@ -246,7 +246,7 @@ TEST_CASE("guest function profile aggregates top active exclusive durations", "[
   CHECK(entries[1].exclusive_us == 20);
   CHECK(entries[1].blocking_wait_us == 0);
   CHECK(entries[1].active_exclusive_us == 20);
-  CHECK(entries[1].spin_hint_sites == 0);
+  CHECK(entries[1].static_spin_hint_sites == 0);
 
   CHECK(rex::perf::SnapshotGuestFunctionProfile(
             /*max_entries=*/8, /*min_exclusive_us=*/0)
@@ -534,7 +534,7 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-        "blocking_wait_us,active_exclusive_us,spin_hint_sites");
+        "blocking_wait_us,active_exclusive_us,static_spin_hint_sites");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
@@ -594,7 +594,7 @@ TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when ena
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,spin_hint_sites");
+        "active_exclusive_us,static_spin_hint_sites");
 
   auto rank0_values = SplitCsvRow(rank0);
   auto rank1_values = SplitCsvRow(rank1);
@@ -654,7 +654,7 @@ TEST_CASE("perf_log_csv writes guest function summary beside previous csv when d
 
   CHECK(header ==
         "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-        "active_exclusive_us,spin_hint_sites");
+        "active_exclusive_us,static_spin_hint_sites");
 
   auto rank0_values = SplitCsvRow(rank0);
   REQUIRE(rank0_values.size() == 9);

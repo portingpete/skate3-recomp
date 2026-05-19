@@ -106,7 +106,8 @@ struct GuestFunctionProfileEntry {
   uint64_t exclusive_us = 0;
   uint64_t blocking_wait_us = 0;
   uint64_t active_exclusive_us = 0;
-  uint32_t spin_hint_sites = 0;
+  // Static db16cyc/host-pause hint sites in the emitted function, not dynamic executions.
+  uint32_t static_spin_hint_sites = 0;
 };
 
 struct GuestIndirectCallTargetProfileEntry {
@@ -122,7 +123,7 @@ struct GuestIndirectCallTargetProfileEntry {
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
-                                uint32_t spin_hint_sites = 0);
+                                uint32_t static_spin_hint_sites = 0);
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
@@ -152,7 +153,8 @@ class ScopedCounterDuration {
 
 class ScopedGuestFunctionProfile {
  public:
-  ScopedGuestFunctionProfile(uint32_t address, const char* symbol, uint32_t spin_hint_sites = 0);
+  ScopedGuestFunctionProfile(uint32_t address, const char* symbol,
+                             uint32_t static_spin_hint_sites = 0);
   ~ScopedGuestFunctionProfile();
 
   ScopedGuestFunctionProfile(const ScopedGuestFunctionProfile&) = delete;
@@ -166,7 +168,7 @@ class ScopedGuestFunctionProfile {
   size_t stack_index_ = 0;
   uint64_t stack_token_ = 0;
   uint64_t generation_ = 0;
-  uint32_t spin_hint_sites_ = 0;
+  uint32_t static_spin_hint_sites_ = 0;
 };
 
 class ScopedGuestKernelWaitProfile {
@@ -283,10 +285,10 @@ class Profiler {
 #define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                  \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol)
-#define REX_PERF_GUEST_FUNCTION_SCOPE_3(address, symbol, spin_hint_sites)                 \
+#define REX_PERF_GUEST_FUNCTION_SCOPE_3(address, symbol, static_spin_hint_sites)          \
   rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
                                                         __LINE__)(address, symbol,          \
-                                                                  spin_hint_sites)
+                                                                  static_spin_hint_sites)
 #define REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(_1, _2, _3, NAME, ...) NAME
 #define PROFILE_GUEST_FUNCTION_SCOPE(...)                                                 \
   REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(__VA_ARGS__, REX_PERF_GUEST_FUNCTION_SCOPE_3,       \

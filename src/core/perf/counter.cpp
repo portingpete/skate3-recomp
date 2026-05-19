@@ -128,7 +128,7 @@ struct GuestFunctionProfileTotals {
   uint64_t inclusive_us = 0;
   uint64_t exclusive_us = 0;
   uint64_t blocking_wait_us = 0;
-  uint32_t spin_hint_sites = 0;
+  uint32_t static_spin_hint_sites = 0;
 };
 
 struct GuestFunctionStackEntry {
@@ -138,7 +138,7 @@ struct GuestFunctionStackEntry {
   uint64_t child_us = 0;
   uint64_t blocking_wait_us = 0;
   uint64_t token = 0;
-  uint32_t spin_hint_sites = 0;
+  uint32_t static_spin_hint_sites = 0;
 };
 
 struct GuestIndirectCallTargetKey {
@@ -271,12 +271,12 @@ void WriteCsvCell(std::FILE* file, std::string_view value) {
 void AddGuestFunctionDurationUsLocked(std::unordered_map<uint32_t, GuestFunctionProfileTotals>& map,
                                       uint32_t address, const char* symbol, uint64_t inclusive_us,
                                       uint64_t exclusive_us, uint64_t blocking_wait_us,
-                                      uint32_t spin_hint_sites) {
+                                      uint32_t static_spin_hint_sites) {
   auto& entry = map[address];
   if (entry.symbol.empty() && symbol) {
     entry.symbol = symbol;
   }
-  entry.spin_hint_sites = std::max(entry.spin_hint_sites, spin_hint_sites);
+  entry.static_spin_hint_sites = std::max(entry.static_spin_hint_sites, static_spin_hint_sites);
   ++entry.calls;
   entry.inclusive_us += inclusive_us;
   entry.exclusive_us += exclusive_us;
@@ -302,7 +302,7 @@ std::vector<GuestFunctionProfileEntry> BuildGuestFunctionEntries(
         .exclusive_us = totals.exclusive_us,
         .blocking_wait_us = blocking_wait_us,
         .active_exclusive_us = active_exclusive_us,
-        .spin_hint_sites = totals.spin_hint_sites,
+        .static_spin_hint_sites = totals.static_spin_hint_sites,
     });
   }
 
@@ -348,7 +348,7 @@ void WriteGuestFunctionSummaryCsv() {
   }
 
   std::fputs("rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-             "active_exclusive_us,spin_hint_sites\n",
+             "active_exclusive_us,static_spin_hint_sites\n",
              summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
@@ -361,7 +361,7 @@ void WriteGuestFunctionSummaryCsv() {
                  static_cast<unsigned long long>(entry.exclusive_us),
                  static_cast<unsigned long long>(entry.blocking_wait_us),
                  static_cast<unsigned long long>(entry.active_exclusive_us),
-                 entry.spin_hint_sites);
+                 entry.static_spin_hint_sites);
   }
 
   std::fflush(summary_file);
@@ -415,7 +415,7 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
   }
 
   std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-             "blocking_wait_us,active_exclusive_us,spin_hint_sites\n",
+             "blocking_wait_us,active_exclusive_us,static_spin_hint_sites\n",
              g_guest_function_csv_file);
   g_guest_function_summary_top_n = static_cast<size_t>(top_n);
   g_guest_function_summary_min_exclusive_us =
@@ -529,7 +529,7 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(entry.exclusive_us),
                  static_cast<unsigned long long>(entry.blocking_wait_us),
                  static_cast<unsigned long long>(entry.active_exclusive_us),
-                 entry.spin_hint_sites);
+                 entry.static_spin_hint_sites);
   }
 }
 
@@ -725,13 +725,13 @@ ScopedCounterDuration::~ScopedCounterDuration() {
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us,
-                                uint32_t spin_hint_sites) {
+                                uint32_t static_spin_hint_sites) {
   std::lock_guard lock(g_guest_function_profile_mutex);
   AddGuestFunctionDurationUsLocked(g_guest_function_profile, address, symbol, inclusive_us,
-                                   exclusive_us, blocking_wait_us, spin_hint_sites);
+                                   exclusive_us, blocking_wait_us, static_spin_hint_sites);
   AddGuestFunctionDurationUsLocked(g_guest_function_summary_profile, address, symbol,
                                    inclusive_us, exclusive_us, blocking_wait_us,
-                                   spin_hint_sites);
+                                   static_spin_hint_sites);
 }
 
 void AddGuestKernelWaitDurationUs(uint64_t duration_us) {
@@ -851,8 +851,8 @@ std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTarget
 }
 
 ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const char* symbol,
-                                                       uint32_t spin_hint_sites)
-    : address_(address), symbol_(symbol), spin_hint_sites_(spin_hint_sites) {
+                                                       uint32_t static_spin_hint_sites)
+    : address_(address), symbol_(symbol), static_spin_hint_sites_(static_spin_hint_sites) {
   if (!g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
     return;
   }
@@ -866,7 +866,7 @@ ScopedGuestFunctionProfile::ScopedGuestFunctionProfile(uint32_t address, const c
       .symbol = symbol_,
       .start_tick = start_tick_,
       .token = stack_token_,
-      .spin_hint_sites = spin_hint_sites_,
+      .static_spin_hint_sites = static_spin_hint_sites_,
   });
 }
 
@@ -904,7 +904,7 @@ ScopedGuestFunctionProfile::~ScopedGuestFunctionProfile() {
   if (generation_ == g_guest_function_profile_generation.load(std::memory_order_relaxed) &&
       g_guest_function_profile_enabled.load(std::memory_order_relaxed)) {
     AddGuestFunctionDurationUs(entry.address, entry.symbol, inclusive_us, exclusive_us,
-                               blocking_wait_us, entry.spin_hint_sites);
+                               blocking_wait_us, entry.static_spin_hint_sites);
   }
 }
 

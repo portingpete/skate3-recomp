@@ -105,7 +105,7 @@ bool ShouldEmitGuestFunctionProfileScope(const EmitContext& ctx) {
   return ctx.config.setJmpAddress == 0 && ctx.config.longJmpAddress == 0;
 }
 
-uint32_t CountGuestSpinHintSites(const EmitContext& ctx, const std::vector<Block>& blocks) {
+uint32_t CountStaticGuestSpinHintSites(const EmitContext& ctx, const std::vector<Block>& blocks) {
   uint32_t count = 0;
   ppc_insn insn;
   for (const auto& block : blocks) {
@@ -591,13 +591,13 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
   }
 
   // Function signature with weak/alias pattern
-  const uint32_t guestSpinHintSites =
-      ShouldEmitGuestFunctionProfileScope(ctx) ? CountGuestSpinHintSites(ctx, blocks()) : 0;
+  const uint32_t staticGuestSpinHintSites =
+      ShouldEmitGuestFunctionProfileScope(ctx) ? CountStaticGuestSpinHintSites(ctx, blocks()) : 0;
   emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
   emit_println(out, "\tREX_FUNC_PROLOGUE();");
   if (ShouldEmitGuestFunctionProfileScope(ctx)) {
     emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", {});", base(), name,
-                 guestSpinHintSites);
+                 staticGuestSpinHintSites);
   }
 
   // --- Second pass: emit instruction code ---
