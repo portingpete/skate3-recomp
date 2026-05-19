@@ -82,6 +82,23 @@ std::filesystem::path GetUserFolder() {
   return std::filesystem::path(pw->pw_dir) / ".local" / "share";
 }
 
+std::filesystem::path GetCacheFolder() {
+  if (auto xdg = rex::platform::env::get("XDG_CACHE_HOME")) {
+    return std::filesystem::path(*xdg);
+  }
+
+  if (auto home = rex::platform::env::get("HOME")) {
+    return std::filesystem::path(*home) / ".cache";
+  }
+
+  struct passwd pw1;
+  struct passwd* pw;
+  char buf[4096];
+  getpwuid_r(getuid(), &pw1, buf, sizeof(buf), &pw);
+  assert(&pw1 == pw);
+  return std::filesystem::path(pw->pw_dir) / ".cache";
+}
+
 FILE* OpenFile(const std::filesystem::path& path, const std::string_view mode) {
   return fopen(path.c_str(), std::string(mode).c_str());
 }

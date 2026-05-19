@@ -20,6 +20,12 @@ class TestReXApp final : public rex::ReXApp {
   explicit TestReXApp(rex::ui::WindowedAppContext& context)
       : rex::ReXApp(context, "test_app", rex::PPCImageInfo{}) {}
 
+  static std::filesystem::path ResolveDefaultCacheRootForTest(
+      std::string_view app_name, const std::filesystem::path& user_data_root,
+      const std::filesystem::path& local_cache_root, std::string_view cache_root) {
+    return ResolveDefaultCacheRoot(app_name, user_data_root, local_cache_root, cache_root);
+  }
+
   static std::filesystem::path ResolveDefaultUpdateDataRootForTest(
       const std::filesystem::path& game_root, std::string_view update_data_root) {
     return ResolveDefaultUpdateDataRoot(game_root, update_data_root);
@@ -82,4 +88,31 @@ TEST_CASE("ReXApp leaves update data root empty when game has no update director
 
   std::error_code ec;
   std::filesystem::remove_all(root, ec);
+}
+
+TEST_CASE("ReXApp defaults shader cache outside the user documents root",
+          "[ui][rex_app][paths]") {
+  auto user_root = std::filesystem::path("C:/Users/test/OneDrive/Documents/test_app");
+  auto local_cache_root = std::filesystem::path("C:/Users/test/AppData/Local");
+
+  CHECK(TestReXApp::ResolveDefaultCacheRootForTest("test_app", user_root, local_cache_root, "") ==
+        local_cache_root / "RexGlue" / "test_app" / "cache");
+}
+
+TEST_CASE("ReXApp keeps explicit shader cache root overrides", "[ui][rex_app][paths]") {
+  auto user_root = std::filesystem::path("C:/Users/test/OneDrive/Documents/test_app");
+  auto local_cache_root = std::filesystem::path("C:/Users/test/AppData/Local");
+  auto explicit_cache_root = std::filesystem::path("C:/tmp/rex-cache");
+
+  CHECK(TestReXApp::ResolveDefaultCacheRootForTest("test_app", user_root, local_cache_root,
+                                                   explicit_cache_root.string()) ==
+        explicit_cache_root);
+}
+
+TEST_CASE("ReXApp falls back to user data cache when local cache root is unavailable",
+          "[ui][rex_app][paths]") {
+  auto user_root = std::filesystem::path("C:/Users/test/Documents/test_app");
+
+  CHECK(TestReXApp::ResolveDefaultCacheRootForTest("test_app", user_root, {}, "") ==
+        user_root / "cache");
 }

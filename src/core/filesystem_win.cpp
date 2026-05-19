@@ -54,8 +54,18 @@ std::filesystem::path GetExecutableFolder() {
 
 std::filesystem::path GetUserFolder() {
   std::filesystem::path result;
-  PWSTR path;
+  PWSTR path = nullptr;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &path))) {
+    result.assign(path);
+    CoTaskMemFree(path);
+  }
+  return result;
+}
+
+std::filesystem::path GetCacheFolder() {
+  std::filesystem::path result;
+  PWSTR path = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &path))) {
     result.assign(path);
     CoTaskMemFree(path);
   }

@@ -191,6 +191,9 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
 
   static std::filesystem::path ResolveDefaultUpdateDataRoot(
       const std::filesystem::path& game_data_root, std::string_view update_data_root);
+  static std::filesystem::path ResolveDefaultCacheRoot(
+      std::string_view app_name, const std::filesystem::path& user_data_root,
+      const std::filesystem::path& local_cache_root, std::string_view cache_root);
 
  private:
   std::function<void(PathConfig)> MakeResumeCallback();

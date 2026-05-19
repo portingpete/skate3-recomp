@@ -75,6 +75,24 @@ std::filesystem::path ReXApp::ResolveDefaultUpdateDataRoot(
   return {};
 }
 
+std::filesystem::path ReXApp::ResolveDefaultCacheRoot(
+    std::string_view app_name, const std::filesystem::path& user_data_root,
+    const std::filesystem::path& local_cache_root, std::string_view cache_root) {
+  if (!cache_root.empty()) {
+    return std::filesystem::path(std::string(cache_root));
+  }
+
+  if (!local_cache_root.empty()) {
+    return local_cache_root / "RexGlue" / std::string(app_name) / "cache";
+  }
+
+  if (!user_data_root.empty()) {
+    return user_data_root / "cache";
+  }
+
+  return {};
+}
+
 bool ReXApp::OnInitialize() {
   if (!SetupEnvironment())
     return false;
@@ -118,14 +136,11 @@ bool ReXApp::SetupEnvironment() {
   std::string update_data_cvar = REXCVAR_GET(update_data_root);
   std::filesystem::path update_dir = ResolveDefaultUpdateDataRoot(game_dir, update_data_cvar);
 
-  // Cache: cvar override, or user_dir/cache
+  // Cache: cvar override, or platform-local app cache.
   std::filesystem::path cache_dir;
   std::string cache_root_cvar = REXCVAR_GET(cache_root);
-  if (!cache_root_cvar.empty()) {
-    cache_dir = cache_root_cvar;
-  } else {
-    cache_dir = user_dir / "cache";
-  }
+  cache_dir = ResolveDefaultCacheRoot(GetName(), user_dir, rex::filesystem::GetCacheFolder(),
+                                      cache_root_cvar);
 
   PathConfig path_config{game_dir, user_dir, update_dir, cache_dir,
                          exe_dir / (std::string(GetName()) + ".toml")};
