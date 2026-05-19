@@ -2422,10 +2422,18 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
           bound_depth_and_color_render_target_formats, &pipeline_handle, &root_signature)) {
     return false;
   }
-  if (REXCVAR_GET(async_shader_compilation) &&
-      pipeline_cache_->GetD3D12PipelineByHandle(pipeline_handle) == nullptr) {
-    PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW();
-    return true;
+  if (REXCVAR_GET(async_shader_compilation)) {
+    const pipeline_util::PipelineCreationStatus pipeline_status =
+        pipeline_cache_->GetD3D12PipelineCreationStatusByHandle(pipeline_handle);
+    if (pipeline_status != pipeline_util::PipelineCreationStatus::kReady) {
+      PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW();
+      if (pipeline_status == pipeline_util::PipelineCreationStatus::kPending) {
+        PROFILE_ASYNC_PIPELINE_PENDING_DRAW();
+      } else {
+        PROFILE_ASYNC_PIPELINE_FAILED_DRAW();
+      }
+      return true;
+    }
   }
 
   // Update the textures - this may bind pipelines.

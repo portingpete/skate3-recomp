@@ -73,11 +73,13 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   rex::perf::SetCounter(rex::perf::CounterId::kFrameTimeUs, 16666);
   rex::perf::SetCounter(rex::perf::CounterId::kDrawCalls, 7);
   rex::perf::IncrementCounter(rex::perf::CounterId::kAsyncPipelineSkippedDraws, 3);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12Submissions, 4);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentCalls, 5);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFull, 6);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFast, 7);
-  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFallback, 8);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kAsyncPipelinePendingDraws, 4);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kAsyncPipelineFailedDraws, 5);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12Submissions, 6);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kD3D12PresentCalls, 7);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFull, 8);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFast, 9);
+  rex::perf::IncrementCounter(rex::perf::CounterId::kMemexportReadbackFallback, 10);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
@@ -111,12 +113,16 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(header_values[4] == "draw_calls");
 
   const size_t skipped_draws_col = CsvColumnIndex(header_values, "async_pipeline_skipped_draws");
+  const size_t pending_draws_col = CsvColumnIndex(header_values, "async_pipeline_pending_draws");
+  const size_t failed_draws_col = CsvColumnIndex(header_values, "async_pipeline_failed_draws");
   const size_t submissions_col = CsvColumnIndex(header_values, "d3d12_submissions");
   const size_t presents_col = CsvColumnIndex(header_values, "d3d12_present_calls");
   const size_t memexport_full_col = CsvColumnIndex(header_values, "memexport_readback_full");
   const size_t memexport_fast_col = CsvColumnIndex(header_values, "memexport_readback_fast");
   const size_t memexport_fallback_col = CsvColumnIndex(header_values, "memexport_readback_fallback");
   REQUIRE(skipped_draws_col != std::string::npos);
+  REQUIRE(pending_draws_col != std::string::npos);
+  REQUIRE(failed_draws_col != std::string::npos);
   REQUIRE(submissions_col != std::string::npos);
   REQUIRE(presents_col != std::string::npos);
   REQUIRE(memexport_full_col != std::string::npos);
@@ -127,17 +133,21 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame0_values[2] == "16666");
   CHECK(frame0_values[4] == "7");
   CHECK(frame0_values[skipped_draws_col] == "3");
-  CHECK(frame0_values[submissions_col] == "4");
-  CHECK(frame0_values[presents_col] == "5");
-  CHECK(frame0_values[memexport_full_col] == "6");
-  CHECK(frame0_values[memexport_fast_col] == "7");
-  CHECK(frame0_values[memexport_fallback_col] == "8");
+  CHECK(frame0_values[pending_draws_col] == "4");
+  CHECK(frame0_values[failed_draws_col] == "5");
+  CHECK(frame0_values[submissions_col] == "6");
+  CHECK(frame0_values[presents_col] == "7");
+  CHECK(frame0_values[memexport_full_col] == "8");
+  CHECK(frame0_values[memexport_fast_col] == "9");
+  CHECK(frame0_values[memexport_fallback_col] == "10");
 
   CHECK(frame1_values[0] == "1");
   CHECK(std::stoull(frame1_values[1]) >= std::stoull(frame0_values[1]));
   CHECK(frame1_values[2] == "33333");
   CHECK(frame1_values[4] == "2");
   CHECK(frame1_values[skipped_draws_col] == "0");
+  CHECK(frame1_values[pending_draws_col] == "0");
+  CHECK(frame1_values[failed_draws_col] == "0");
   CHECK(frame1_values[submissions_col] == "0");
   CHECK(frame1_values[presents_col] == "0");
   CHECK(frame1_values[memexport_full_col] == "0");

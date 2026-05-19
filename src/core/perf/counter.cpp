@@ -40,6 +40,8 @@ constexpr const char* kCounterNames[] = {
     "command_buffer_stalls",
     "vertices_processed",
     "async_pipeline_skipped_draws",
+    "async_pipeline_pending_draws",
+    "async_pipeline_failed_draws",
     "d3d12_submissions",
     "d3d12_present_calls",
     "memexport_readback_full",
@@ -69,6 +71,8 @@ constexpr bool kIsGauge[] = {
     false,  // kCommandBufferStalls
     false,  // kVerticesProcessed
     false,  // kAsyncPipelineSkippedDraws
+    false,  // kAsyncPipelinePendingDraws
+    false,  // kAsyncPipelineFailedDraws
     false,  // kD3D12Submissions
     false,  // kD3D12PresentCalls
     false,  // kMemexportReadbackFull

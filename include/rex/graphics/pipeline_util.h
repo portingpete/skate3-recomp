@@ -12,6 +12,20 @@
 
 namespace rex::graphics::pipeline_util {
 
+enum class PipelineCreationStatus : uint8_t {
+  kPending,
+  kReady,
+  kFailed,
+};
+
+inline PipelineCreationStatus GetPipelineCreationStatus(bool has_pipeline_state,
+                                                        bool creation_completed) {
+  if (has_pipeline_state) {
+    return PipelineCreationStatus::kReady;
+  }
+  return creation_completed ? PipelineCreationStatus::kFailed : PipelineCreationStatus::kPending;
+}
+
 // Priority levels for async pipeline compilation.
 // Higher values are compiled sooner.
 constexpr uint8_t kPriorityLowest = 0;     // Writes to unbound RTs only.

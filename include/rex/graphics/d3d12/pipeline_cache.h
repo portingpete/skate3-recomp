@@ -29,6 +29,7 @@
 #include <rex/graphics/d3d12/render_target_cache.h>
 #include <rex/graphics/d3d12/shader.h>
 #include <rex/graphics/flags.h>
+#include <rex/graphics/pipeline_util.h>
 #include <rex/graphics/pipeline/shader/dxbc_translator.h>
 #include <rex/graphics/primitive_processor.h>
 #include <rex/graphics/register_file.h>
@@ -92,9 +93,16 @@ class PipelineCache {
                          void** pipeline_handle_out, ID3D12RootSignature** root_signature_out);
 
   // Returns a pipeline with deferred creation by its handle. May return nullptr
-  // if failed to create the pipeline.
+  // while creation is still pending or after creation failed.
   ID3D12PipelineState* GetD3D12PipelineByHandle(void* handle) const {
     return reinterpret_cast<const Pipeline*>(handle)->state.load(std::memory_order_acquire);
+  }
+  pipeline_util::PipelineCreationStatus GetD3D12PipelineCreationStatusByHandle(
+      void* handle) const {
+    const Pipeline* pipeline = reinterpret_cast<const Pipeline*>(handle);
+    return pipeline_util::GetPipelineCreationStatus(
+        pipeline->state.load(std::memory_order_acquire) != nullptr,
+        pipeline->creation_completed.load(std::memory_order_acquire));
   }
 
  private:
@@ -343,14 +351,19 @@ class PipelineCache {
   std::vector<uint8_t> depth_only_pixel_shader_;
 
   struct Pipeline {
-    // nullptr if creation has failed.
+    // nullptr while queued for async creation, or if creation has failed.
     std::atomic<ID3D12PipelineState*> state{nullptr};
+    std::atomic<bool> creation_completed{false};
     std::atomic<ID3D12RootSignature*> root_signature{nullptr};
     PipelineRuntimeDescription description;
     D3D12Shader::D3D12Translation* pending_vertex_shader = nullptr;
     D3D12Shader::D3D12Translation* pending_pixel_shader = nullptr;
     uint8_t priority = 0;
   };
+  static void StorePipelineCreationResult(Pipeline* pipeline, ID3D12PipelineState* state) {
+    pipeline->state.store(state, std::memory_order_release);
+    pipeline->creation_completed.store(true, std::memory_order_release);
+  }
   struct PipelineCreationPriorityComparator {
     bool operator()(const Pipeline* a, const Pipeline* b) const {
       uint8_t priority_a = a ? a->priority : 0;

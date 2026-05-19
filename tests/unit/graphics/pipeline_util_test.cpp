@@ -1,0 +1,25 @@
+/**
+ * @file        pipeline_util_test.cpp
+ * @brief       Unit tests for shared graphics pipeline helpers
+ *
+ * @copyright   Copyright (c) 2026 Tom Clay
+ * @license     BSD 3-Clause License
+ */
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <rex/graphics/pipeline_util.h>
+
+TEST_CASE("Pipeline creation status distinguishes pending and failed null states",
+          "[graphics][pipeline]") {
+  using rex::graphics::pipeline_util::PipelineCreationStatus;
+
+  CHECK(rex::graphics::pipeline_util::GetPipelineCreationStatus(false, false) ==
+        PipelineCreationStatus::kPending);
+  CHECK(rex::graphics::pipeline_util::GetPipelineCreationStatus(false, true) ==
+        PipelineCreationStatus::kFailed);
+  CHECK(rex::graphics::pipeline_util::GetPipelineCreationStatus(true, false) ==
+        PipelineCreationStatus::kReady);
+  CHECK(rex::graphics::pipeline_util::GetPipelineCreationStatus(true, true) ==
+        PipelineCreationStatus::kReady);
+}

@@ -29,6 +29,8 @@ enum class CounterId : uint16_t {
   kCommandBufferStalls,
   kVerticesProcessed,
   kAsyncPipelineSkippedDraws,
+  kAsyncPipelinePendingDraws,
+  kAsyncPipelineFailedDraws,
   kD3D12Submissions,
   kD3D12PresentCalls,
   kMemexportReadbackFull,
@@ -159,6 +161,8 @@ class Profiler {
 #define PROFILE_VERTICES(n) PERF_counter_add(kVerticesProcessed, n)
 #define PROFILE_CMD_BUFFER_STALL() PERF_counter_inc(kCommandBufferStalls)
 #define PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW() PERF_counter_inc(kAsyncPipelineSkippedDraws)
+#define PROFILE_ASYNC_PIPELINE_PENDING_DRAW() PERF_counter_inc(kAsyncPipelinePendingDraws)
+#define PROFILE_ASYNC_PIPELINE_FAILED_DRAW() PERF_counter_inc(kAsyncPipelineFailedDraws)
 #define PROFILE_D3D12_SUBMISSION() PERF_counter_inc(kD3D12Submissions)
 #define PROFILE_D3D12_PRESENT_CALL() PERF_counter_inc(kD3D12PresentCalls)
 #define PROFILE_MEMEXPORT_READBACK_FULL() PERF_counter_inc(kMemexportReadbackFull)
@@ -190,6 +194,8 @@ class Profiler {
 #define PROFILE_VERTICES(n)
 #define PROFILE_CMD_BUFFER_STALL()
 #define PROFILE_ASYNC_PIPELINE_SKIPPED_DRAW()
+#define PROFILE_ASYNC_PIPELINE_PENDING_DRAW()
+#define PROFILE_ASYNC_PIPELINE_FAILED_DRAW()
 #define PROFILE_D3D12_SUBMISSION()
 #define PROFILE_D3D12_PRESENT_CALL()
 #define PROFILE_MEMEXPORT_READBACK_FULL()

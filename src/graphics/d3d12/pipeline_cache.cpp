@@ -644,8 +644,8 @@ void PipelineCache::InitializeShaderStorage(const std::filesystem::path& cache_r
         }
         creation_request_cond_.notify_one();
       } else {
-        new_pipeline->state.store(CreateD3D12Pipeline(pipeline_runtime_description),
-                                  std::memory_order_release);
+        StorePipelineCreationResult(new_pipeline,
+                                    CreateD3D12Pipeline(pipeline_runtime_description));
       }
       ++pipelines_created;
     }
@@ -1033,7 +1033,7 @@ bool PipelineCache::ConfigurePipeline(
     }
     creation_request_cond_.notify_one();
   } else {
-    new_pipeline->state.store(CreateD3D12Pipeline(runtime_description), std::memory_order_release);
+    StorePipelineCreationResult(new_pipeline, CreateD3D12Pipeline(runtime_description));
   }
 
   if (pipeline_storage_file_) {
@@ -3227,10 +3227,9 @@ void PipelineCache::CreationThread(size_t thread_index) {
 
     PipelineRuntimeDescription runtime_description;
     if (!PrepareRuntimeDescriptionForQueuedCreation(pipeline_to_create, runtime_description)) {
-      pipeline_to_create->state.store(nullptr, std::memory_order_release);
+      StorePipelineCreationResult(pipeline_to_create, nullptr);
     } else {
-      pipeline_to_create->state.store(CreateD3D12Pipeline(runtime_description),
-                                      std::memory_order_release);
+      StorePipelineCreationResult(pipeline_to_create, CreateD3D12Pipeline(runtime_description));
     }
 
     // Pipeline created - the thread is not busy anymore, safe to set the
@@ -3257,11 +3256,10 @@ void PipelineCache::CreateQueuedPipelinesOnProcessorThread() {
     }
     PipelineRuntimeDescription runtime_description;
     if (!PrepareRuntimeDescriptionForQueuedCreation(pipeline_to_create, runtime_description)) {
-      pipeline_to_create->state.store(nullptr, std::memory_order_release);
+      StorePipelineCreationResult(pipeline_to_create, nullptr);
       continue;
     }
-    pipeline_to_create->state.store(CreateD3D12Pipeline(runtime_description),
-                                    std::memory_order_release);
+    StorePipelineCreationResult(pipeline_to_create, CreateD3D12Pipeline(runtime_description));
   }
 }
 
