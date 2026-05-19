@@ -357,10 +357,7 @@ bool D3D12Provider::Initialize() {
   if (REXCVAR_GET(d3d12_queue_priority) >= 2) {
     queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME;
     if (!EnableIncreaseBasePriorityPrivilege()) {
-      REXLOG_WARN(
-          "Failed to enable SeIncreaseBasePriorityPrivilege for global "
-          "realtime Direct3D 12 command queue priority, falling back to high "
-          "priority, try launching Xenia as administrator");
+      REXLOG_WARN("{}", RealtimePriorityPrivilegeFallbackMessage());
       queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
     }
   } else if (REXCVAR_GET(d3d12_queue_priority) >= 1) {
@@ -374,10 +371,7 @@ bool D3D12Provider::Initialize() {
   if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&direct_queue)))) {
     bool queue_created = false;
     if (queue_desc.Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME) {
-      REXLOG_WARN(
-          "Failed to create a Direct3D 12 direct command queue with global "
-          "realtime priority, falling back to high priority, try launching "
-          "Xenia as administrator");
+      REXLOG_WARN("{}", RealtimePriorityQueueCreationFallbackMessage());
       queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
       queue_created =
           SUCCEEDED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&direct_queue)));
