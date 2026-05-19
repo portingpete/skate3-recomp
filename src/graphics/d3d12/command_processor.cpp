@@ -23,6 +23,7 @@
 #include <rex/graphics/d3d12/graphics_system.h>
 #include <rex/graphics/d3d12/shader.h>
 #include <rex/graphics/draw_diagnostics.h>
+#include <rex/graphics/fetch_diagnostics.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
@@ -2548,9 +2549,9 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
           }
           REXGPU_WARN(
               "Vertex fetch constant {} ({:08X} {:08X}) has \"invalid\" type! "
-              "This is incorrect behavior, but you can try bypassing this by "
-              "launching Xenia with --gpu_allow_invalid_fetch_constants=true.",
-              vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1);
+              "{}",
+              vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1,
+              InvalidFetchConstantBypassHint());
           return false;
         default:
           REXGPU_WARN("Vertex fetch constant {} ({:08X} {:08X}) is completely invalid!",

@@ -64,7 +64,23 @@ TEST_CASE("Invalid texture fetch warnings are emitted once per constant",
         return entry.level == spdlog::level::debug &&
                entry.text.find("has repeated \"invalid\" type") != std::string_view::npos;
       });
+  const auto rexglue_hint_count =
+      std::count_if(entries.begin(), entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsInvalidTextureFetchWarning(entry.text) &&
+               entry.text.find("rerun this executable") != std::string_view::npos &&
+               entry.text.find("--gpu-allow-invalid-fetch-constants=true") !=
+                   std::string_view::npos &&
+               entry.text.find("gpu_allow_invalid_fetch_constants=true") !=
+                   std::string_view::npos;
+      });
+  const auto legacy_xenia_hint_count =
+      std::count_if(entries.begin(), entries.end(), [](const rex::LogEntry& entry) {
+        return IsInvalidTextureFetchWarning(entry.text) &&
+               entry.text.find("Xenia") != std::string_view::npos;
+      });
 
   CHECK(warning_count == 2);
   CHECK(repeated_debug_count == 0);
+  CHECK(rexglue_hint_count == 2);
+  CHECK(legacy_xenia_hint_count == 0);
 }

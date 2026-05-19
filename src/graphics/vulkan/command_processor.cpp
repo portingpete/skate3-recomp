@@ -26,6 +26,7 @@
 #include <rex/assert.h>
 #include <rex/cvar.h>
 #include <rex/dbg.h>
+#include <rex/graphics/fetch_diagnostics.h>
 #include <rex/logging.h>
 #include <rex/math.h>
 #include <rex/graphics/util/draw.h>
@@ -4012,10 +4013,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
           }
           REXGPU_WARN(
               "Vertex fetch constant {} ({:08X} {:08X}) has \"invalid\" type! "
-              "This "
-              "is incorrect behavior, but you can try bypassing this by "
-              "launching Xenia with --gpu_allow_invalid_fetch_constants=true.",
-              vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1);
+              "{}",
+              vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1,
+              InvalidFetchConstantBypassHint());
           return false;
         default:
           REXGPU_WARN("Vertex fetch constant {} ({:08X} {:08X}) is completely invalid!",

@@ -20,6 +20,7 @@
 #include <rex/chrono/clock.h>
 #include <rex/cvar.h>
 #include <rex/dbg.h>
+#include <rex/graphics/fetch_diagnostics.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/pipeline/texture/cache.h>
 #include <rex/graphics/pipeline/texture/info.h>
@@ -944,11 +945,9 @@ void TextureCache::BindingInfoFromFetchConstant(const xenos::xe_gpu_texture_fetc
       if (ShouldWarnInvalidTextureFetchConstant(fetch)) {
         REXGPU_WARN(
             "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-            "has \"invalid\" type! This is incorrect behavior, but you can try "
-            "bypassing this by launching Xenia with "
-            "--gpu_allow_invalid_fetch_constants=true.",
+            "has \"invalid\" type! {}",
             fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4,
-            fetch.dword_5);
+            fetch.dword_5, InvalidFetchConstantBypassHint());
       } else {
         REXGPU_NOISY_DEBUG(
             "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
