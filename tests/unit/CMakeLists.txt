@@ -49,6 +49,7 @@ add_executable(unit_tests
     system/guest_path_test.cpp
     system/function_dispatcher_test.cpp
     system/xthread_test.cpp
+    ui/d3d12_messages_test.cpp
     codegen/manifest_test.cpp
     rexglue/codegen_command_test.cpp
     rexglue/init_command_test.cpp

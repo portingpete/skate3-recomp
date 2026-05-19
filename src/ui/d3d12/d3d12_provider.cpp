@@ -20,6 +20,8 @@
 
 #include <malloc.h>
 
+#include "ui/d3d12/d3d12_messages.h"
+
 REXCVAR_DEFINE_BOOL(d3d12_debug, false, "UI/D3D12", "Enable Direct3D 12 and DXGI debug layer")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
@@ -190,12 +192,7 @@ bool D3D12Provider::Initialize() {
           "disassembly for debugging will be unavailable");
     }
   } else {
-    REXLOG_DEBUG(
-        "Failed to load dxcompiler.dll, converted DXIL disassembly for "
-        "debugging will be unavailable - if needed, download the DirectX "
-        "Shader Compiler from "
-        "https://github.com/microsoft/DirectXShaderCompiler/releases and place "
-        "the DLL in the Xenia directory");
+    REXLOG_DEBUG("{}", MissingDxcompilerMessage());
   }
 
   // Configure the DXGI debug info queue.
