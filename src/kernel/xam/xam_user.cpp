@@ -39,6 +39,10 @@ using namespace rex::system::xam;
 uint8_t xeXamGetOnlineCountryFromLocale(uint8_t id);
 uint8_t xeXamGetLocale();
 
+constexpr u32 kFallbackGamerTileOut1 = 0xC0DE0001u;
+constexpr u32 kFallbackGamerTileOut2 = 0xC0DE0002u;
+constexpr u32 kFallbackGamerTileOut3 = 0xC0DE0003u;
+
 i32 XamUserGetXUID_entry(u32 user_index, u32 type_mask, mapped_u64 xuid_ptr) {
   assert_true(type_mask == 1 || type_mask == 2 || type_mask == 3 || type_mask == 4 ||
               type_mask == 7);
@@ -714,9 +718,13 @@ u32 XamUserCreateStatsEnumerator_entry(u32 title_id, u32 user_index, u32 xuid_lo
 
 u32 XamParseGamerTileKey_entry(mapped_u32 key_ptr, mapped_u32 out1_ptr, mapped_u32 out2_ptr,
                                mapped_u32 out3_ptr) {
-  *out1_ptr = 0xC0DE0001;
-  *out2_ptr = 0xC0DE0002;
-  *out3_ptr = 0xC0DE0003;
+  if (!key_ptr || !out1_ptr || !out2_ptr || !out3_ptr) {
+    return X_ERROR_INVALID_PARAMETER;
+  }
+
+  *out1_ptr = kFallbackGamerTileOut1;
+  *out2_ptr = kFallbackGamerTileOut2;
+  *out3_ptr = kFallbackGamerTileOut3;
   return X_ERROR_SUCCESS;
 }
 
@@ -726,9 +734,12 @@ u32 XamReadTileToTexture_entry(u32 unknown, u32 title_id, u64 tile_id, u32 user_
   if (!tile_id) {
     return X_ERROR_INVALID_PARAMETER;
   }
+  if (!buffer_ptr) {
+    return X_ERROR_INVALID_PARAMETER;
+  }
 
-  size_t size = size_t(stride) * size_t(height);
-  std::memset(buffer_ptr, 0xFF, size);
+  const size_t texture_size = size_t(stride) * size_t(height);
+  std::memset(buffer_ptr, 0xFF, texture_size);
 
   if (overlapped_ptr) {
     REX_KERNEL_STATE()->CompleteOverlappedImmediate(overlapped_ptr, X_ERROR_SUCCESS);

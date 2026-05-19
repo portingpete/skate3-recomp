@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+
 #include <rex/system/xtypes.h>
 #include <rex/types.h>
 
@@ -11,6 +13,10 @@ u32 XamUserCreateStatsEnumerator_entry(u32 title_id, u32 user_index, u32 xuid_lo
                                        mapped_u32 buffer_size_ptr, mapped_u32 handle_ptr);
 u32 XamUserGetMembershipTierFromXUID_entry(u64 xuid);
 u32 XamUserGetOnlineCountryFromXUID_entry(u64 xuid);
+u32 XamParseGamerTileKey_entry(mapped_u32 key_ptr, mapped_u32 out1_ptr, mapped_u32 out2_ptr,
+                               mapped_u32 out3_ptr);
+u32 XamReadTileToTexture_entry(u32 unknown, u32 title_id, u64 tile_id, u32 user_index,
+                               mapped_void buffer_ptr, u32 stride, u32 height, u32 overlapped_ptr);
 }  // namespace rex::kernel::xam
 
 TEST_CASE("XUID user queries return deterministic offline profile data", "[kernel][xam_user]") {
@@ -40,4 +46,49 @@ TEST_CASE("Stats enumerator fails without fabricating handles", "[kernel][xam_us
   CHECK(rex::kernel::xam::XamUserCreateStatsEnumerator_entry(
             0x58410A71, 0, 0, 0, 0, mapped_void(nullptr), mapped_u32(nullptr),
             mapped_u32(nullptr)) == kFunctionFailed);
+}
+
+TEST_CASE("Gamer tile key parser validates the key before using fallback outputs",
+          "[kernel][xam_user]") {
+  constexpr u32 kInvalidParameter = 0x57;
+
+  rex::be_u32 out1 = 0xAAAAAAAAu;
+  rex::be_u32 out2 = 0xBBBBBBBBu;
+  rex::be_u32 out3 = 0xCCCCCCCCu;
+
+  CHECK(rex::kernel::xam::XamParseGamerTileKey_entry(
+            mapped_u32(nullptr), mapped_u32(&out1, 0x40002000),
+            mapped_u32(&out2, 0x40002004), mapped_u32(&out3, 0x40002008)) ==
+        kInvalidParameter);
+  CHECK(static_cast<u32>(out1) == 0xAAAAAAAAu);
+  CHECK(static_cast<u32>(out2) == 0xBBBBBBBBu);
+  CHECK(static_cast<u32>(out3) == 0xCCCCCCCCu);
+
+  rex::be_u32 key_words[2] = {0x11111111u, 0x22222222u};
+  CHECK(rex::kernel::xam::XamParseGamerTileKey_entry(
+            mapped_u32(key_words, 0x40001000), mapped_u32(&out1, 0x40002000),
+            mapped_u32(&out2, 0x40002004), mapped_u32(&out3, 0x40002008)) == 0);
+  CHECK(static_cast<u32>(out1) == 0xC0DE0001u);
+  CHECK(static_cast<u32>(out2) == 0xC0DE0002u);
+  CHECK(static_cast<u32>(out3) == 0xC0DE0003u);
+}
+
+TEST_CASE("Gamer tile texture fallback validates inputs and fills white pixels",
+          "[kernel][xam_user]") {
+  constexpr u32 kInvalidParameter = 0x57;
+  std::array<u8, 12> buffer{};
+
+  CHECK(rex::kernel::xam::XamReadTileToTexture_entry(
+            9, 0x58410A71, 0, 0, mapped_void(buffer.data(), 0x40003000), 4, 3, 0) ==
+        kInvalidParameter);
+
+  CHECK(rex::kernel::xam::XamReadTileToTexture_entry(9, 0x58410A71, 1, 0, mapped_void(nullptr), 0,
+                                                     0, 0) == kInvalidParameter);
+
+  CHECK(rex::kernel::xam::XamReadTileToTexture_entry(
+            9, 0x58410A71, 1, 0, mapped_void(buffer.data(), 0x40003000), 4, 3, 0) ==
+        0);
+  for (u8 byte : buffer) {
+    CHECK(byte == 0xFFu);
+  }
 }
