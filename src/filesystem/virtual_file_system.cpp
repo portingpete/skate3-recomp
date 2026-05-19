@@ -65,6 +65,23 @@ bool IsTitleDebugLogWriteProbePath(const std::string_view path,
          rex::string::utf8_equal_case(path, "D:\\lhdebug.log");
 }
 
+std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
+                                           const std::string_view lookup_path) {
+  if (rex::string::utf8_starts_with_case(request_path, "ShaderDumpxe:\\CompareBackEnds")) {
+    return "ignored shader dump probe";
+  }
+  if (IsOptionalStorageRootProbePath(request_path)) {
+    return "optional storage probe";
+  }
+  if (IsCacheBigFallbackProbePath(request_path)) {
+    return "cache fallback probe";
+  }
+  if (IsBareRelativeGuestPath(lookup_path)) {
+    return "relative file probe";
+  }
+  return {};
+}
+
 }  // namespace
 
 bool VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
@@ -157,20 +174,10 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
     return rex::string::utf8_starts_with_case(normalized_path, d->mount_path());
   });
   if (it == devices_.cend()) {
-    if (rex::string::utf8_starts_with_case(path, "ShaderDumpxe:\\CompareBackEnds")) {
-      REXFS_DEBUG("VFS: '{}' -> [no device; ignored shader dump probe]", path);
-      return nullptr;
-    }
-    if (IsOptionalStorageRootProbePath(request_path)) {
-      REXFS_DEBUG("VFS: '{}' -> [no device; optional storage probe]", path);
-      return nullptr;
-    }
-    if (IsCacheBigFallbackProbePath(request_path)) {
-      REXFS_DEBUG("VFS: '{}' -> [no device; cache fallback probe]", path);
-      return nullptr;
-    }
-    if (IsBareRelativeGuestPath(normalized_path)) {
-      REXFS_DEBUG("VFS: '{}' -> [no device; relative file probe]", path);
+    if (const std::string_view probe_label =
+            ClassifyNoDeviceProbePath(request_path, normalized_path);
+        !probe_label.empty()) {
+      REXFS_DEBUG("VFS: '{}' -> [no device; {}]", path, probe_label);
       return nullptr;
     }
     REXFS_WARN("VFS: '{}' -> [no device]", path);

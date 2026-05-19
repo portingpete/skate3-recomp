@@ -68,7 +68,8 @@ bool IsVfsEntryNotFoundLog(std::string_view text) {
 }
 
 bool IsShaderDumpProbeLog(std::string_view text) {
-  return text.find("ShaderDumpxe:\\CompareBackEnds") != std::string_view::npos;
+  return text.find("ShaderDumpxe:\\CompareBackEnds") != std::string_view::npos ||
+         text.find("ShaderDumpxe:/CompareBackEnds") != std::string_view::npos;
 }
 
 bool IsRelativeOptionsProbeLog(std::string_view text) {
@@ -234,19 +235,25 @@ TEST_CASE("Shader dump backend probes miss devices without warning",
   rex::AddSink(rex::log::fs(), fs_sink);
 
   auto* memory = runtime.kernel_state()->memory();
-  const u32 path_guest = StoreAnsiString(memory, "ShaderDumpxe:\\CompareBackEnds");
+  constexpr std::array<std::string_view, 2> kProbePaths = {
+      "ShaderDumpxe:\\CompareBackEnds",
+      "ShaderDumpxe:/CompareBackEnds",
+  };
+  for (const std::string_view probe_path : kProbePaths) {
+    const u32 path_guest = StoreAnsiString(memory, probe_path);
 
-  rex::system::X_OBJECT_ATTRIBUTES attrs{};
-  attrs.root_directory = 0;
-  attrs.name_ptr = path_guest;
-  attrs.attributes = 0x40;
+    rex::system::X_OBJECT_ATTRIBUTES attrs{};
+    attrs.root_directory = 0;
+    attrs.name_ptr = path_guest;
+    attrs.attributes = 0x40;
 
-  rex::system::X_FILE_NETWORK_OPEN_INFORMATION file_info{};
+    rex::system::X_FILE_NETWORK_OPEN_INFORMATION file_info{};
 
-  CHECK(rex::kernel::xboxkrnl::NtQueryFullAttributesFile_entry(
-            ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
-            ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION>(&file_info, 0x40003000)) ==
-        X_STATUS_NO_SUCH_FILE);
+    CHECK(rex::kernel::xboxkrnl::NtQueryFullAttributesFile_entry(
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION>(&file_info, 0x40003000)) ==
+          X_STATUS_NO_SUCH_FILE);
+  }
 
   std::vector<rex::LogEntry> fs_entries;
   fs_sink->CopyEntries(fs_entries);
@@ -262,7 +269,7 @@ TEST_CASE("Shader dump backend probes miss devices without warning",
                entry.text.find("ignored shader dump probe") != std::string_view::npos;
       });
 
-  CHECK(fs_debug_count == 1);
+  CHECK(fs_debug_count == 2);
   CHECK(fs_warning_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
