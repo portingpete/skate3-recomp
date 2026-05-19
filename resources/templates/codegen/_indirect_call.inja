@@ -36,28 +36,50 @@
 #define REX_LOOKUP_FUNC(x, offset) \
   (*(PPCFunc**)(x + REX_IMAGE_BASE + REX_IMAGE_SIZE + (u64(u32(offset)) * 2)))
 
+#if defined(_MSC_VER)
+#define REX_GENERATED_FORCE_INLINE __forceinline
+#else
+#define REX_GENERATED_FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
+namespace rex::generated {
+
+struct IndirectCallResolution {
+  PPCFunc* func = nullptr;
+  bool fast_path_hit = false;
+};
+
+static REX_GENERATED_FORCE_INLINE IndirectCallResolution ResolveIndirectCallTarget(
+    PPCContext& ctx, uint8_t* base, uint32_t target) {
+  IndirectCallResolution result;
+  const uint32_t offset = static_cast<uint32_t>(target - REX_CODE_BASE);
+  if (offset < REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {
+    result.func = REX_LOOKUP_FUNC(base, offset);
+    result.fast_path_hit = result.func != nullptr;
+  }
+
+  if (!result.func) [[unlikely]] {
+    ctx.last_indirect_target = target;
+    result.func = rex::runtime::ResolveIndirectFunction(target);
+  }
+  return result;
+}
+
+}  // namespace rex::generated
+
+#undef REX_GENERATED_FORCE_INLINE
+
 #define REX_CALL_INDIRECT_FUNC_AT(source_address, source_symbol, call_site, x)              \
   do {                                                                                     \
     REX_PROFILE_INDIRECT_DISPATCH();                                                       \
     uint32_t rex_indirect_target_ = (uint32_t)(x);                                         \
-    const uint32_t rex_indirect_offset_ = (uint32_t)(rex_indirect_target_ - REX_CODE_BASE); \
-    PPCFunc* rex_indirect_func_;                                                           \
-    bool rex_indirect_fast_path_hit_ = false;                                              \
-    if (rex_indirect_offset_ < REX_CODE_SIZE + REX_THUNK_RESERVE_SIZE) [[likely]] {        \
-      rex_indirect_func_ = REX_LOOKUP_FUNC(base, rex_indirect_offset_);                    \
-      rex_indirect_fast_path_hit_ = rex_indirect_func_ != nullptr;                         \
-    } else {                                                                               \
-      rex_indirect_func_ = nullptr;                                                        \
-    }                                                                                      \
-    if (!rex_indirect_func_) [[unlikely]] {                                                \
-      ctx.last_indirect_target = rex_indirect_target_;                                     \
-      rex_indirect_func_ = rex::runtime::ResolveIndirectFunction(rex_indirect_target_);    \
-    }                                                                                      \
+    const auto rex_indirect_call_ =                                                         \
+        rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_);         \
     REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
                                            rex_indirect_target_,                           \
-                                           rex_indirect_fast_path_hit_);                   \
-    (void)rex_indirect_fast_path_hit_;                                                     \
-    rex_indirect_func_(ctx, base);                                                         \
+                                           rex_indirect_call_.fast_path_hit);               \
+    (void)rex_indirect_call_.fast_path_hit;                                                 \
+    rex_indirect_call_.func(ctx, base);                                                     \
   } while (0)
 
 #define REX_CALL_INDIRECT_FUNC(x) REX_CALL_INDIRECT_FUNC_AT(0, "", 0, (x))

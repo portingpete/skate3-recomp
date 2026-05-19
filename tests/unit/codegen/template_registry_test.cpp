@@ -400,13 +400,19 @@ TEST_CASE("TemplateRegistry: indirect-call macro keeps legacy wrapper single-eva
   const std::string at_macro = result.substr(at_pos, legacy_pos - at_pos);
 
   CHECK(CountOccurrences(at_macro, "(uint32_t)(x)") == 1);
-  CHECK(at_macro.find("const uint32_t rex_indirect_offset_ = "
-                      "(uint32_t)(rex_indirect_target_ - REX_CODE_BASE);") !=
+  CHECK(result.find("struct IndirectCallResolution") != std::string::npos);
+  CHECK(result.find("REX_GENERATED_FORCE_INLINE") != std::string::npos);
+  CHECK(result.find("ResolveIndirectCallTarget(") != std::string::npos);
+  CHECK(result.find("PPCContext& ctx") != std::string::npos);
+  CHECK(result.find("uint8_t* base") != std::string::npos);
+  CHECK(result.find("uint32_t target)") != std::string::npos);
+  CHECK(result.find("const uint32_t offset = static_cast<uint32_t>(target - REX_CODE_BASE);") !=
         std::string::npos);
-  CHECK(at_macro.find("if (rex_indirect_offset_ <") != std::string::npos);
-  CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_offset_)") != std::string::npos);
+  CHECK(at_macro.find("rex::generated::ResolveIndirectCallTarget(ctx, base, "
+                      "rex_indirect_target_)") != std::string::npos);
+  CHECK(at_macro.find("const uint32_t rex_indirect_offset_") == std::string::npos);
   CHECK(at_macro.find("REX_LOOKUP_FUNC(base, rex_indirect_target_)") == std::string::npos);
-  CHECK(at_macro.find("ResolveIndirectFunction(rex_indirect_target_)") != std::string::npos);
+  CHECK(at_macro.find("ResolveIndirectFunction(rex_indirect_target_)") == std::string::npos);
 }
 
 TEST_CASE("TemplateRegistry: cmake_var callback works", "[TemplateRegistry]") {
