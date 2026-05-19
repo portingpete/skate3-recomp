@@ -13,6 +13,7 @@
 #include <rex/system/xthread.h>
 
 using rex::system::DescribeGuestThreadStart;
+using rex::system::DescribeUnhandledGuestThreadException;
 
 TEST_CASE("XThread diagnostics describe raw guest thread entries", "[system][xthread]") {
   CHECK(DescribeGuestThreadStart(0x820B7090, 0x820B7090, 0x40001880, 0) ==
@@ -24,4 +25,11 @@ TEST_CASE("XThread diagnostics include guest start behind Xapi startup trampolin
   CHECK(DescribeGuestThreadStart(0x82001000, 0x820B7090, 0x40001880, 0x82001000) ==
         "entry=0x82001000 (sub_82001000), start=0x820B7090 (sub_820B7090), "
         "context=0x40001880");
+}
+
+TEST_CASE("XThread diagnostics preserve high fault address bits", "[system][xthread]") {
+  CHECK(DescribeUnhandledGuestThreadException(6, 0x820B7090, 0x820B7090, 0, 0, 0xC0000005,
+                                             0x100000000ull) ==
+        "thid=6, entry=0x820B7090 (sub_820B7090), context=0x00000000, code=0xC0000005, "
+        "fault=0x0000000100000000");
 }

@@ -70,6 +70,11 @@ constexpr uint32_t X_TLS_OUT_OF_INDEXES = UINT32_MAX;
 
 std::string DescribeGuestThreadStart(uint32_t entry_address, uint32_t start_address,
                                      uint32_t start_context, uint32_t xapi_thread_startup);
+std::string DescribeUnhandledGuestThreadException(uint32_t thread_id, uint32_t entry_address,
+                                                  uint32_t start_address, uint32_t start_context,
+                                                  uint32_t xapi_thread_startup,
+                                                  uint32_t exception_code,
+                                                  uintptr_t exception_address);
 
 struct XDPC {
   rex::be<uint16_t> type;

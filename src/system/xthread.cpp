@@ -67,6 +67,17 @@ std::string DescribeGuestThreadStart(uint32_t entry_address, uint32_t start_addr
   return fmt::format("entry={}, context=0x{:08X}", describe(entry_address), start_context);
 }
 
+std::string DescribeUnhandledGuestThreadException(uint32_t thread_id, uint32_t entry_address,
+                                                  uint32_t start_address, uint32_t start_context,
+                                                  uint32_t xapi_thread_startup,
+                                                  uint32_t exception_code,
+                                                  uintptr_t exception_address) {
+  return fmt::format("thid={}, {}, code=0x{:08X}, fault=0x{:016X}", thread_id,
+                     DescribeGuestThreadStart(entry_address, start_address, start_context,
+                                              xapi_thread_startup),
+                     exception_code, static_cast<uint64_t>(exception_address));
+}
+
 namespace {
 
 struct GuestThreadEntryResult {
@@ -689,14 +700,12 @@ void XThread::Execute() {
   REXSYS_NOISY_DEBUG("XThread::Execute - Calling function at {:08X}", address);
   const auto entry_result = RunGuestThreadEntry(func, ctx, base);
   if (!entry_result.completed) {
-    const auto thread_start =
-        DescribeGuestThreadStart(address, creation_params_.start_address,
-                                 creation_params_.start_context,
-                                 creation_params_.xapi_thread_startup);
     REXSYS_WARN("XThread::Execute - unhandled guest exception terminated thread "
-                "(thid={}, {}, code=0x{:08X}, fault=0x{:08X})",
-                thread_id_, thread_start, entry_result.exception_code,
-                static_cast<uint32_t>(entry_result.exception_address));
+                "({})",
+                DescribeUnhandledGuestThreadException(
+                    thread_id_, address, creation_params_.start_address,
+                    creation_params_.start_context, creation_params_.xapi_thread_startup,
+                    entry_result.exception_code, entry_result.exception_address));
     Exit(entry_result.exit_code);
     return;
   }
