@@ -8,6 +8,8 @@
  ******************************************************************************
  */
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 namespace rex::graphics::pipeline_util {
@@ -24,6 +26,17 @@ inline PipelineCreationStatus GetPipelineCreationStatus(bool has_pipeline_state,
     return PipelineCreationStatus::kReady;
   }
   return creation_completed ? PipelineCreationStatus::kFailed : PipelineCreationStatus::kPending;
+}
+
+inline size_t GetPipelineStorageCreationThreadTarget(size_t pipeline_count,
+                                                     size_t logical_processor_count,
+                                                     size_t existing_thread_count) {
+  if (pipeline_count == 0 || logical_processor_count <= 1) {
+    return existing_thread_count;
+  }
+  const size_t temporary_thread_count =
+      std::min(pipeline_count, logical_processor_count) - size_t(1);
+  return std::max(temporary_thread_count, existing_thread_count);
 }
 
 // Priority levels for async pipeline compilation.

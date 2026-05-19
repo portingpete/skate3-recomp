@@ -529,10 +529,11 @@ void PipelineCache::InitializeShaderStorage(const std::filesystem::path& cache_r
     // Launch additional creation threads to use all cores to create
     // pipelines faster. Will also be using the main thread, so minus 1.
     size_t creation_thread_original_count = creation_threads_.size();
-    size_t creation_thread_needed_count =
-        std::max(std::min(pipeline_stored_descriptions.size(), logical_processor_count) - size_t(1),
-                 creation_thread_original_count);
-    while (creation_threads_.size() < creation_thread_original_count) {
+    size_t creation_thread_target_count =
+        pipeline_util::GetPipelineStorageCreationThreadTarget(
+            pipeline_stored_descriptions.size(), logical_processor_count,
+            creation_thread_original_count);
+    while (creation_threads_.size() < creation_thread_target_count) {
       size_t creation_thread_index = creation_threads_.size();
       std::unique_ptr<rex::thread::Thread> creation_thread = rex::thread::Thread::Create(
           {}, [this, creation_thread_index]() { CreationThread(creation_thread_index); });
