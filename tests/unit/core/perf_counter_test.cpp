@@ -34,6 +34,7 @@ struct PerfCsvTestScope {
     std::error_code ec;
     std::filesystem::remove(csv_path, ec);
     std::filesystem::remove(GuestFunctionsCsvPath(), ec);
+    std::filesystem::remove(GuestFunctionsSummaryCsvPath(), ec);
     std::filesystem::remove(GuestIndirectTargetsCsvPath(), ec);
   }
 
@@ -48,11 +49,16 @@ struct PerfCsvTestScope {
     std::error_code ec;
     std::filesystem::remove(csv_path, ec);
     std::filesystem::remove(GuestFunctionsCsvPath(), ec);
+    std::filesystem::remove(GuestFunctionsSummaryCsvPath(), ec);
     std::filesystem::remove(GuestIndirectTargetsCsvPath(), ec);
   }
 
   std::filesystem::path GuestFunctionsCsvPath() const {
     return std::filesystem::path(csv_path.string() + ".guest_functions.csv");
+  }
+
+  std::filesystem::path GuestFunctionsSummaryCsvPath() const {
+    return std::filesystem::path(csv_path.string() + ".guest_functions.summary.csv");
   }
 
   std::filesystem::path GuestIndirectTargetsCsvPath() const {
@@ -552,6 +558,147 @@ TEST_CASE("perf_log_csv writes guest function sidecar when enabled", "[perf][cou
   CHECK(rank1_values[8] == "0");
   CHECK(rank1_values[9] == "60");
   CHECK(rank1_values[10] == "3");
+}
+
+TEST_CASE("perf_log_csv writes aggregate guest function summary sidecar when enabled",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() / "rex_perf_guest_function_summary_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "2"));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_min_exclusive_us", "25"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70, 10, 4);
+  rex::perf::AddGuestFunctionDurationUs(0x82230000, "sub_82230000", 200, 20);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 80, 50, 5, 4);
+  rex::perf::AddGuestFunctionDurationUs(0x82240000, "sub_82240000", 90, 60, 0, 3);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+  rex::perf::FlushCsv();
+
+  std::ifstream summary_csv(scope.GuestFunctionsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  std::string rank1;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+  REQUIRE(std::getline(summary_csv, rank1));
+
+  CHECK(header ==
+        "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
+        "active_exclusive_us,spin_hint_sites");
+
+  auto rank0_values = SplitCsvRow(rank0);
+  auto rank1_values = SplitCsvRow(rank1);
+  REQUIRE(rank0_values.size() == 9);
+  REQUIRE(rank1_values.size() == 9);
+
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[2] == "sub_82220000");
+  CHECK(rank0_values[3] == "2");
+  CHECK(rank0_values[4] == "180");
+  CHECK(rank0_values[5] == "120");
+  CHECK(rank0_values[6] == "15");
+  CHECK(rank0_values[7] == "105");
+  CHECK(rank0_values[8] == "4");
+
+  CHECK(rank1_values[0] == "2");
+  CHECK(rank1_values[1] == "0x82240000");
+  CHECK(rank1_values[2] == "sub_82240000");
+  CHECK(rank1_values[3] == "1");
+  CHECK(rank1_values[4] == "90");
+  CHECK(rank1_values[5] == "60");
+  CHECK(rank1_values[6] == "0");
+  CHECK(rank1_values[7] == "60");
+  CHECK(rank1_values[8] == "3");
+}
+
+TEST_CASE("perf_log_csv writes guest function summary beside previous csv when disabled",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() / "rex_perf_guest_function_summary_disable_test.csv";
+  PerfCsvTestScope scope(csv_path);
+  const auto cwd_summary_path = std::filesystem::path(".guest_functions.summary.csv");
+  std::error_code ec;
+  std::filesystem::remove(cwd_summary_path, ec);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "2"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+  rex::perf::ResetFrameCounters();
+  rex::perf::WriteCsvFrame();
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", ""));
+  rex::perf::ConfigureCsvLogPathFromCvar();
+
+  CHECK_FALSE(std::filesystem::exists(cwd_summary_path));
+
+  std::ifstream summary_csv(scope.GuestFunctionsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+
+  CHECK(header ==
+        "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
+        "active_exclusive_us,spin_hint_sites");
+
+  auto rank0_values = SplitCsvRow(rank0);
+  REQUIRE(rank0_values.size() == 9);
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[3] == "1");
+  CHECK(rank0_values[5] == "70");
+  CHECK(rank0_values[7] == "70");
+
+  std::filesystem::remove(cwd_summary_path, ec);
+}
+
+TEST_CASE("perf_log_csv refreshes guest function summary during periodic flush",
+          "[perf][counter]") {
+  auto csv_path =
+      std::filesystem::temp_directory_path() / "rex_perf_guest_function_summary_live_test.csv";
+  PerfCsvTestScope scope(csv_path);
+
+  REQUIRE(rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()));
+  REQUIRE(rex::cvar::SetFlagByName("perf_guest_functions_top_n", "1"));
+
+  rex::perf::ConfigureCsvLogPathFromCvar();
+  for (int frame = 0; frame < 60; ++frame) {
+    rex::perf::AddGuestFunctionDurationUs(0x82220000, "sub_82220000", 100, 70);
+    rex::perf::ResetFrameCounters();
+    rex::perf::WriteCsvFrame();
+  }
+
+  std::ifstream summary_csv(scope.GuestFunctionsSummaryCsvPath());
+  REQUIRE(summary_csv.is_open());
+
+  std::string header;
+  std::string rank0;
+  REQUIRE(std::getline(summary_csv, header));
+  REQUIRE(std::getline(summary_csv, rank0));
+
+  auto rank0_values = SplitCsvRow(rank0);
+  REQUIRE(rank0_values.size() == 9);
+  CHECK(rank0_values[0] == "1");
+  CHECK(rank0_values[1] == "0x82220000");
+  CHECK(rank0_values[3] == "60");
+  CHECK(rank0_values[4] == "6000");
+  CHECK(rank0_values[5] == "4200");
+  CHECK(rank0_values[7] == "4200");
 }
 
 TEST_CASE("perf_log_csv can enable guest function sidecar after csv startup", "[perf][counter]") {
