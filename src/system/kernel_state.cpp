@@ -893,6 +893,21 @@ void KernelState::UnregisterThread(XThread* thread) {
   }
 }
 
+void KernelState::UpdateThreadKernelTimes(uint32_t kernel_time) {
+  auto global_lock = global_critical_region_.Acquire();
+  for (const auto& thread_entry : threads_by_id_) {
+    XThread* thread = thread_entry.second;
+    if (!thread || !thread->guest_object()) {
+      continue;
+    }
+
+    auto* kthread = thread->guest_object<X_KTHREAD>();
+    if (kthread) {
+      kthread->kernel_time = kernel_time;
+    }
+  }
+}
+
 void KernelState::OnThreadExecute(XThread* thread) {
   auto global_lock = global_critical_region_.Acquire();
 

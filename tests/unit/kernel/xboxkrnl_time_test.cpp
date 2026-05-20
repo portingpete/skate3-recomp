@@ -12,7 +12,7 @@ namespace rex::kernel::xboxkrnl {
 u64 KeQueryInterruptTime_entry();
 
 namespace internal {
-void WriteKeTimeStampBundle(uint8_t* bundle);
+uint32_t WriteKeTimeStampBundle(uint8_t* bundle);
 }  // namespace internal
 }  // namespace rex::kernel::xboxkrnl
 
@@ -43,7 +43,8 @@ TEST_CASE("KeTimeStampBundle writer fills interrupt, system, and tick fields",
   std::array<uint8_t, sizeof(TestTimeStampBundle)> storage{};
   auto* bundle = reinterpret_cast<TestTimeStampBundle*>(storage.data());
 
-  rex::kernel::xboxkrnl::internal::WriteKeTimeStampBundle(storage.data());
+  const uint32_t returned_tick_count =
+      rex::kernel::xboxkrnl::internal::WriteKeTimeStampBundle(storage.data());
 
   const auto interrupt_time = static_cast<uint64_t>(bundle->interrupt_time);
   const auto system_time = static_cast<uint64_t>(bundle->system_time);
@@ -54,5 +55,6 @@ TEST_CASE("KeTimeStampBundle writer fills interrupt, system, and tick fields",
   CHECK(interrupt_time > 0);
   CHECK(system_time > interrupt_time);
   CHECK(tick_count == expected_tick_count);
+  CHECK(returned_tick_count == tick_count);
   CHECK(static_cast<uint32_t>(bundle->padding) == 0);
 }

@@ -51,7 +51,7 @@ using namespace rex::system;
 
 namespace internal {
 
-void WriteKeTimeStampBundle(uint8_t* bundle) {
+uint32_t WriteKeTimeStampBundle(uint8_t* bundle) {
   const uint64_t interrupt_time = chrono::Clock::QueryGuestInterruptTime();
   const uint64_t system_time = chrono::Clock::guest_system_time_base() + interrupt_time;
   const auto tick_count = static_cast<uint32_t>(
@@ -61,6 +61,7 @@ void WriteKeTimeStampBundle(uint8_t* bundle) {
   memory::store_and_swap<uint64_t>(bundle + 8, system_time);
   memory::store_and_swap<uint32_t>(bundle + 16, tick_count);
   memory::store_and_swap<uint32_t>(bundle + 20, 0);
+  return tick_count;
 }
 
 }  // namespace internal
@@ -204,10 +205,11 @@ XboxkrnlModule::XboxkrnlModule(Runtime* emulator, KernelState* kernel_state)
   uint32_t pKeTimeStampBundle = memory_->SystemHeapAlloc(24);
   auto lpKeTimeStampBundle = memory_->TranslateVirtual(pKeTimeStampBundle);
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x00AD, pKeTimeStampBundle);
-  internal::WriteKeTimeStampBundle(lpKeTimeStampBundle);
+  kernel_state_->UpdateThreadKernelTimes(internal::WriteKeTimeStampBundle(lpKeTimeStampBundle));
   timestamp_timer_ = rex::thread::HighResolutionTimer::CreateRepeating(
-      std::chrono::milliseconds(1), [lpKeTimeStampBundle]() {
-        internal::WriteKeTimeStampBundle(lpKeTimeStampBundle);
+      std::chrono::milliseconds(1), [kernel_state = kernel_state_, lpKeTimeStampBundle]() {
+        kernel_state->UpdateThreadKernelTimes(
+            internal::WriteKeTimeStampBundle(lpKeTimeStampBundle));
       });
 
   // Wire kernel object type variables to KernelGuestGlobals.

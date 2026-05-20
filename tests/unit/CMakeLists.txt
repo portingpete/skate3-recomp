@@ -143,6 +143,7 @@ add_executable(runtime_unit_tests
     kernel/xam_info_test.cpp
     kernel/xam_ui_runtime_test.cpp
     kernel/xam_user_runtime_test.cpp
+    system/xthread_runtime_test.cpp
     input/sdl_input_driver_runtime_test.cpp
 )
 
