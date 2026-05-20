@@ -33,6 +33,7 @@ namespace detail {
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_function_profile_enabled;
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_direct_call_profile_enabled;
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_indirect_call_profile_enabled;
+extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_conditional_branch_profile_enabled;
 }  // namespace detail
 
 inline bool IsGuestFunctionProfileEnabled() noexcept {
@@ -45,6 +46,10 @@ inline bool IsGuestDirectCallProfileEnabled() noexcept {
 
 inline bool IsGuestIndirectCallProfileEnabled() noexcept {
   return detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed);
+}
+
+inline bool IsGuestConditionalBranchProfileEnabled() noexcept {
+  return detail::g_guest_conditional_branch_profile_enabled.load(std::memory_order_relaxed);
 }
 #endif
 
@@ -164,6 +169,17 @@ struct GuestDirectCallProfileEntry {
   uint64_t post_call_r3_nonzero = 0;
 };
 
+struct GuestConditionalBranchProfileEntry {
+  uint32_t source_address = 0;
+  std::string source_symbol;
+  uint32_t branch_site = 0;
+  uint32_t target_address = 0;
+  std::string target_symbol;
+  uint64_t observations = 0;
+  uint64_t taken = 0;
+  uint64_t not_taken = 0;
+};
+
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
                                 uint32_t static_spin_hint_sites = 0,
@@ -178,17 +194,20 @@ void AddGuestDirectCallPostCallR3(uint32_t source_address, const char* source_sy
                                   uint32_t call_site, uint32_t target_address,
                                   const char* target_symbol, uint32_t post_call_r3);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
-                                uint32_t call_site, uint32_t target_address,
-                                bool fast_path_hit);
+                                uint32_t call_site, uint32_t target_address, bool fast_path_hit);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 const char* target_symbol, bool fast_path_hit);
+void AddGuestConditionalBranchOutcome(uint32_t source_address, const char* source_symbol,
+                                      uint32_t branch_site, uint32_t target_address, bool taken);
 
 // Returns the current top entries and clears the frame-local accumulator.
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
                                                                     uint64_t min_exclusive_us);
 std::vector<GuestDirectCallProfileEntry> SnapshotGuestDirectCallProfile(size_t max_entries);
 std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTargetProfile(
+    size_t max_entries);
+std::vector<GuestConditionalBranchProfileEntry> SnapshotGuestConditionalBranchProfile(
     size_t max_entries);
 
 class ScopedCounterDuration {
@@ -302,9 +321,9 @@ class Profiler {
 #define PERF_counter_add(id, delta) rex::perf::IncrementCounter(rex::perf::CounterId::id, delta)
 #define REX_PERF_CONCAT_INNER(a, b) a##b
 #define REX_PERF_CONCAT(a, b) REX_PERF_CONCAT_INNER(a, b)
-#define PERF_counter_duration_scope(id)                                                    \
-  rex::perf::ScopedCounterDuration REX_PERF_CONCAT(_rex_perf_duration_scope_, __LINE__)( \
-      rex::perf::CounterId::id)
+#define PERF_counter_duration_scope(id)                                       \
+  rex::perf::ScopedCounterDuration REX_PERF_CONCAT(_rex_perf_duration_scope_, \
+                                                   __LINE__)(rex::perf::CounterId::id)
 
 // Purpose-specific macros so callsites stay clean
 #define PROFILE_FRAME_TIME_US(value) PERF_counter_set(kFrameTimeUs, value)
@@ -325,59 +344,64 @@ class Profiler {
 #define PROFILE_MEMEXPORT_READBACK_FALLBACK() PERF_counter_inc(kMemexportReadbackFallback)
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE() \
   PERF_counter_duration_scope(kGuestFunctionDispatchUs)
-#define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
-  rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
-                                                          __LINE__)
+#define PROFILE_GUEST_KERNEL_WAIT_SCOPE() \
+  rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, __LINE__)
 #define PROFILE_GUEST_SPIN_HINT_EXECUTION() PROFILE_GUEST_SPIN_HINT_EXECUTIONS(1)
-#define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)                                          \
-  do {                                                                                     \
-    if (rex::perf::IsGuestFunctionProfileEnabled()) {                                      \
-      rex::perf::AddGuestSpinHintExecutions(count);                                        \
-    }                                                                                      \
+#define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)     \
+  do {                                                \
+    if (rex::perf::IsGuestFunctionProfileEnabled()) { \
+      rex::perf::AddGuestSpinHintExecutions(count);   \
+    }                                                 \
   } while (false)
-#define PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
-                                         target_address, target_symbol)                  \
-  do {                                                                                   \
-    if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                  \
-      rex::perf::AddGuestDirectCallTarget(source_address, source_symbol, call_site,       \
-                                          target_address, target_symbol);                 \
-    }                                                                                    \
+#define PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
+                                         target_symbol)                                            \
+  do {                                                                                             \
+    if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                            \
+      rex::perf::AddGuestDirectCallTarget(source_address, source_symbol, call_site,                \
+                                          target_address, target_symbol);                          \
+    }                                                                                              \
   } while (false)
 #define PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
-                                               target_address, target_symbol, post_r3)    \
+                                               target_address, target_symbol, post_r3)   \
   do {                                                                                   \
     if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                  \
-      rex::perf::AddGuestDirectCallPostCallR3(source_address, source_symbol, call_site,   \
-                                              target_address, target_symbol, post_r3);    \
+      rex::perf::AddGuestDirectCallPostCallR3(source_address, source_symbol, call_site,  \
+                                              target_address, target_symbol, post_r3);   \
     }                                                                                    \
   } while (false)
-#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
-                                           target_address, fast_path_hit)                 \
-  do {                                                                                   \
-    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                \
-      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,     \
-                                            target_address, fast_path_hit);               \
-    }                                                                                    \
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,  \
+                                           target_address, fast_path_hit)             \
+  do {                                                                                \
+    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                             \
+      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site, \
+                                            target_address, fast_path_hit);           \
+    }                                                                                 \
   } while (false)
-#define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \
-                                                       target_address, target_symbol,            \
-                                                       fast_path_hit)                             \
-  do {                                                                                           \
-    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                        \
-      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,             \
-                                            target_address, target_symbol, fast_path_hit);        \
-    }                                                                                            \
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(                                     \
+    source_address, source_symbol, call_site, target_address, target_symbol, fast_path_hit) \
+  do {                                                                                      \
+    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                   \
+      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,       \
+                                            target_address, target_symbol, fast_path_hit);  \
+    }                                                                                       \
   } while (false)
-#define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                  \
-  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
-                                                        __LINE__)(address, symbol)
-#define REX_PERF_GUEST_FUNCTION_SCOPE_3(address, symbol, static_spin_hint_sites)          \
-  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_,       \
-                                                        __LINE__)(address, symbol,          \
-                                                                  static_spin_hint_sites)
+#define PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(source_address, source_symbol, branch_site,  \
+                                                 target_address, taken)                       \
+  do {                                                                                        \
+    if (rex::perf::IsGuestConditionalBranchProfileEnabled()) {                                \
+      rex::perf::AddGuestConditionalBranchOutcome(source_address, source_symbol, branch_site, \
+                                                  target_address, taken);                     \
+    }                                                                                         \
+  } while (false)
+#define REX_PERF_GUEST_FUNCTION_SCOPE_2(address, symbol)                                        \
+  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_, __LINE__)( \
+      address, symbol)
+#define REX_PERF_GUEST_FUNCTION_SCOPE_3(address, symbol, static_spin_hint_sites)                \
+  rex::perf::ScopedGuestFunctionProfile REX_PERF_CONCAT(_rex_perf_guest_func_scope_, __LINE__)( \
+      address, symbol, static_spin_hint_sites)
 #define REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(_1, _2, _3, NAME, ...) NAME
-#define PROFILE_GUEST_FUNCTION_SCOPE(...)                                                 \
-  REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(__VA_ARGS__, REX_PERF_GUEST_FUNCTION_SCOPE_3,       \
+#define PROFILE_GUEST_FUNCTION_SCOPE(...)                                            \
+  REX_PERF_SELECT_GUEST_FUNCTION_SCOPE(__VA_ARGS__, REX_PERF_GUEST_FUNCTION_SCOPE_3, \
                                        REX_PERF_GUEST_FUNCTION_SCOPE_2)(__VA_ARGS__)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE() PERF_counter_duration_scope(kD3D12SubmissionWaitUs)
 #define PROFILE_D3D12_PRESENT_SCOPE() PERF_counter_duration_scope(kD3D12PresentUs)
@@ -427,10 +451,12 @@ class Profiler {
                                          target_symbol)
 #define PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
                                                target_address, target_symbol, post_r3)
-#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
-                                           fast_path_hit)
-#define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \
-                                                       target_address, target_symbol, fast_path_hit)
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, \
+                                           target_address, fast_path_hit)
+#define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL( \
+    source_address, source_symbol, call_site, target_address, target_symbol, fast_path_hit)
+#define PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(source_address, source_symbol, branch_site, \
+                                                 target_address, taken)
 #define PROFILE_GUEST_FUNCTION_SCOPE(...)
 #define PROFILE_D3D12_SUBMISSION_WAIT_SCOPE()
 #define PROFILE_D3D12_PRESENT_SCOPE()

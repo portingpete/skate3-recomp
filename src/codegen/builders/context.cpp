@@ -199,8 +199,8 @@ void BuilderContext::emit_direct_function_call(const FunctionNode* targetFn,
     return;
   }
 
-  println("{}REX_CALL_DIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, 0x{:08X}, \"{}\", {});",
-          indent, fn.base(), EscapeCppString(fn.name()), base, targetFn->base(),
+  println("{}REX_CALL_DIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, 0x{:08X}, \"{}\", {});", indent,
+          fn.base(), EscapeCppString(fn.name()), base, targetFn->base(),
           EscapeCppString(targetFn->name()), targetFn->name());
 }
 
@@ -217,8 +217,8 @@ void BuilderContext::emit_native_function_call(uint32_t address, std::string_vie
 
 void BuilderContext::emit_indirect_function_call(std::string_view target_expr,
                                                  std::string_view indent) {
-  println("{}REX_CALL_INDIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, {});", indent,
-          fn.base(), EscapeCppString(fn.name()), base, target_expr);
+  println("{}REX_CALL_INDIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, {});", indent, fn.base(),
+          EscapeCppString(fn.name()), base, target_expr);
 }
 
 //=============================================================================
@@ -351,13 +351,31 @@ void BuilderContext::emit_function_call(uint32_t address) {
 void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
   uint32_t target = insn.operands[1];
 
+  std::string condition;
+  if (not_) {
+    condition += "!";
+  }
+  condition += cr(insn.operands[0]);
+  condition += ".";
+  condition += cond;
+
+  const auto emit_profiled_condition = [&](std::string_view indent) {
+    println("{}const bool rex_branch_taken_{:08X} = {};", indent, base, condition);
+    println(
+        "{}PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x{:08X}, \"{}\", 0x{:08X}, "
+        "0x{:08X}, rex_branch_taken_{:08X});",
+        indent, fn.base(), EscapeCppString(fn.name()), base, target, base);
+  };
+
   auto kind = classify_branch_target(target, false);
 
   switch (kind) {
     case TargetKind::InternalLabel:
       // Target is within this function - local goto
-      println("\tif ({}{}.{}) goto loc_{:08X};", not_ ? "!" : "", cr(insn.operands[0]), cond,
-              target);
+      println("\t{{");
+      emit_profiled_condition("\t\t");
+      println("\t\tif (rex_branch_taken_{:08X}) goto loc_{:08X};", base, target);
+      println("\t}}");
       break;
 
     case TargetKind::Function:
@@ -366,35 +384,51 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
       if (const auto* callTarget = findCallTarget(base)) {
         if (callTarget->isFunction()) {
           auto* targetFn = callTarget->asFunction();
-          println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
+          println("\t{{");
+          emit_profiled_condition("\t\t");
+          println("\t\tif (rex_branch_taken_{:08X}) {{", base);
           if (targetFn->isImport()) {
-            emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t");
+            emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t\t");
           } else {
-            emit_direct_function_call(targetFn, "\t\t");
+            emit_direct_function_call(targetFn, "\t\t\t");
           }
-          println("\t\treturn;");
+          println("\t\t\treturn;");
+          println("\t\t}}");
           println("\t}}");
         } else if (callTarget->isImport()) {
           const auto& importTarget = std::get<CallTarget::ToImport>(callTarget->value);
-          println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
+          println("\t{{");
+          emit_profiled_condition("\t\t");
+          println("\t\tif (rex_branch_taken_{:08X}) {{", base);
           emit_native_function_call(importTarget.address,
-                                    ResolveImportFunctionName(emitCtx, importTarget), "\t\t");
-          println("\t\treturn;");
+                                    ResolveImportFunctionName(emitCtx, importTarget), "\t\t\t");
+          println("\t\t\treturn;");
+          println("\t\t}}");
           println("\t}}");
         }
       } else {
         REXCODEGEN_ERROR("Unresolved conditional branch to 0x{:08X} from 0x{:08X} (no CallTarget)",
                          target, base);
-        println("\tif ({}{}.{}) REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
-                not_ ? "!" : "", cr(insn.operands[0]), cond, base, target);
+        println("\t{{");
+        emit_profiled_condition("\t\t");
+        println(
+            "\t\tif (rex_branch_taken_{:08X}) "
+            "REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
+            base, base, target);
+        println("\t}}");
       }
       break;
 
     case TargetKind::Unknown:
       REXCODEGEN_ERROR("Unresolved conditional branch to 0x{:08X} from 0x{:08X}", target, base);
       println("\t// ERROR: conditional branch to unknown address 0x{:08X}", target);
-      println("\tif ({}{}.{}) REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
-              not_ ? "!" : "", cr(insn.operands[0]), cond, base, target);
+      println("\t{{");
+      emit_profiled_condition("\t\t");
+      println(
+          "\t\tif (rex_branch_taken_{:08X}) "
+          "REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
+          base, base, target);
+      println("\t}}");
       break;
   }
 }

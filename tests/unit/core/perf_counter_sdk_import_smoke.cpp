@@ -20,16 +20,18 @@ int main() {
   rex::cvar::SetFlagByName("ppc_delay_via_maybeyield", "false");
 
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
-  const auto csv_path =
-      std::filesystem::temp_directory_path() / "rex_perf_sdk_import_smoke.csv";
+  const auto csv_path = std::filesystem::temp_directory_path() / "rex_perf_sdk_import_smoke.csv";
   const auto indirect_csv_path =
       std::filesystem::path(csv_path.string() + ".guest_indirect_targets.csv");
-  const auto direct_csv_path =
-      std::filesystem::path(csv_path.string() + ".guest_direct_calls.csv");
+  const auto direct_csv_path = std::filesystem::path(csv_path.string() + ".guest_direct_calls.csv");
   const auto direct_summary_path =
       std::filesystem::path(csv_path.string() + ".guest_direct_calls.summary.csv");
+  const auto branch_csv_path =
+      std::filesystem::path(csv_path.string() + ".guest_conditional_branches.csv");
   const auto indirect_summary_path =
       std::filesystem::path(csv_path.string() + ".guest_indirect_targets.summary.csv");
+  const auto branch_summary_path =
+      std::filesystem::path(csv_path.string() + ".guest_conditional_branches.summary.csv");
 
   rex::perf::FlushCsv();
   rex::perf::Init();
@@ -38,11 +40,14 @@ int main() {
   std::filesystem::remove(indirect_csv_path, ec);
   std::filesystem::remove(direct_csv_path, ec);
   std::filesystem::remove(direct_summary_path, ec);
+  std::filesystem::remove(branch_csv_path, ec);
   std::filesystem::remove(indirect_summary_path, ec);
+  std::filesystem::remove(branch_summary_path, ec);
 
   (void)rex::perf::IsGuestFunctionProfileEnabled();
   (void)rex::perf::IsGuestDirectCallProfileEnabled();
   (void)rex::perf::IsGuestIndirectCallProfileEnabled();
+  (void)rex::perf::IsGuestConditionalBranchProfileEnabled();
   PROFILE_AUDIO_SILENCE_FRAME();
   PROFILE_AUDIO_STARTUP_SILENCE_FRAME();
   PROFILE_AUDIO_UNDERRUN_FRAME();
@@ -53,40 +58,48 @@ int main() {
   PROFILE_GUEST_SPIN_HINT_EXECUTIONS(4);
   rex::ppc_delay_execution_hints(4);
   PROFILE_GUEST_INDIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000, true);
-  PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010,
-                                   0x82001000, "sub_82001000");
-  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010,
-                                         0x82001000, "sub_82001000", 0);
-  PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014,
-                                                 0x82002000, "sub_82002000", false);
+  PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000,
+                                   "sub_82001000");
+  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010, 0x82001000,
+                                         "sub_82001000", 0);
+  PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x82000000, "sub_82000000", 0x82000018, 0x82000030,
+                                           true);
+  PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014, 0x82002000,
+                                                 "sub_82002000", false);
 
   if (!rex::cvar::SetFlagByName("perf_log_csv", csv_path.string()) ||
       !rex::cvar::SetFlagByName("perf_guest_direct_calls_top_n", "1") ||
-      !rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "1")) {
+      !rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "1") ||
+      !rex::cvar::SetFlagByName("perf_guest_conditional_branches_top_n", "1")) {
     return 2;
   }
   rex::perf::ConfigureCsvLogPathFromCvar();
   if (!rex::perf::IsGuestDirectCallProfileEnabled() ||
-      !rex::perf::IsGuestIndirectCallProfileEnabled()) {
+      !rex::perf::IsGuestIndirectCallProfileEnabled() ||
+      !rex::perf::IsGuestConditionalBranchProfileEnabled()) {
     return 3;
   }
 
   PROFILE_GUEST_INDIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000, true);
-  PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014,
-                                                 0x82002000, "sub_82002000", false);
+  PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014, 0x82002000,
+                                                 "sub_82002000", false);
 
-  PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010,
-                                   0x82001000, "sub_82001000");
-  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010,
-                                         0x82001000, "sub_82001000", 1);
+  PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000,
+                                   "sub_82001000");
+  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010, 0x82001000,
+                                         "sub_82001000", 1);
+  PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x82000000, "sub_82000000", 0x82000018, 0x82000030,
+                                           false);
 
   if (!rex::cvar::SetFlagByName("perf_guest_direct_calls_top_n", "0") ||
-      !rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "0")) {
+      !rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "0") ||
+      !rex::cvar::SetFlagByName("perf_guest_conditional_branches_top_n", "0")) {
     return 4;
   }
   rex::perf::ConfigureCsvLogPathFromCvar();
   if (rex::perf::IsGuestDirectCallProfileEnabled() ||
-      rex::perf::IsGuestIndirectCallProfileEnabled()) {
+      rex::perf::IsGuestIndirectCallProfileEnabled() ||
+      rex::perf::IsGuestConditionalBranchProfileEnabled()) {
     return 5;
   }
 
@@ -94,6 +107,8 @@ int main() {
   std::filesystem::remove(csv_path, ec);
   std::filesystem::remove(indirect_csv_path, ec);
   std::filesystem::remove(indirect_summary_path, ec);
+  std::filesystem::remove(branch_csv_path, ec);
+  std::filesystem::remove(branch_summary_path, ec);
   std::filesystem::remove(direct_csv_path, ec);
   std::filesystem::remove(direct_summary_path, ec);
 #endif

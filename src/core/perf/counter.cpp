@@ -33,12 +33,15 @@ REXCVAR_DEFINE_STRING(perf_log_csv, "", "Perf",
                       "Path to write per-frame CSV log (empty = disabled)");
 REXCVAR_DEFINE_INT32(perf_guest_functions_top_n, 0, "Perf",
                      "Write the top N generated guest functions to a sidecar perf CSV");
-REXCVAR_DEFINE_INT64(perf_guest_functions_min_exclusive_us, 0, "Perf",
-                     "Minimum active exclusive guest-function time, in microseconds, for sidecar perf CSV");
+REXCVAR_DEFINE_INT64(
+    perf_guest_functions_min_exclusive_us, 0, "Perf",
+    "Minimum active exclusive guest-function time, in microseconds, for sidecar perf CSV");
 REXCVAR_DEFINE_INT32(perf_guest_direct_calls_top_n, 0, "Perf",
                      "Write the top N generated direct-call edges to a sidecar perf CSV");
 REXCVAR_DEFINE_INT32(perf_guest_indirect_targets_top_n, 0, "Perf",
                      "Write the top N generated indirect-call targets to a sidecar perf CSV");
+REXCVAR_DEFINE_INT32(perf_guest_conditional_branches_top_n, 0, "Perf",
+                     "Write the top N generated conditional branch outcomes to a sidecar perf CSV");
 
 namespace rex::perf {
 
@@ -46,6 +49,7 @@ namespace detail {
 std::atomic<bool> g_guest_function_profile_enabled{false};
 std::atomic<bool> g_guest_direct_call_profile_enabled{false};
 std::atomic<bool> g_guest_indirect_call_profile_enabled{false};
+std::atomic<bool> g_guest_conditional_branch_profile_enabled{false};
 }  // namespace detail
 
 namespace {
@@ -214,6 +218,33 @@ struct GuestDirectCallProfileTotals {
   uint64_t post_call_r3_nonzero = 0;
 };
 
+struct GuestConditionalBranchKey {
+  uint32_t source_address = 0;
+  uint32_t branch_site = 0;
+  uint32_t target_address = 0;
+
+  bool operator==(const GuestConditionalBranchKey& other) const {
+    return source_address == other.source_address && branch_site == other.branch_site &&
+           target_address == other.target_address;
+  }
+};
+
+struct GuestConditionalBranchKeyHash {
+  size_t operator()(const GuestConditionalBranchKey& key) const {
+    size_t hash = std::hash<uint32_t>{}(key.source_address);
+    hash ^= std::hash<uint32_t>{}(key.branch_site) + 0x9E3779B9u + (hash << 6) + (hash >> 2);
+    hash ^= std::hash<uint32_t>{}(key.target_address) + 0x9E3779B9u + (hash << 6) + (hash >> 2);
+    return hash;
+  }
+};
+
+struct GuestConditionalBranchProfileTotals {
+  std::string source_symbol;
+  uint64_t observations = 0;
+  uint64_t taken = 0;
+  uint64_t not_taken = 0;
+};
+
 std::string FormatGuestFunctionSymbol(uint32_t address) {
   char buffer[13] = {};
   std::snprintf(buffer, sizeof(buffer), "sub_%08X", address);
@@ -275,6 +306,18 @@ std::string g_guest_indirect_call_csv_path;
 std::string g_guest_indirect_call_summary_csv_path;
 size_t g_guest_indirect_call_summary_top_n = 0;
 
+std::mutex g_guest_conditional_branch_profile_mutex;
+std::unordered_map<GuestConditionalBranchKey, GuestConditionalBranchProfileTotals,
+                   GuestConditionalBranchKeyHash>
+    g_guest_conditional_branch_profile;
+std::unordered_map<GuestConditionalBranchKey, GuestConditionalBranchProfileTotals,
+                   GuestConditionalBranchKeyHash>
+    g_guest_conditional_branch_summary_profile;
+std::FILE* g_guest_conditional_branch_csv_file = nullptr;
+std::string g_guest_conditional_branch_csv_path;
+std::string g_guest_conditional_branch_summary_csv_path;
+size_t g_guest_conditional_branch_summary_top_n = 0;
+
 thread_local std::vector<GuestFunctionStackEntry> g_guest_function_stack;
 thread_local uint64_t g_guest_function_stack_next_token = 0;
 
@@ -305,6 +348,12 @@ void ResetGuestIndirectCallProfile() {
   g_guest_indirect_call_summary_profile.clear();
 }
 
+void ResetGuestConditionalBranchProfile() {
+  std::lock_guard lock(g_guest_conditional_branch_profile_mutex);
+  g_guest_conditional_branch_profile.clear();
+  g_guest_conditional_branch_summary_profile.clear();
+}
+
 std::string BuildGuestFunctionCsvPath(const std::string& path) {
   return path + ".guest_functions.csv";
 }
@@ -327,6 +376,14 @@ std::string BuildGuestIndirectCallCsvPath(const std::string& path) {
 
 std::string BuildGuestIndirectCallSummaryCsvPath(const std::string& path) {
   return path + ".guest_indirect_targets.summary.csv";
+}
+
+std::string BuildGuestConditionalBranchCsvPath(const std::string& path) {
+  return path + ".guest_conditional_branches.csv";
+}
+
+std::string BuildGuestConditionalBranchSummaryCsvPath(const std::string& path) {
+  return path + ".guest_conditional_branches.summary.csv";
 }
 
 std::string FormatPerCallMetric(uint64_t total, uint64_t calls) {
@@ -359,8 +416,8 @@ size_t CurrentSummaryTopN(int32_t live_top_n, size_t configured_top_n) {
 }
 
 uint64_t CurrentGuestFunctionMinExclusiveUs() {
-  return static_cast<uint64_t>(std::max<int64_t>(
-      0, REXCVAR_GET(perf_guest_functions_min_exclusive_us)));
+  return static_cast<uint64_t>(
+      std::max<int64_t>(0, REXCVAR_GET(perf_guest_functions_min_exclusive_us)));
 }
 
 void WriteCsvCell(std::FILE* file, std::string_view value) {
@@ -456,6 +513,22 @@ void AddGuestDirectCallPostCallR3Locked(
   }
 }
 
+void AddGuestConditionalBranchOutcomeLocked(
+    std::unordered_map<GuestConditionalBranchKey, GuestConditionalBranchProfileTotals,
+                       GuestConditionalBranchKeyHash>& map,
+    const GuestConditionalBranchKey& key, const char* source_symbol, bool taken) {
+  auto& entry = map[key];
+  if (entry.source_symbol.empty() && source_symbol) {
+    entry.source_symbol = source_symbol;
+  }
+  ++entry.observations;
+  if (taken) {
+    ++entry.taken;
+  } else {
+    ++entry.not_taken;
+  }
+}
+
 std::vector<GuestFunctionProfileEntry> BuildGuestFunctionEntries(
     const std::unordered_map<uint32_t, GuestFunctionProfileTotals>& profile,
     uint64_t min_exclusive_us) {
@@ -548,8 +621,9 @@ std::vector<GuestDirectCallProfileEntry> BuildGuestDirectCallEntries(
         .source_symbol = totals.source_symbol,
         .call_site = key.call_site,
         .target_address = key.target_address,
-        .target_symbol = totals.target_symbol.empty() ? FormatGuestFunctionSymbol(key.target_address)
-                                                      : totals.target_symbol,
+        .target_symbol = totals.target_symbol.empty()
+                             ? FormatGuestFunctionSymbol(key.target_address)
+                             : totals.target_symbol,
         .calls = totals.calls,
         .post_call_r3_zero = totals.post_call_r3_zero,
         .post_call_r3_nonzero = totals.post_call_r3_nonzero,
@@ -571,15 +645,51 @@ std::vector<GuestDirectCallProfileEntry> BuildGuestDirectCallEntries(
   return entries;
 }
 
+std::vector<GuestConditionalBranchProfileEntry> BuildGuestConditionalBranchEntries(
+    const std::unordered_map<GuestConditionalBranchKey, GuestConditionalBranchProfileTotals,
+                             GuestConditionalBranchKeyHash>& profile) {
+  std::vector<GuestConditionalBranchProfileEntry> entries;
+  entries.reserve(profile.size());
+  for (const auto& [key, totals] : profile) {
+    entries.push_back({
+        .source_address = key.source_address,
+        .source_symbol = totals.source_symbol,
+        .branch_site = key.branch_site,
+        .target_address = key.target_address,
+        .target_symbol = FormatGuestFunctionSymbol(key.target_address),
+        .observations = totals.observations,
+        .taken = totals.taken,
+        .not_taken = totals.not_taken,
+    });
+  }
+
+  std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.observations != rhs.observations) {
+      return lhs.observations > rhs.observations;
+    }
+    if (lhs.taken != rhs.taken) {
+      return lhs.taken > rhs.taken;
+    }
+    if (lhs.source_address != rhs.source_address) {
+      return lhs.source_address < rhs.source_address;
+    }
+    if (lhs.branch_site != rhs.branch_site) {
+      return lhs.branch_site < rhs.branch_site;
+    }
+    return lhs.target_address < rhs.target_address;
+  });
+  return entries;
+}
+
 void WriteGuestFunctionSummaryCsv() {
-  const size_t summary_top_n = CurrentSummaryTopN(
-      REXCVAR_GET(perf_guest_functions_top_n), g_guest_function_summary_top_n);
+  const size_t summary_top_n =
+      CurrentSummaryTopN(REXCVAR_GET(perf_guest_functions_top_n), g_guest_function_summary_top_n);
   if (g_guest_function_summary_csv_path.empty() || summary_top_n == 0) {
     return;
   }
 
-  auto* summary_file = rex::filesystem::OpenFile(rex::to_path(g_guest_function_summary_csv_path),
-                                                 "w");
+  auto* summary_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_function_summary_csv_path), "w");
   if (!summary_file) {
     REXLOG_WARN("perf: failed to open guest-function summary CSV log: {}",
                 g_guest_function_summary_csv_path);
@@ -592,24 +702,25 @@ void WriteGuestFunctionSummaryCsv() {
     entries = BuildGuestFunctionEntries(g_guest_function_summary_profile,
                                         CurrentGuestFunctionMinExclusiveUs());
   }
-  const uint64_t total_active_exclusive_us = std::accumulate(
-      entries.begin(), entries.end(), uint64_t{0},
-      [](uint64_t total, const GuestFunctionProfileEntry& entry) {
-        return total + entry.active_exclusive_us;
-      });
+  const uint64_t total_active_exclusive_us =
+      std::accumulate(entries.begin(), entries.end(), uint64_t{0},
+                      [](uint64_t total, const GuestFunctionProfileEntry& entry) {
+                        return total + entry.active_exclusive_us;
+                      });
   if (entries.size() > summary_top_n) {
     entries.resize(summary_top_n);
   }
 
-  std::fputs("rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
-             "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
-             "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call,"
-             "active_exclusive_percent\n",
-             summary_file);
+  std::fputs(
+      "rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
+      "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
+      "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call,"
+      "active_exclusive_percent\n",
+      summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(summary_file, "%llu,0x%08X,",
-                 static_cast<unsigned long long>(i + 1), entry.address);
+    std::fprintf(summary_file, "%llu,0x%08X,", static_cast<unsigned long long>(i + 1),
+                 entry.address);
     WriteCsvCell(summary_file, entry.symbol);
     const std::string active_us_per_call =
         FormatPerCallMetric(entry.active_exclusive_us, entry.calls);
@@ -625,9 +736,7 @@ void WriteGuestFunctionSummaryCsv() {
                  static_cast<unsigned long long>(entry.active_exclusive_us),
                  entry.static_spin_hint_sites,
                  static_cast<unsigned long long>(entry.dynamic_spin_hint_executions),
-                 active_us_per_call.c_str(),
-                 spin_hints_per_call.c_str(),
-                 active_percent.c_str());
+                 active_us_per_call.c_str(), spin_hints_per_call.c_str(), active_percent.c_str());
   }
 
   std::fflush(summary_file);
@@ -635,14 +744,14 @@ void WriteGuestFunctionSummaryCsv() {
 }
 
 void WriteGuestDirectCallSummaryCsv() {
-  const size_t summary_top_n = CurrentSummaryTopN(
-      REXCVAR_GET(perf_guest_direct_calls_top_n), g_guest_direct_call_summary_top_n);
+  const size_t summary_top_n = CurrentSummaryTopN(REXCVAR_GET(perf_guest_direct_calls_top_n),
+                                                  g_guest_direct_call_summary_top_n);
   if (g_guest_direct_call_summary_csv_path.empty() || summary_top_n == 0) {
     return;
   }
 
-  auto* summary_file = rex::filesystem::OpenFile(
-      rex::to_path(g_guest_direct_call_summary_csv_path), "w");
+  auto* summary_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_direct_call_summary_csv_path), "w");
   if (!summary_file) {
     REXLOG_WARN("perf: failed to open guest direct call summary CSV log: {}",
                 g_guest_direct_call_summary_csv_path);
@@ -658,23 +767,22 @@ void WriteGuestDirectCallSummaryCsv() {
     entries.resize(summary_top_n);
   }
 
-  std::fputs("rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
-             "target_guest_address,target_symbol,calls,post_call_r3_zero,"
-             "post_call_r3_nonzero\n",
-             summary_file);
+  std::fputs(
+      "rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
+      "target_guest_address,target_symbol,calls,post_call_r3_zero,"
+      "post_call_r3_nonzero\n",
+      summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(summary_file, "%llu,0x%08X,",
-                 static_cast<unsigned long long>(i + 1), entry.source_address);
+    std::fprintf(summary_file, "%llu,0x%08X,", static_cast<unsigned long long>(i + 1),
+                 entry.source_address);
     WriteCsvCell(summary_file, entry.source_symbol);
     std::fprintf(summary_file, ",0x%08X,", entry.call_site);
-    WriteCsvCell(summary_file,
-                 FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
-                                           entry.call_site));
+    WriteCsvCell(summary_file, FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
+                                                         entry.call_site));
     std::fprintf(summary_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(summary_file, entry.target_symbol);
-    std::fprintf(summary_file, ",%llu,%llu,%llu\n",
-                 static_cast<unsigned long long>(entry.calls),
+    std::fprintf(summary_file, ",%llu,%llu,%llu\n", static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.post_call_r3_zero),
                  static_cast<unsigned long long>(entry.post_call_r3_nonzero));
   }
@@ -684,14 +792,14 @@ void WriteGuestDirectCallSummaryCsv() {
 }
 
 void WriteGuestIndirectCallSummaryCsv() {
-  const size_t summary_top_n = CurrentSummaryTopN(
-      REXCVAR_GET(perf_guest_indirect_targets_top_n), g_guest_indirect_call_summary_top_n);
+  const size_t summary_top_n = CurrentSummaryTopN(REXCVAR_GET(perf_guest_indirect_targets_top_n),
+                                                  g_guest_indirect_call_summary_top_n);
   if (g_guest_indirect_call_summary_csv_path.empty() || summary_top_n == 0) {
     return;
   }
 
-  auto* summary_file = rex::filesystem::OpenFile(
-      rex::to_path(g_guest_indirect_call_summary_csv_path), "w");
+  auto* summary_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_indirect_call_summary_csv_path), "w");
   if (!summary_file) {
     REXLOG_WARN("perf: failed to open guest indirect target summary CSV log: {}",
                 g_guest_indirect_call_summary_csv_path);
@@ -707,31 +815,77 @@ void WriteGuestIndirectCallSummaryCsv() {
     entries.resize(summary_top_n);
   }
 
-  std::fputs("rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
-             "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits,"
-             "fast_path_hits_per_call,fallback_hits_per_call\n",
-             summary_file);
+  std::fputs(
+      "rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
+      "target_guest_address,target_symbol,calls,fast_path_hits,fallback_hits,"
+      "fast_path_hits_per_call,fallback_hits_per_call\n",
+      summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(summary_file, "%llu,0x%08X,",
-                 static_cast<unsigned long long>(i + 1), entry.source_address);
+    std::fprintf(summary_file, "%llu,0x%08X,", static_cast<unsigned long long>(i + 1),
+                 entry.source_address);
     WriteCsvCell(summary_file, entry.source_symbol);
     std::fprintf(summary_file, ",0x%08X,", entry.call_site);
-    WriteCsvCell(summary_file,
-                 FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
-                                           entry.call_site));
+    WriteCsvCell(summary_file, FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
+                                                         entry.call_site));
     std::fprintf(summary_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(summary_file, entry.target_symbol);
-    const std::string fast_hits_per_call =
-        FormatPerCallMetric(entry.fast_path_hits, entry.calls);
+    const std::string fast_hits_per_call = FormatPerCallMetric(entry.fast_path_hits, entry.calls);
     const std::string fallback_hits_per_call =
         FormatPerCallMetric(entry.fallback_hits, entry.calls);
     std::fprintf(summary_file, ",%llu,%llu,%llu,%s,%s\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.fast_path_hits),
-                 static_cast<unsigned long long>(entry.fallback_hits),
-                 fast_hits_per_call.c_str(),
+                 static_cast<unsigned long long>(entry.fallback_hits), fast_hits_per_call.c_str(),
                  fallback_hits_per_call.c_str());
+  }
+
+  std::fflush(summary_file);
+  std::fclose(summary_file);
+}
+void WriteGuestConditionalBranchSummaryCsv() {
+  const size_t summary_top_n = CurrentSummaryTopN(
+      REXCVAR_GET(perf_guest_conditional_branches_top_n), g_guest_conditional_branch_summary_top_n);
+  if (g_guest_conditional_branch_summary_csv_path.empty() || summary_top_n == 0) {
+    return;
+  }
+
+  std::vector<GuestConditionalBranchProfileEntry> entries;
+  {
+    std::lock_guard lock(g_guest_conditional_branch_profile_mutex);
+    entries = BuildGuestConditionalBranchEntries(g_guest_conditional_branch_summary_profile);
+  }
+  if (entries.size() > summary_top_n) {
+    entries.resize(summary_top_n);
+  }
+
+  auto* summary_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_conditional_branch_summary_csv_path), "w");
+  if (!summary_file) {
+    REXLOG_WARN("perf: failed to open guest conditional branch summary CSV log: {}",
+                g_guest_conditional_branch_summary_csv_path);
+    return;
+  }
+
+  std::fputs(
+      "rank,source_guest_address,source_symbol,branch_site,branch_site_symbol,"
+      "target_guest_address,target_symbol,observations,taken,not_taken,taken_percent\n",
+      summary_file);
+  for (size_t i = 0; i < entries.size(); ++i) {
+    const auto& entry = entries[i];
+    std::fprintf(summary_file, "%llu,0x%08X,", static_cast<unsigned long long>(i + 1),
+                 entry.source_address);
+    WriteCsvCell(summary_file, entry.source_symbol);
+    std::fprintf(summary_file, ",0x%08X,", entry.branch_site);
+    WriteCsvCell(summary_file, FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
+                                                         entry.branch_site));
+    std::fprintf(summary_file, ",0x%08X,", entry.target_address);
+    WriteCsvCell(summary_file, entry.target_symbol);
+    const std::string taken_percent = FormatPercentMetric(entry.taken, entry.observations);
+    std::fprintf(summary_file, ",%llu,%llu,%llu,%s\n",
+                 static_cast<unsigned long long>(entry.observations),
+                 static_cast<unsigned long long>(entry.taken),
+                 static_cast<unsigned long long>(entry.not_taken), taken_percent.c_str());
   }
 
   std::fflush(summary_file);
@@ -780,6 +934,19 @@ void CloseGuestIndirectCallCsv() {
   g_guest_indirect_call_summary_top_n = 0;
   ResetGuestIndirectCallProfile();
 }
+void CloseGuestConditionalBranchCsv() {
+  detail::g_guest_conditional_branch_profile_enabled.store(false, std::memory_order_relaxed);
+  WriteGuestConditionalBranchSummaryCsv();
+  if (g_guest_conditional_branch_csv_file) {
+    std::fflush(g_guest_conditional_branch_csv_file);
+    std::fclose(g_guest_conditional_branch_csv_file);
+    g_guest_conditional_branch_csv_file = nullptr;
+  }
+  g_guest_conditional_branch_csv_path.clear();
+  g_guest_conditional_branch_summary_csv_path.clear();
+  g_guest_conditional_branch_summary_top_n = 0;
+  ResetGuestConditionalBranchProfile();
+}
 
 void ConfigureGuestFunctionCsv(const std::string& path) {
   CloseGuestFunctionCsv();
@@ -800,11 +967,12 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
     return;
   }
 
-  std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
-             "blocking_wait_us,active_exclusive_us,static_spin_hint_sites,"
-             "dynamic_spin_hint_executions,active_exclusive_us_per_call,"
-             "dynamic_spin_hint_executions_per_call\n",
-             g_guest_function_csv_file);
+  std::fputs(
+      "frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
+      "blocking_wait_us,active_exclusive_us,static_spin_hint_sites,"
+      "dynamic_spin_hint_executions,active_exclusive_us_per_call,"
+      "dynamic_spin_hint_executions_per_call\n",
+      g_guest_function_csv_file);
   g_guest_function_summary_top_n = static_cast<size_t>(top_n);
   g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
   detail::g_guest_function_profile_enabled.store(true, std::memory_order_relaxed);
@@ -823,17 +991,17 @@ void ConfigureGuestDirectCallCsv(const std::string& path) {
   g_guest_direct_call_csv_file =
       rex::filesystem::OpenFile(rex::to_path(g_guest_direct_call_csv_path), "w");
   if (!g_guest_direct_call_csv_file) {
-    REXLOG_WARN("perf: failed to open guest direct call CSV log: {}",
-                g_guest_direct_call_csv_path);
+    REXLOG_WARN("perf: failed to open guest direct call CSV log: {}", g_guest_direct_call_csv_path);
     g_guest_direct_call_csv_path.clear();
     g_guest_direct_call_summary_csv_path.clear();
     return;
   }
 
-  std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-             "call_site_symbol,target_guest_address,target_symbol,calls,post_call_r3_zero,"
-             "post_call_r3_nonzero\n",
-             g_guest_direct_call_csv_file);
+  std::fputs(
+      "frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
+      "call_site_symbol,target_guest_address,target_symbol,calls,post_call_r3_zero,"
+      "post_call_r3_nonzero\n",
+      g_guest_direct_call_csv_file);
   g_guest_direct_call_summary_top_n = static_cast<size_t>(top_n);
   detail::g_guest_direct_call_profile_enabled.store(true, std::memory_order_relaxed);
 }
@@ -858,12 +1026,40 @@ void ConfigureGuestIndirectCallCsv(const std::string& path) {
     return;
   }
 
-  std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-             "call_site_symbol,target_guest_address,target_symbol,calls,fast_path_hits,"
-             "fallback_hits\n",
-             g_guest_indirect_call_csv_file);
+  std::fputs(
+      "frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
+      "call_site_symbol,target_guest_address,target_symbol,calls,fast_path_hits,"
+      "fallback_hits\n",
+      g_guest_indirect_call_csv_file);
   g_guest_indirect_call_summary_top_n = static_cast<size_t>(top_n);
   detail::g_guest_indirect_call_profile_enabled.store(true, std::memory_order_relaxed);
+}
+void ConfigureGuestConditionalBranchCsv(const std::string& path) {
+  CloseGuestConditionalBranchCsv();
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_conditional_branches_top_n);
+  if (path.empty() || top_n <= 0) {
+    return;
+  }
+
+  g_guest_conditional_branch_csv_path = BuildGuestConditionalBranchCsvPath(path);
+  g_guest_conditional_branch_summary_csv_path = BuildGuestConditionalBranchSummaryCsvPath(path);
+  g_guest_conditional_branch_csv_file =
+      rex::filesystem::OpenFile(rex::to_path(g_guest_conditional_branch_csv_path), "w");
+  if (!g_guest_conditional_branch_csv_file) {
+    REXLOG_WARN("perf: failed to open guest conditional branch CSV log: {}",
+                g_guest_conditional_branch_csv_path);
+    g_guest_conditional_branch_csv_path.clear();
+    g_guest_conditional_branch_summary_csv_path.clear();
+    return;
+  }
+
+  std::fputs(
+      "frame_index,elapsed_us,rank,source_guest_address,source_symbol,branch_site,"
+      "branch_site_symbol,target_guest_address,target_symbol,observations,taken,not_taken\n",
+      g_guest_conditional_branch_csv_file);
+  g_guest_conditional_branch_summary_top_n = static_cast<size_t>(top_n);
+  detail::g_guest_conditional_branch_profile_enabled.store(true, std::memory_order_relaxed);
 }
 
 void SyncGuestFunctionCsv() {
@@ -940,6 +1136,30 @@ void SyncGuestIndirectCallCsv() {
     ConfigureGuestIndirectCallCsv(g_csv_path);
   }
 }
+void SyncGuestConditionalBranchCsv() {
+  if (!g_csv_file || g_csv_path.empty()) {
+    if (g_guest_conditional_branch_csv_file ||
+        detail::g_guest_conditional_branch_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestConditionalBranchCsv();
+    }
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_conditional_branches_top_n);
+  if (top_n <= 0) {
+    if (g_guest_conditional_branch_csv_file ||
+        detail::g_guest_conditional_branch_profile_enabled.load(std::memory_order_relaxed)) {
+      CloseGuestConditionalBranchCsv();
+    } else {
+      ResetGuestConditionalBranchProfile();
+    }
+    return;
+  }
+
+  if (!g_guest_conditional_branch_csv_file) {
+    ConfigureGuestConditionalBranchCsv(g_csv_path);
+  }
+}
 
 void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
   if (!g_guest_function_csv_file) {
@@ -957,8 +1177,7 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
       static_cast<size_t>(top_n), static_cast<uint64_t>(std::max<int64_t>(0, min_exclusive)));
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(g_guest_function_csv_file,
-                 "%llu,%llu,%llu,0x%08X,",
+    std::fprintf(g_guest_function_csv_file, "%llu,%llu,%llu,0x%08X,",
                  static_cast<unsigned long long>(frame_index),
                  static_cast<unsigned long long>(elapsed_us),
                  static_cast<unsigned long long>(i + 1), entry.address);
@@ -967,8 +1186,7 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
         FormatPerCallMetric(entry.active_exclusive_us, entry.calls);
     const std::string spin_hints_per_call =
         FormatPerCallMetric(entry.dynamic_spin_hint_executions, entry.calls);
-    std::fprintf(g_guest_function_csv_file,
-                 ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s\n",
+    std::fprintf(g_guest_function_csv_file, ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
                  static_cast<unsigned long long>(entry.exclusive_us),
@@ -994,16 +1212,15 @@ void WriteGuestDirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
   const auto entries = SnapshotGuestDirectCallProfile(static_cast<size_t>(top_n));
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(g_guest_direct_call_csv_file,
-                 "%llu,%llu,%llu,0x%08X,",
+    std::fprintf(g_guest_direct_call_csv_file, "%llu,%llu,%llu,0x%08X,",
                  static_cast<unsigned long long>(frame_index),
                  static_cast<unsigned long long>(elapsed_us),
                  static_cast<unsigned long long>(i + 1), entry.source_address);
     WriteCsvCell(g_guest_direct_call_csv_file, entry.source_symbol);
     std::fprintf(g_guest_direct_call_csv_file, ",0x%08X,", entry.call_site);
-    WriteCsvCell(g_guest_direct_call_csv_file,
-                 FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
-                                           entry.call_site));
+    WriteCsvCell(
+        g_guest_direct_call_csv_file,
+        FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol, entry.call_site));
     std::fprintf(g_guest_direct_call_csv_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(g_guest_direct_call_csv_file, entry.target_symbol);
     std::fprintf(g_guest_direct_call_csv_file, ",%llu,%llu,%llu\n",
@@ -1024,31 +1241,55 @@ void WriteGuestIndirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
     return;
   }
 
-  const auto entries =
-      SnapshotGuestIndirectCallTargetProfile(static_cast<size_t>(top_n));
+  const auto entries = SnapshotGuestIndirectCallTargetProfile(static_cast<size_t>(top_n));
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
-    std::fprintf(g_guest_indirect_call_csv_file,
-                 "%llu,%llu,%llu,0x%08X,",
+    std::fprintf(g_guest_indirect_call_csv_file, "%llu,%llu,%llu,0x%08X,",
                  static_cast<unsigned long long>(frame_index),
                  static_cast<unsigned long long>(elapsed_us),
                  static_cast<unsigned long long>(i + 1), entry.source_address);
     WriteCsvCell(g_guest_indirect_call_csv_file, entry.source_symbol);
-    std::fprintf(g_guest_indirect_call_csv_file,
-                 ",0x%08X,",
-                 entry.call_site);
-    WriteCsvCell(g_guest_indirect_call_csv_file,
-                 FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol,
-                                           entry.call_site));
-    std::fprintf(g_guest_indirect_call_csv_file,
-                 ",0x%08X,",
-                 entry.target_address);
+    std::fprintf(g_guest_indirect_call_csv_file, ",0x%08X,", entry.call_site);
+    WriteCsvCell(
+        g_guest_indirect_call_csv_file,
+        FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol, entry.call_site));
+    std::fprintf(g_guest_indirect_call_csv_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(g_guest_indirect_call_csv_file, entry.target_symbol);
-    std::fprintf(g_guest_indirect_call_csv_file,
-                 ",%llu,%llu,%llu\n",
+    std::fprintf(g_guest_indirect_call_csv_file, ",%llu,%llu,%llu\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.fast_path_hits),
                  static_cast<unsigned long long>(entry.fallback_hits));
+  }
+}
+void WriteGuestConditionalBranchCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
+  if (!g_guest_conditional_branch_csv_file) {
+    return;
+  }
+
+  const int32_t top_n = REXCVAR_GET(perf_guest_conditional_branches_top_n);
+  if (top_n <= 0) {
+    CloseGuestConditionalBranchCsv();
+    return;
+  }
+
+  const auto entries = SnapshotGuestConditionalBranchProfile(static_cast<size_t>(top_n));
+  for (size_t i = 0; i < entries.size(); ++i) {
+    const auto& entry = entries[i];
+    std::fprintf(g_guest_conditional_branch_csv_file, "%llu,%llu,%llu,0x%08X,",
+                 static_cast<unsigned long long>(frame_index),
+                 static_cast<unsigned long long>(elapsed_us),
+                 static_cast<unsigned long long>(i + 1), entry.source_address);
+    WriteCsvCell(g_guest_conditional_branch_csv_file, entry.source_symbol);
+    std::fprintf(g_guest_conditional_branch_csv_file, ",0x%08X,", entry.branch_site);
+    WriteCsvCell(
+        g_guest_conditional_branch_csv_file,
+        FormatGuestCallSiteSymbol(entry.source_address, entry.source_symbol, entry.branch_site));
+    std::fprintf(g_guest_conditional_branch_csv_file, ",0x%08X,", entry.target_address);
+    WriteCsvCell(g_guest_conditional_branch_csv_file, entry.target_symbol);
+    std::fprintf(g_guest_conditional_branch_csv_file, ",%llu,%llu,%llu\n",
+                 static_cast<unsigned long long>(entry.observations),
+                 static_cast<unsigned long long>(entry.taken),
+                 static_cast<unsigned long long>(entry.not_taken));
   }
 }
 
@@ -1105,6 +1346,7 @@ void Init() {
   ResetGuestFunctionProfile();
   ResetGuestDirectCallProfile();
   ResetGuestIndirectCallProfile();
+  ResetGuestConditionalBranchProfile();
 }
 
 void SetCsvLogPath(const std::string& path) {
@@ -1119,6 +1361,7 @@ void SetCsvLogPath(const std::string& path) {
   CloseGuestFunctionCsv();
   CloseGuestDirectCallCsv();
   CloseGuestIndirectCallCsv();
+  CloseGuestConditionalBranchCsv();
 
   if (path.empty())
     return;
@@ -1133,6 +1376,7 @@ void SetCsvLogPath(const std::string& path) {
   ConfigureGuestFunctionCsv(path);
   ConfigureGuestDirectCallCsv(path);
   ConfigureGuestIndirectCallCsv(path);
+  ConfigureGuestConditionalBranchCsv(path);
 
   // Write header
   std::fputs("frame_index,elapsed_us", g_csv_file);
@@ -1172,9 +1416,11 @@ void WriteCsvFrame() {
   SyncGuestFunctionCsv();
   SyncGuestDirectCallCsv();
   SyncGuestIndirectCallCsv();
+  SyncGuestConditionalBranchCsv();
   WriteGuestFunctionCsvFrame(g_csv_frame_count, elapsed_us);
   WriteGuestDirectCallCsvFrame(g_csv_frame_count, elapsed_us);
   WriteGuestIndirectCallCsvFrame(g_csv_frame_count, elapsed_us);
+  WriteGuestConditionalBranchCsvFrame(g_csv_frame_count, elapsed_us);
 
   if (++g_csv_frame_count % 60 == 0) {
     std::fflush(g_csv_file);
@@ -1190,6 +1436,10 @@ void WriteCsvFrame() {
       std::fflush(g_guest_indirect_call_csv_file);
       WriteGuestIndirectCallSummaryCsv();
     }
+    if (g_guest_conditional_branch_csv_file) {
+      std::fflush(g_guest_conditional_branch_csv_file);
+      WriteGuestConditionalBranchSummaryCsv();
+    }
   }
 }
 
@@ -1202,6 +1452,7 @@ void FlushCsv() {
   CloseGuestFunctionCsv();
   CloseGuestDirectCallCsv();
   CloseGuestIndirectCallCsv();
+  CloseGuestConditionalBranchCsv();
   g_csv_path.clear();
   g_csv_frame_count = 0;
   g_csv_start_tick = 0;
@@ -1222,9 +1473,9 @@ void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t i
   AddGuestFunctionDurationUsLocked(g_guest_function_profile, address, symbol, inclusive_us,
                                    exclusive_us, blocking_wait_us, static_spin_hint_sites,
                                    dynamic_spin_hint_executions);
-  AddGuestFunctionDurationUsLocked(g_guest_function_summary_profile, address, symbol,
-                                   inclusive_us, exclusive_us, blocking_wait_us,
-                                   static_spin_hint_sites, dynamic_spin_hint_executions);
+  AddGuestFunctionDurationUsLocked(g_guest_function_summary_profile, address, symbol, inclusive_us,
+                                   exclusive_us, blocking_wait_us, static_spin_hint_sites,
+                                   dynamic_spin_hint_executions);
 }
 
 void AddGuestKernelWaitDurationUs(uint64_t duration_us) {
@@ -1268,8 +1519,7 @@ void AddGuestDirectCallTarget(uint32_t source_address, const char* source_symbol
   };
 
   std::lock_guard lock(g_guest_direct_call_profile_mutex);
-  AddGuestDirectCallTargetLocked(g_guest_direct_call_profile, key, source_symbol,
-                                 target_symbol);
+  AddGuestDirectCallTargetLocked(g_guest_direct_call_profile, key, source_symbol, target_symbol);
   AddGuestDirectCallTargetLocked(g_guest_direct_call_summary_profile, key, source_symbol,
                                  target_symbol);
 }
@@ -1288,15 +1538,14 @@ void AddGuestDirectCallPostCallR3(uint32_t source_address, const char* source_sy
   };
 
   std::lock_guard lock(g_guest_direct_call_profile_mutex);
-  AddGuestDirectCallPostCallR3Locked(g_guest_direct_call_profile, key, source_symbol,
-                                     target_symbol, post_call_r3);
+  AddGuestDirectCallPostCallR3Locked(g_guest_direct_call_profile, key, source_symbol, target_symbol,
+                                     post_call_r3);
   AddGuestDirectCallPostCallR3Locked(g_guest_direct_call_summary_profile, key, source_symbol,
                                      target_symbol, post_call_r3);
 }
 
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
-                                uint32_t call_site, uint32_t target_address,
-                                bool fast_path_hit) {
+                                uint32_t call_site, uint32_t target_address, bool fast_path_hit) {
   if (!detail::g_guest_indirect_call_profile_enabled.load(std::memory_order_relaxed)) {
     return;
   }
@@ -1320,10 +1569,28 @@ void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symb
   };
 
   std::lock_guard lock(g_guest_indirect_call_profile_mutex);
-  AddGuestIndirectCallTargetLocked(g_guest_indirect_call_profile, key, source_symbol,
-                                   target_symbol, fast_path_hit);
+  AddGuestIndirectCallTargetLocked(g_guest_indirect_call_profile, key, source_symbol, target_symbol,
+                                   fast_path_hit);
   AddGuestIndirectCallTargetLocked(g_guest_indirect_call_summary_profile, key, source_symbol,
                                    target_symbol, fast_path_hit);
+}
+void AddGuestConditionalBranchOutcome(uint32_t source_address, const char* source_symbol,
+                                      uint32_t branch_site, uint32_t target_address, bool taken) {
+  if (!detail::g_guest_conditional_branch_profile_enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+
+  const GuestConditionalBranchKey key{
+      .source_address = source_address,
+      .branch_site = branch_site,
+      .target_address = target_address,
+  };
+
+  std::lock_guard lock(g_guest_conditional_branch_profile_mutex);
+  AddGuestConditionalBranchOutcomeLocked(g_guest_conditional_branch_profile, key, source_symbol,
+                                         taken);
+  AddGuestConditionalBranchOutcomeLocked(g_guest_conditional_branch_summary_profile, key,
+                                         source_symbol, taken);
 }
 
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
@@ -1362,6 +1629,20 @@ std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTarget
     std::lock_guard lock(g_guest_indirect_call_profile_mutex);
     entries = BuildGuestIndirectCallTargetEntries(g_guest_indirect_call_profile);
     g_guest_indirect_call_profile.clear();
+  }
+
+  if (entries.size() > max_entries) {
+    entries.resize(max_entries);
+  }
+  return entries;
+}
+std::vector<GuestConditionalBranchProfileEntry> SnapshotGuestConditionalBranchProfile(
+    size_t max_entries) {
+  std::vector<GuestConditionalBranchProfileEntry> entries;
+  {
+    std::lock_guard lock(g_guest_conditional_branch_profile_mutex);
+    entries = BuildGuestConditionalBranchEntries(g_guest_conditional_branch_profile);
+    g_guest_conditional_branch_profile.clear();
   }
 
   if (entries.size() > max_entries) {

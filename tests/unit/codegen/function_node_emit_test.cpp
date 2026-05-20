@@ -116,10 +116,106 @@ TEST_CASE("FunctionNode emit keeps decrement branches local in owned pre-entry b
   };
 
   const std::string cpp = node->emitCpp(ctx);
-  CHECK(cpp.find("if (ctx.ctr.u32 != 0) goto loc_1024;") != std::string::npos);
+  CHECK(cpp.find("if (rex_branch_taken_00001078) goto loc_1024;") != std::string::npos);
   CHECK(cpp.find("branch to 0x1024 outside function") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit profiles local conditional branch outcomes",
+          "[codegen][FunctionNode]") {
+  std::array<uint8_t, 0x18> bytes{};
+  bytes[0x00] = 0x2C;
+  bytes[0x01] = 0x03;
+  bytes[0x02] = 0x00;
+  bytes[0x03] = 0x00;  // 0x1000: cmpwi r3,0
+  bytes[0x04] = 0x41;
+  bytes[0x05] = 0x82;
+  bytes[0x06] = 0x00;
+  bytes[0x07] = 0x0C;  // 0x1004: beq 0x1010
+  bytes[0x08] = 0x38;
+  bytes[0x09] = 0x60;
+  bytes[0x0A] = 0x00;
+  bytes[0x0B] = 0x01;  // 0x1008: li r3,1
+  bytes[0x0C] = 0x4E;
+  bytes[0x0D] = 0x80;
+  bytes[0x0E] = 0x00;
+  bytes[0x0F] = 0x20;  // 0x100C: blr
+  bytes[0x10] = 0x38;
+  bytes[0x11] = 0x60;
+  bytes[0x12] = 0x00;
+  bytes[0x13] = 0x00;  // 0x1010: li r3,0
+  bytes[0x14] = 0x4E;
+  bytes[0x15] = 0x80;
+  bytes[0x16] = 0x00;
+  bytes[0x17] = 0x20;  // 0x1014: blr
+
+  auto binary = MakeBinaryView(0x1000, bytes);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, 0x18, rex::codegen::FunctionAuthority::PDATA, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 0x10},
+                  rex::codegen::Block{.base = 0x1010, .size = 0x08}},
+                 {}, {0x1000, 0x1008, 0x1010});
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("const bool rex_branch_taken_00001004 = ctx.cr0.eq;") != std::string::npos);
+  CHECK(cpp.find("PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x00001000, \"sub_00001000\", "
+                 "0x00001004, 0x00001010, rex_branch_taken_00001004);") != std::string::npos);
+  CHECK(cpp.find("if (rex_branch_taken_00001004) goto loc_00001010;") != std::string::npos);
+  RequireTokenOrder(cpp, "const bool rex_branch_taken_00001004 = ctx.cr0.eq;",
+                    "if (rex_branch_taken_00001004) goto loc_00001010;");
+}
+
+TEST_CASE("FunctionNode emit profiles bounded decrement branch outcomes",
+          "[codegen][FunctionNode]") {
+  std::array<uint8_t, 0x60> bytes{};
+  for (size_t offset = 0; offset < bytes.size(); offset += 4) {
+    bytes[offset + 0] = 0x60;
+    bytes[offset + 1] = 0x00;
+    bytes[offset + 2] = 0x00;
+    bytes[offset + 3] = 0x00;
+  }
+  bytes[0x54] = 0x42;
+  bytes[0x55] = 0x00;
+  bytes[0x56] = 0xFF;
+  bytes[0x57] = 0xAC;  // 0x1078: bdnz 0x1024
+  bytes[0x5C] = 0x4E;
+  bytes[0x5D] = 0x80;
+  bytes[0x5E] = 0x00;
+  bytes[0x5F] = 0x20;  // 0x1080: blr
+
+  auto binary = MakeBinaryView(0x1024, bytes);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1080, 4, rex::codegen::FunctionAuthority::DISCOVERED, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1024, .size = static_cast<uint32_t>(bytes.size())}},
+                 {}, {0x1024, 0x1078, 0x1080});
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("const bool rex_branch_taken_00001078 = ctx.ctr.u32 != 0;") != std::string::npos);
+  CHECK(cpp.find("PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x00001080, \"sub_00001080\", "
+                 "0x00001078, 0x00001024, rex_branch_taken_00001078);") != std::string::npos);
+  CHECK(cpp.find("if (rex_branch_taken_00001078) goto loc_1024;") != std::string::npos);
+}
 TEST_CASE("FunctionNode emit starts promoted alternate entries at the entry label",
           "[codegen][FunctionNode]") {
   std::array<uint8_t, 0x68> bytes{};
@@ -239,9 +335,8 @@ TEST_CASE("FunctionNode emit skips native import profiling around longjmp helper
   auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
   REQUIRE(node != nullptr);
   node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
-  graph.addCallToFunction(0x1000, 0x1000,
-                          rex::codegen::CallTarget::import(
-                              0x2000, "__imp__KeDelayExecutionThread"));
+  graph.addCallToFunction(
+      0x1000, 0x1000, rex::codegen::CallTarget::import(0x2000, "__imp__KeDelayExecutionThread"));
   node->seal();
 
   rex::codegen::EmitContext ctx{
@@ -270,9 +365,8 @@ TEST_CASE("FunctionNode emit wraps direct import calls for native profiling",
   auto* node = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
   REQUIRE(node != nullptr);
   node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
-  graph.addCallToFunction(0x1000, 0x1000,
-                          rex::codegen::CallTarget::import(
-                              0x2000, "__imp__KeDelayExecutionThread"));
+  graph.addCallToFunction(
+      0x1000, 0x1000, rex::codegen::CallTarget::import(0x2000, "__imp__KeDelayExecutionThread"));
   node->seal();
 
   rex::codegen::EmitContext ctx{
@@ -284,9 +378,8 @@ TEST_CASE("FunctionNode emit wraps direct import calls for native profiling",
   };
 
   const std::string cpp = node->emitCpp(ctx);
-  CHECK(cpp.find(
-            "REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__KeDelayExecutionThread\", "
-            "__imp__KeDelayExecutionThread);") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__KeDelayExecutionThread\", "
+                 "__imp__KeDelayExecutionThread);") != std::string::npos);
   CHECK(cpp.find("__imp__KeDelayExecutionThread(ctx, base);") == std::string::npos);
 }
 
@@ -317,9 +410,8 @@ TEST_CASE("FunctionNode emit wraps import nodes resolved as function targets for
   };
 
   const std::string cpp = node->emitCpp(ctx);
-  CHECK(cpp.find(
-            "REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__NtWaitForSingleObjectEx\", "
-            "__imp__NtWaitForSingleObjectEx);") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_NATIVE_FUNC(0x00002000, \"__imp__NtWaitForSingleObjectEx\", "
+                 "__imp__NtWaitForSingleObjectEx);") != std::string::npos);
   CHECK(cpp.find("__imp__NtWaitForSingleObjectEx(ctx, base);") == std::string::npos);
 }
 
@@ -390,8 +482,7 @@ TEST_CASE("FunctionNode emit excludes register save helpers from direct call pro
   const std::string cpp = caller->emitCpp(ctx);
   CHECK(cpp.find("\t__savegprlr_29(ctx, base);") != std::string::npos);
   CHECK(cpp.find("REX_CALL_DIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
-                 "0x00002000, \"__savegprlr_29\", __savegprlr_29);") ==
-        std::string::npos);
+                 "0x00002000, \"__savegprlr_29\", __savegprlr_29);") == std::string::npos);
 }
 
 TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
@@ -423,8 +514,7 @@ TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
   CHECK(cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
   CHECK(cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
-                 "ctx.ctr.u32);") !=
-        std::string::npos);
+                 "ctx.ctr.u32);") != std::string::npos);
   CHECK(cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
@@ -458,8 +548,7 @@ TEST_CASE("FunctionNode emit handles raw branch-to-register BO/BI forms",
   CHECK(ctr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(ctr_link_cpp, "ctx.lr = 0x1004;", "if (!ctx.cr0.eq) {");
   CHECK(ctr_link_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", "
-                          "0x00001000, ctx.ctr.u32);") !=
-        std::string::npos);
+                          "0x00001000, ctx.ctr.u32);") != std::string::npos);
   CHECK(ctr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
 
   constexpr std::array<uint8_t, 8> kRawConditionalLrLink = {
@@ -473,13 +562,11 @@ TEST_CASE("FunctionNode emit handles raw branch-to-register BO/BI forms",
   CHECK(lr_link_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(lr_link_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
   CHECK(lr_link_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", "
-                         "0x00001000, uint32_t(old_lr));") !=
-        std::string::npos);
+                         "0x00001000, uint32_t(old_lr));") != std::string::npos);
   CHECK(lr_link_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
-TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
-          "[codegen][FunctionNode]") {
+TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases", "[codegen][FunctionNode]") {
   auto emit = [](std::array<uint8_t, 8> bytes) {
     auto binary = MakeBinaryView(0x1000, bytes);
     rex::codegen::RecompilerConfig config;
@@ -509,8 +596,7 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(ne_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(ne_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
   CHECK(ne_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
-                    "uint32_t(old_lr));") !=
-        std::string::npos);
+                    "uint32_t(old_lr));") != std::string::npos);
   CHECK(ne_cpp.find("UNIMPLEMENTED") == std::string::npos);
 
   constexpr std::array<uint8_t, 8> kEqLrLink = {
@@ -523,8 +609,7 @@ TEST_CASE("FunctionNode emit handles linked branch-to-LR aliases",
   CHECK(eq_cpp.find("ctx.lr = 0x1004;") != std::string::npos);
   RequireTokenOrder(eq_cpp, "auto old_lr = ctx.lr;", "ctx.lr = 0x1004;");
   CHECK(eq_cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
-                    "uint32_t(old_lr));") !=
-        std::string::npos);
+                    "uint32_t(old_lr));") != std::string::npos);
   CHECK(eq_cpp.find("UNIMPLEMENTED") == std::string::npos);
 }
 
@@ -554,8 +639,7 @@ TEST_CASE("FunctionNode emit lowers db16cyc spin hints to host pause hints",
                  "\trex::ppc_delay_execution_hint();") != std::string::npos);
 }
 
-TEST_CASE("FunctionNode emit batches consecutive db16cyc spin hints",
-          "[codegen][FunctionNode]") {
+TEST_CASE("FunctionNode emit batches consecutive db16cyc spin hints", "[codegen][FunctionNode]") {
   constexpr std::array<uint8_t, 16> kConsecutiveDb16cyc = {
       0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
       0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
@@ -587,8 +671,7 @@ TEST_CASE("FunctionNode emit batches consecutive db16cyc spin hints",
   CHECK(CountOccurrences(cpp, "rex::ppc_delay_execution_hint();") == 0);
 }
 
-TEST_CASE("FunctionNode emit does not batch db16cyc across labels",
-          "[codegen][FunctionNode]") {
+TEST_CASE("FunctionNode emit does not batch db16cyc across labels", "[codegen][FunctionNode]") {
   constexpr std::array<uint8_t, 12> kLabeledDb16cyc = {
       0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
       0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
@@ -634,11 +717,11 @@ TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of r
                   rex::codegen::Block{.base = 0x1004, .size = 4}},
                  {}, {0x1004});
   graph.addJumpTableToFunction(0x1000, rex::codegen::JumpTable{
-      .bctrAddress = 0x1000,
-      .tableAddress = 0x2000,
-      .indexRegister = 3,
-      .targets = {0x1004},
-  });
+                                           .bctrAddress = 0x1000,
+                                           .tableAddress = 0x2000,
+                                           .indexRegister = 3,
+                                           .targets = {0x1004},
+                                       });
   node->seal();
 
   rex::codegen::EmitContext ctx{
@@ -655,8 +738,7 @@ TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of r
   CHECK(cpp.find("goto loc_1004;") != std::string::npos);
   CHECK(cpp.find("default:") != std::string::npos);
   CHECK(cpp.find("REX_CALL_INDIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
-                 "ctx.ctr.u32);") !=
-        std::string::npos);
+                 "ctx.ctr.u32);") != std::string::npos);
   CHECK(cpp.find("__builtin_trap(); // Switch case out of range") == std::string::npos);
 }
 
@@ -673,8 +755,7 @@ TEST_CASE("FunctionNode SEH catch uses captured establisher frame",
   config.generateExceptionHandlers = true;
 
   rex::codegen::FunctionGraph graph;
-  auto* restoreHelper =
-      graph.addFunction(0x2000, 4, rex::codegen::FunctionAuthority::HELPER, true);
+  auto* restoreHelper = graph.addFunction(0x2000, 4, rex::codegen::FunctionAuthority::HELPER, true);
   REQUIRE(restoreHelper != nullptr);
   restoreHelper->setName("__restgprlr_22");
 
@@ -764,8 +845,7 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
 
   const std::string cpp = node->emitCpp(ctx);
   CHECK(cpp.find("uint32_t seh_dispatch_target = 0;") != std::string::npos);
-  CHECK(cpp.find("if (seh_dispatch_target == 0x00001008) goto loc_1008;") !=
-        std::string::npos);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001008) goto loc_1008;") != std::string::npos);
   CHECK(cpp.find("const auto& seh_state = ::rex::platform::seh_thread_state();") !=
         std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH exception caught in sub_00001000: code=0x{:08X}") !=
@@ -774,12 +854,10 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
         std::string::npos);
   CHECK(cpp.find("const uint32_t seh_saved_r1 = ctx.r1.u32;") != std::string::npos);
   CHECK(cpp.find("ctx.r1.u32 = (ctx.r1.u32 - 0x700) & ~0xFu;") != std::string::npos);
-  CHECK(cpp.find("const uint32_t seh_exception_record = ctx.r1.u32 + 0x20;") !=
-        std::string::npos);
+  CHECK(cpp.find("const uint32_t seh_exception_record = ctx.r1.u32 + 0x20;") != std::string::npos);
   CHECK(cpp.find("const uint32_t seh_exception_pointers = ctx.r1.u32 + 0x70;") !=
         std::string::npos);
-  CHECK(cpp.find("const uint32_t seh_context_record = ctx.r1.u32 + 0x100;") !=
-        std::string::npos);
+  CHECK(cpp.find("const uint32_t seh_context_record = ctx.r1.u32 + 0x100;") != std::string::npos);
   CHECK(cpp.find("REX_STORE_U32(seh_exception_record + 0x00, seh_state.code);") !=
         std::string::npos);
   CHECK(cpp.find("REX_STORE_U32(seh_exception_record + 0x14, "
@@ -790,14 +868,12 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
         std::string::npos);
   CHECK(cpp.find("REX_STORE_U32(seh_exception_pointers + 0x04, seh_context_record);") !=
         std::string::npos);
-  CHECK(cpp.find("REX_STORE_U64(seh_context_record + 144, ctx.r1.u64);") !=
-        std::string::npos);
+  CHECK(cpp.find("REX_STORE_U64(seh_context_record + 144, ctx.r1.u64);") != std::string::npos);
   CHECK(cpp.find("REX_STORE_U32(seh_context_record + 308, static_cast<uint32_t>(ctx.lr));") !=
         std::string::npos);
   CHECK(cpp.find("REX_STORE_U32(seh_context_record + 8, static_cast<uint32_t>(ctx.lr));") !=
         std::string::npos);
-  CHECK(cpp.find("REX_STORE_U64(seh_context_record + 32, ctx.r1.u64);") !=
-        std::string::npos);
+  CHECK(cpp.find("REX_STORE_U64(seh_context_record + 32, ctx.r1.u64);") != std::string::npos);
   CHECK(cpp.find("ctx.r3.u64 = seh_exception_pointers;  // __except exception pointers") !=
         std::string::npos);
   CHECK(cpp.find("seh_filter_2000(ctx, base);  // __except filter") != std::string::npos);
@@ -822,8 +898,7 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
                     "const int32_t seh_filter_result = ctx.r3.s32;");
   RequireTokenOrder(cpp, "const int32_t seh_filter_result = ctx.r3.s32;",
                     "seh_dispatch_target = 0x00001008;");
-  RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001008) goto loc_1008;",
-                    "loc_1008:");
+  RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001008) goto loc_1008;", "loc_1008:");
 }
 
 TEST_CASE("FunctionNode SEH dispatch calls discovered out-of-block handler entries",
@@ -871,8 +946,7 @@ TEST_CASE("FunctionNode SEH dispatch calls discovered out-of-block handler entri
   const std::string cpp = node->emitCpp(ctx);
   CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) {") != std::string::npos);
   CHECK(cpp.find("seh_handler_1040(ctx, base);") != std::string::npos);
-  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") ==
-        std::string::npos);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") == std::string::npos);
   CHECK(cpp.find("REX_FATAL(\"Branch target 0x00001040 in sub_00001000 has no emitted block\");") ==
         std::string::npos);
   RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001040) {",
@@ -934,8 +1008,7 @@ TEST_CASE("FunctionNode SEH dispatch prefers separate handler entries over overl
   const std::string cpp = node->emitCpp(ctx);
   CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) {") != std::string::npos);
   CHECK(cpp.find("seh_handler_1040(ctx, base);") != std::string::npos);
-  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") ==
-        std::string::npos);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") == std::string::npos);
   RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001040) {",
                     "seh_handler_1040(ctx, base);");
   RequireTokenOrder(cpp, "seh_handler_1040(ctx, base);", "\t\t\treturn;");
@@ -981,11 +1054,9 @@ TEST_CASE("FunctionNode SEH dispatch emits fatal stubs for missing in-range hand
   };
 
   const std::string cpp = node->emitCpp(ctx);
-  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") !=
-        std::string::npos);
+  CHECK(cpp.find("if (seh_dispatch_target == 0x00001040) goto loc_1040;") != std::string::npos);
   CHECK(cpp.find("loc_1040:") != std::string::npos);
   CHECK(cpp.find("REX_FATAL(\"Branch target 0x00001040 in sub_00001000 has no emitted block\");") !=
         std::string::npos);
-  RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001040) goto loc_1040;",
-                    "loc_1040:");
+  RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001040) goto loc_1040;", "loc_1040:");
 }
