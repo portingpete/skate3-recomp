@@ -23,6 +23,7 @@
 #include <cstring>
 #include <iterator>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -283,6 +284,17 @@ std::string FormatPerCallMetric(uint64_t total, uint64_t calls) {
   return buffer;
 }
 
+std::string FormatPercentMetric(uint64_t part, uint64_t total) {
+  if (total == 0) {
+    return "0.000";
+  }
+
+  char buffer[64] = {};
+  std::snprintf(buffer, sizeof(buffer), "%.3f",
+                static_cast<double>(part) * 100.0 / static_cast<double>(total));
+  return buffer;
+}
+
 void WriteCsvCell(std::FILE* file, std::string_view value) {
   const bool needs_quotes = value.find_first_of(",\"\r\n") != std::string_view::npos;
   if (!needs_quotes) {
@@ -441,13 +453,19 @@ void WriteGuestFunctionSummaryCsv() {
     entries = BuildGuestFunctionEntries(g_guest_function_summary_profile,
                                         g_guest_function_summary_min_exclusive_us);
   }
+  const uint64_t total_active_exclusive_us = std::accumulate(
+      entries.begin(), entries.end(), uint64_t{0},
+      [](uint64_t total, const GuestFunctionProfileEntry& entry) {
+        return total + entry.active_exclusive_us;
+      });
   if (entries.size() > g_guest_function_summary_top_n) {
     entries.resize(g_guest_function_summary_top_n);
   }
 
   std::fputs("rank,guest_address,symbol,calls,inclusive_us,exclusive_us,blocking_wait_us,"
              "active_exclusive_us,static_spin_hint_sites,dynamic_spin_hint_executions,"
-             "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call\n",
+             "active_exclusive_us_per_call,dynamic_spin_hint_executions_per_call,"
+             "active_exclusive_percent\n",
              summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
@@ -458,7 +476,9 @@ void WriteGuestFunctionSummaryCsv() {
         FormatPerCallMetric(entry.active_exclusive_us, entry.calls);
     const std::string spin_hints_per_call =
         FormatPerCallMetric(entry.dynamic_spin_hint_executions, entry.calls);
-    std::fprintf(summary_file, ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s\n",
+    const std::string active_percent =
+        FormatPercentMetric(entry.active_exclusive_us, total_active_exclusive_us);
+    std::fprintf(summary_file, ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s,%s\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
                  static_cast<unsigned long long>(entry.exclusive_us),
@@ -467,7 +487,8 @@ void WriteGuestFunctionSummaryCsv() {
                  entry.static_spin_hint_sites,
                  static_cast<unsigned long long>(entry.dynamic_spin_hint_executions),
                  active_us_per_call.c_str(),
-                 spin_hints_per_call.c_str());
+                 spin_hints_per_call.c_str(),
+                 active_percent.c_str());
   }
 
   std::fflush(summary_file);
