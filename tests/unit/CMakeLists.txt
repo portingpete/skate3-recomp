@@ -52,6 +52,7 @@ add_executable(unit_tests
     ui/d3d12_messages_test.cpp
     codegen/manifest_test.cpp
     rexglue/codegen_command_test.cpp
+    rexglue/cmake_version_test.cpp
     rexglue/init_command_test.cpp
     rexglue/migration_scan_test.cpp
     rexglue/ui_test.cpp
@@ -81,6 +82,10 @@ target_link_libraries(unit_tests PRIVATE
     rexcodegen
     rexruntime
     Catch2::Catch2WithMain
+)
+
+target_compile_definitions(unit_tests PRIVATE
+    REXGLUE_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
 )
 
 add_executable(sdk_import_smoke
