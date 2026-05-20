@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <limits>
 #include <vector>
 
 #include <rex/chrono/clock.h>
@@ -187,17 +188,30 @@ void XObject::SetAttributes(uint32_t obj_attributes_ptr) {
 }
 
 uint32_t XObject::TimeoutTicksToMs(int64_t timeout_ticks) {
-  if (timeout_ticks > 0) {
-    // Absolute time, based on January 1, 1601.
-    // TODO(benvanik): convert time to relative time.
-    assert_always();
-    return 0;
-  } else if (timeout_ticks < 0) {
-    // Relative time.
-    return (uint32_t)(-timeout_ticks / 10000);  // Ticks -> MS
-  } else {
+  constexpr uint64_t kFileTimeTicksPerMs = 10000;
+  if (timeout_ticks == 0) {
     return 0;
   }
+
+  uint64_t duration_ticks = 0;
+  if (timeout_ticks > 0) {
+    // Absolute time, based on January 1, 1601.
+    const uint64_t now = chrono::Clock::QueryGuestSystemTime();
+    const uint64_t target = static_cast<uint64_t>(timeout_ticks);
+    if (target <= now) {
+      return 0;
+    }
+    duration_ticks = target - now;
+  } else {
+    // Relative time.
+    duration_ticks = timeout_ticks == std::numeric_limits<int64_t>::min()
+                         ? uint64_t(std::numeric_limits<int64_t>::max()) + 1u
+                         : uint64_t(-timeout_ticks);
+  }
+
+  const uint64_t timeout_ms = duration_ticks / kFileTimeTicksPerMs;
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(timeout_ms, std::numeric_limits<uint32_t>::max()));
 }
 
 X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t alertable,

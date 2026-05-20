@@ -53,6 +53,7 @@ add_executable(unit_tests
     system/export_resolver_test.cpp
     system/guest_path_test.cpp
     system/function_dispatcher_test.cpp
+    system/xobject_test.cpp
     system/xthread_test.cpp
     ui/d3d12_messages_test.cpp
     codegen/manifest_test.cpp
