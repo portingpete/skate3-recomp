@@ -474,7 +474,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
     emit_println(out, "\tREX_FUNC_PROLOGUE();");
     if (ShouldEmitGuestFunctionProfileScope(ctx)) {
-      emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", 0);", base(), name);
+      emit_println(out, "\tREX_PROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", 0);", base(), name);
     }
     emit_println(out, "}}\n");
     return out;
@@ -631,7 +631,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
   emit_println(out, "DEFINE_REX_FUNC({}) {{", name);
   emit_println(out, "\tREX_FUNC_PROLOGUE();");
   if (ShouldEmitGuestFunctionProfileScope(ctx)) {
-    emit_println(out, "\tPROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", {});", base(), name,
+    emit_println(out, "\tREX_PROFILE_GUEST_FUNCTION_SCOPE(0x{:08X}, \"{}\", {});", base(), name,
                  staticGuestSpinHintSites);
   }
 
@@ -715,7 +715,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
               CountStraightLineDb16cycRun(ctx, labels, blockBase, blockEnd, data);
           if (db16cycRunLength > 1) {
             emit_println(body, "\t// db16cyc x{}", db16cycRunLength);
-            emit_println(body, "\tPROFILE_GUEST_SPIN_HINT_EXECUTIONS({});", db16cycRunLength);
+            emit_println(body, "\tREX_PROFILE_GUEST_SPIN_HINT_EXECUTIONS({});", db16cycRunLength);
             emit_println(body, "\trex::ppc_delay_execution_hints({});", db16cycRunLength);
             blockBase += db16cycRunLength * 4;
             data += db16cycRunLength;

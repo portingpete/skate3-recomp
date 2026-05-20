@@ -300,7 +300,7 @@ TEST_CASE("FunctionNode emit profiles generated guest function addresses",
 
   const std::string cpp = node.emitCpp(ctx);
   RequireTokenOrder(cpp, "REX_FUNC_PROLOGUE();",
-                    "\tPROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\", 1);");
+                    "\tREX_PROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\", 1);");
 }
 
 TEST_CASE("FunctionNode emit skips guest function profiling around longjmp helpers",
@@ -327,7 +327,7 @@ TEST_CASE("FunctionNode emit skips guest function profiling around longjmp helpe
   };
 
   const std::string cpp = node.emitCpp(ctx);
-  CHECK(cpp.find("PROFILE_GUEST_FUNCTION_SCOPE(") == std::string::npos);
+  CHECK(cpp.find("REX_PROFILE_GUEST_FUNCTION_SCOPE(") == std::string::npos);
 }
 
 TEST_CASE("FunctionNode emit skips native import profiling around longjmp helpers",
@@ -645,7 +645,7 @@ TEST_CASE("FunctionNode emit lowers db16cyc spin hints to host pause hints",
   };
 
   const std::string cpp = node.emitCpp(ctx);
-  CHECK(cpp.find("// db16cyc \n\tPROFILE_GUEST_SPIN_HINT_EXECUTION();\n"
+  CHECK(cpp.find("// db16cyc \n\tREX_PROFILE_GUEST_SPIN_HINT_EXECUTION();\n"
                  "\trex::ppc_delay_execution_hint();") != std::string::npos);
 }
 
@@ -673,11 +673,11 @@ TEST_CASE("FunctionNode emit batches consecutive db16cyc spin hints", "[codegen]
   };
 
   const std::string cpp = node.emitCpp(ctx);
-  CHECK(cpp.find("\tPROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\", 3);") !=
+  CHECK(cpp.find("\tREX_PROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\", 3);") !=
         std::string::npos);
-  CHECK(cpp.find("// db16cyc x3\n\tPROFILE_GUEST_SPIN_HINT_EXECUTIONS(3);\n"
+  CHECK(cpp.find("// db16cyc x3\n\tREX_PROFILE_GUEST_SPIN_HINT_EXECUTIONS(3);\n"
                  "\trex::ppc_delay_execution_hints(3);") != std::string::npos);
-  CHECK(CountOccurrences(cpp, "PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 0);
+  CHECK(CountOccurrences(cpp, "REX_PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 0);
   CHECK(CountOccurrences(cpp, "rex::ppc_delay_execution_hint();") == 0);
 }
 
@@ -705,9 +705,9 @@ TEST_CASE("FunctionNode emit does not batch db16cyc across labels", "[codegen][F
 
   const std::string cpp = node.emitCpp(ctx);
   CHECK(cpp.find("loc_1004:") != std::string::npos);
-  CHECK(CountOccurrences(cpp, "PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 2);
+  CHECK(CountOccurrences(cpp, "REX_PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 2);
   CHECK(CountOccurrences(cpp, "rex::ppc_delay_execution_hint();") == 2);
-  CHECK(cpp.find("PROFILE_GUEST_SPIN_HINT_EXECUTIONS(2);") == std::string::npos);
+  CHECK(cpp.find("REX_PROFILE_GUEST_SPIN_HINT_EXECUTIONS(2);") == std::string::npos);
   CHECK(cpp.find("rex::ppc_delay_execution_hints(2);") == std::string::npos);
 }
 

@@ -228,9 +228,12 @@ TEST_CASE("Template: rexglue target setup gates generated call and branch profil
   std::string json = R"({"sdk_version": "0.8.0", "entrypoint_out_dir": "generated/default", "names": {"snake_case": "mygame"}})";
   std::string result = registry.render("init/rexglue_cmake", json);
 
+  CHECK(result.find("option(REXGLUE_PROFILE_GUEST_FUNCTIONS") != std::string::npos);
   CHECK(result.find("option(REXGLUE_PROFILE_GUEST_DIRECT_CALLS") != std::string::npos);
   CHECK(result.find("option(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS") != std::string::npos);
   CHECK(result.find("option(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES") != std::string::npos);
+  CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
+                    "REXGLUE_PROFILE_GUEST_FUNCTIONS=1)") != std::string::npos);
   CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
                     "REXGLUE_PROFILE_GUEST_DIRECT_CALLS=1)") != std::string::npos);
   CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
@@ -321,6 +324,12 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("[[unlikely]]") != std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_FUNCTIONS)") != std::string::npos);
+  CHECK(result.find("REX_PROFILE_GUEST_FUNCTION_SCOPE") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_FUNCTION_SCOPE(__VA_ARGS__)") != std::string::npos);
+  CHECK(result.find("REX_PROFILE_GUEST_SPIN_HINT_EXECUTION") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_SPIN_HINT_EXECUTION()") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }
 
@@ -375,6 +384,12 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
                     "defined(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS)") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_FUNCTIONS)") != std::string::npos);
+  CHECK(result.find("REX_PROFILE_GUEST_FUNCTION_SCOPE") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_FUNCTION_SCOPE(__VA_ARGS__)") != std::string::npos);
+  CHECK(result.find("REX_PROFILE_GUEST_SPIN_HINT_EXECUTION") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_SPIN_HINT_EXECUTION()") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);
 }
 

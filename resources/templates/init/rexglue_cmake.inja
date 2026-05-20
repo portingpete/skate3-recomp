@@ -4,6 +4,8 @@
 # Set REXSDK_VERSION to pin a specific SDK version.
 # Otherwise, the version of the SDK that generated this file is used.
 set(REXSDK_VERSION "" CACHE STRING "Override SDK version (leave empty for default)")
+option(REXGLUE_PROFILE_GUEST_FUNCTIONS
+    "Compile generated guest-function profiling probes" OFF)
 option(REXGLUE_PROFILE_GUEST_DIRECT_CALLS
     "Compile generated direct-call profiling probes" OFF)
 option(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS
@@ -62,6 +64,9 @@ macro(rexglue_setup_target target_name)
             $<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>)
     endif()
     rexglue_configure_target({{ cmake_var("target_name") }})
+    if(REXGLUE_PROFILE_GUEST_FUNCTIONS)
+        target_compile_definitions({{ cmake_var("target_name") }} PRIVATE REXGLUE_PROFILE_GUEST_FUNCTIONS=1)
+    endif()
     if(REXGLUE_PROFILE_GUEST_DIRECT_CALLS)
         target_compile_definitions({{ cmake_var("target_name") }} PRIVATE REXGLUE_PROFILE_GUEST_DIRECT_CALLS=1)
     endif()
