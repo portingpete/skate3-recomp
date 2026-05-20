@@ -96,16 +96,8 @@ bool IsExpectedTitleDebugLogWriteProbe(X_STATUS status, std::string_view target_
 }
 
 bool IsShaderBytecodeResourcePath(std::string_view path) {
-  constexpr std::string_view kPixelShaderExtension = ".xpu";
-  constexpr std::string_view kVertexShaderExtension = ".xvu";
-
-  if (path.size() < kPixelShaderExtension.size()) {
-    return false;
-  }
-
-  const auto extension = path.substr(path.size() - kPixelShaderExtension.size());
-  return rex::string::utf8_equal_case(extension, kPixelShaderExtension) ||
-         rex::string::utf8_equal_case(extension, kVertexShaderExtension);
+  return rex::string::utf8_ends_with_case(path, ".xpu") ||
+         rex::string::utf8_ends_with_case(path, ".xvu");
 }
 
 void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 requested_bytes,

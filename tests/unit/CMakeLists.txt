@@ -22,6 +22,7 @@ add_executable(unit_tests
     core/platform_exceptions_test.cpp
     core/sha256_test.cpp
     core/stream_test.cpp
+    core/utf8_test.cpp
     core/byte_order_test.cpp
     core/chrono_test.cpp
     filesystem/virtual_file_system_test.cpp

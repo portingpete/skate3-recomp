@@ -39,11 +39,8 @@ bool IsBareRelativeGuestPath(const std::string_view path) {
 }
 
 bool IsCacheBigFallbackProbePath(const std::string_view path) {
-  constexpr std::string_view kBigExtension = ".big";
   return rex::string::utf8_starts_with_case(path, "cache:\\big\\") &&
-         path.size() >= kBigExtension.size() &&
-         rex::string::utf8_equal_case(path.substr(path.size() - kBigExtension.size()),
-                                      kBigExtension);
+         rex::string::utf8_ends_with_case(path, ".big");
 }
 
 bool IsOptionalStorageRootProbePath(const std::string_view path) {
