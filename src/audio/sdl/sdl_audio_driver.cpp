@@ -125,6 +125,7 @@ void SDLAudioDriver::SubmitFrame(uint32_t frame_ptr) {
 
   {
     std::unique_lock<std::mutex> guard(frames_mutex_);
+    has_submitted_frame_ = true;
     frames_queued_.push(output_frame);
     PROFILE_BUFFER_QUEUE_DEPTH(static_cast<int64_t>(frames_queued_.size()));
   }
@@ -148,6 +149,7 @@ void SDLAudioDriver::Shutdown() {
     delete[] frames_queued_.front();
     frames_queued_.pop();
   }
+  has_submitted_frame_ = false;
 }
 
 void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int additional_amount,
@@ -171,6 +173,11 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
     std::unique_lock<std::mutex> guard(driver->frames_mutex_);
     if (driver->frames_queued_.empty()) {
       PROFILE_AUDIO_SILENCE_FRAME();
+      if (driver->has_submitted_frame_) {
+        PROFILE_AUDIO_UNDERRUN_FRAME();
+      } else {
+        PROFILE_AUDIO_STARTUP_SILENCE_FRAME();
+      }
       if (sdl_callback_count < 10) {
         REXAPU_DEBUG("SDLCallback: no frames queued (silence)");
         sdl_callback_count++;

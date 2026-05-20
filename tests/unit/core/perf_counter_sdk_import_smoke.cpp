@@ -26,6 +26,9 @@ int main() {
 
   (void)rex::perf::IsGuestFunctionProfileEnabled();
   (void)rex::perf::IsGuestIndirectCallProfileEnabled();
+  PROFILE_AUDIO_SILENCE_FRAME();
+  PROFILE_AUDIO_STARTUP_SILENCE_FRAME();
+  PROFILE_AUDIO_UNDERRUN_FRAME();
   if (rex::perf::IsGuestIndirectCallProfileEnabled()) {
     return 1;
   }
