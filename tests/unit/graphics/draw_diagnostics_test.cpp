@@ -17,6 +17,12 @@ TEST_CASE("IssueDraw failure diagnostics include backend stage and draw state",
       .path_select = 0,
       .tess_mode = 1,
       .edram_mode = 4,
+      .has_vertex_shader_hash = true,
+      .vertex_shader_hash = 0x0A6D1DD7767FDF27ull,
+      .has_primitive_processing = true,
+      .host_primitive_type = 6,
+      .host_vertex_shader_type = 0,
+      .host_draw_vertex_count = 4,
   };
 
   const std::string text = rex::graphics::FormatIssueDrawFailure(info);
@@ -30,4 +36,8 @@ TEST_CASE("IssueDraw failure diagnostics include backend stage and draw state",
   CHECK(text.find("path_select=0") != std::string::npos);
   CHECK(text.find("tess_mode=1") != std::string::npos);
   CHECK(text.find("edram_mode=4") != std::string::npos);
+  CHECK(text.find("vs=0x0A6D1DD7767FDF27") != std::string::npos);
+  CHECK(text.find("host_primitive_type=6") != std::string::npos);
+  CHECK(text.find("host_vertex_shader_type=0") != std::string::npos);
+  CHECK(text.find("host_draw_vertex_count=4") != std::string::npos);
 }

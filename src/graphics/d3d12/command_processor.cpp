@@ -2303,9 +2303,14 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
 
   ID3D12Device* device = GetD3D12Provider().GetDevice();
   const RegisterFile& regs = *register_file_;
+  D3D12Shader* vertex_shader = nullptr;
+  D3D12Shader* pixel_shader = nullptr;
+  PrimitiveProcessor::ProcessingResult primitive_processing_result;
+  bool has_primitive_processing_result = false;
+
   auto draw_fail = [&](const char* stage) {
     auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
-    const IssueDrawFailureInfo failure_info{
+    IssueDrawFailureInfo failure_info{
         .backend = "D3D12",
         .stage = stage,
         .prim_type = uint32_t(primitive_type),
@@ -2317,6 +2322,22 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
         .tess_mode = uint32_t(regs.Get<reg::VGT_HOS_CNTL>().tess_mode),
         .edram_mode = uint32_t(regs.Get<reg::RB_MODECONTROL>().edram_mode),
     };
+    if (vertex_shader) {
+      failure_info.has_vertex_shader_hash = true;
+      failure_info.vertex_shader_hash = vertex_shader->ucode_data_hash();
+    }
+    if (pixel_shader) {
+      failure_info.has_pixel_shader_hash = true;
+      failure_info.pixel_shader_hash = pixel_shader->ucode_data_hash();
+    }
+    if (has_primitive_processing_result) {
+      failure_info.has_primitive_processing = true;
+      failure_info.host_primitive_type =
+          uint32_t(primitive_processing_result.host_primitive_type);
+      failure_info.host_vertex_shader_type =
+          uint32_t(primitive_processing_result.host_vertex_shader_type);
+      failure_info.host_draw_vertex_count = primitive_processing_result.host_draw_vertex_count;
+    }
     REXGPU_ERROR("{}", FormatIssueDrawFailure(failure_info));
     return false;
   };
@@ -2330,7 +2351,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   bool surface_pitch_is_zero = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch == 0;
 
   // Vertex shader analysis.
-  auto vertex_shader = static_cast<D3D12Shader*>(active_vertex_shader());
+  vertex_shader = static_cast<D3D12Shader*>(active_vertex_shader());
   if (!vertex_shader) {
     // Always need a vertex shader.
     return draw_fail("missing_vertex_shader");
@@ -2346,7 +2367,6 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
     // Unlikely that zero would even really be legal though.
     return true;
   }
-  D3D12Shader* pixel_shader = nullptr;
   if (is_rasterization_done) {
     // See xenos::EdramMode for explanation why the pixel shader is only used
     // when it's kColorDepth here.
@@ -2375,10 +2395,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   }
 
   // Process primitives.
-  PrimitiveProcessor::ProcessingResult primitive_processing_result;
   if (!primitive_processor_->Process(primitive_processing_result)) {
     return draw_fail("primitive_processing");
   }
+  has_primitive_processing_result = true;
   if (!primitive_processing_result.host_draw_vertex_count) {
     // Nothing to draw.
     return true;

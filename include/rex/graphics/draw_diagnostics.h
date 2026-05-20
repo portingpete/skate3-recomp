@@ -16,6 +16,14 @@ struct IssueDrawFailureInfo {
   uint32_t path_select = 0;
   uint32_t tess_mode = 0;
   uint32_t edram_mode = 0;
+  bool has_vertex_shader_hash = false;
+  uint64_t vertex_shader_hash = 0;
+  bool has_pixel_shader_hash = false;
+  uint64_t pixel_shader_hash = 0;
+  bool has_primitive_processing = false;
+  uint32_t host_primitive_type = 0;
+  uint32_t host_vertex_shader_type = 0;
+  uint32_t host_draw_vertex_count = 0;
 };
 
 std::string FormatIssueDrawFailure(const IssueDrawFailureInfo& info);
