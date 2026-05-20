@@ -15,6 +15,7 @@ add_library(rexcore OBJECT
     memory.cpp
     mutex.cpp
     ring_buffer.cpp
+    ppc_delay.cpp
     sha256.cpp
     string_buffer.cpp
     threading.cpp

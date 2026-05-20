@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include <rex/cvar.h>
 #include <rex/platform/fpscr.h>
 #include <rex/types.h>
 
@@ -62,9 +63,16 @@ inline uint64_t IndirectDispatchGeneration() noexcept {
 PPCFunc* ResolveIndirectFunction(uint32_t guest_address);
 }  // namespace rex::runtime
 
+namespace rex::thread {
+void MaybeYield();
+}  // namespace rex::thread
+
+REXCVAR_DECLARE(bool, ppc_delay_via_maybeyield);
+
 namespace rex {
 
-inline void ppc_delay_execution_hint() noexcept {
+namespace detail {
+inline void ppc_delay_execution_pause_hint() noexcept {
 #if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
   _mm_pause();
 #elif defined(__i386__) || defined(__x86_64__)
@@ -75,10 +83,27 @@ inline void ppc_delay_execution_hint() noexcept {
   std::atomic_signal_fence(std::memory_order_seq_cst);
 #endif
 }
+}  // namespace detail
+
+inline void ppc_delay_execution_hint() noexcept {
+  if (REXCVAR_GET(ppc_delay_via_maybeyield)) {
+    rex::thread::MaybeYield();
+    return;
+  }
+
+  detail::ppc_delay_execution_pause_hint();
+}
 
 inline void ppc_delay_execution_hints(uint32_t count) noexcept {
+  if (REXCVAR_GET(ppc_delay_via_maybeyield)) {
+    for (uint32_t i = 0; i < count; ++i) {
+      rex::thread::MaybeYield();
+    }
+    return;
+  }
+
   for (uint32_t i = 0; i < count; ++i) {
-    ppc_delay_execution_hint();
+    detail::ppc_delay_execution_pause_hint();
   }
 }
 

@@ -9,6 +9,16 @@ int main() {
     return 10;
   }
 
+  if (!rex::cvar::SetFlagByName("ppc_delay_via_maybeyield", "false")) {
+    return 11;
+  }
+  rex::ppc_delay_execution_hint();
+  if (!rex::cvar::SetFlagByName("ppc_delay_via_maybeyield", "true")) {
+    return 12;
+  }
+  rex::ppc_delay_execution_hint();
+  rex::cvar::SetFlagByName("ppc_delay_via_maybeyield", "false");
+
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
   const auto csv_path =
       std::filesystem::temp_directory_path() / "rex_perf_sdk_import_smoke.csv";
