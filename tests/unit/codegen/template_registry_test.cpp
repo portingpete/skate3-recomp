@@ -222,13 +222,19 @@ TEST_CASE("Template: rexglue target setup exposes source-tree ImGui includes",
         std::string::npos);
 }
 
-TEST_CASE("Template: rexglue target setup gates generated branch profiling at compile time",
+TEST_CASE("Template: rexglue target setup gates generated call and branch profiling at compile time",
           "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;
   std::string json = R"({"sdk_version": "0.8.0", "entrypoint_out_dir": "generated/default", "names": {"snake_case": "mygame"}})";
   std::string result = registry.render("init/rexglue_cmake", json);
 
+  CHECK(result.find("option(REXGLUE_PROFILE_GUEST_DIRECT_CALLS") != std::string::npos);
+  CHECK(result.find("option(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS") != std::string::npos);
   CHECK(result.find("option(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES") != std::string::npos);
+  CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
+                    "REXGLUE_PROFILE_GUEST_DIRECT_CALLS=1)") != std::string::npos);
+  CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
+                    "REXGLUE_PROFILE_GUEST_INDIRECT_CALLS=1)") != std::string::npos);
   CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
                     "REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES=1)") != std::string::npos);
 }
@@ -296,16 +302,21 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_DIRECT_CALLS)") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
-  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,") != std::string::npos);
-  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol,") !=
+  CHECK(result.find("rex::perf::AddGuestDirectCallTarget(source_address, source_symbol, "
+                    "call_site,") != std::string::npos);
+  CHECK(result.find("rex::perf::AddGuestDirectCallPostCallR3(source_address, source_symbol,") !=
         std::string::npos);
   CHECK(result.find("ctx.r3.u32") != std::string::npos);
   CHECK(result.find("fn(ctx, base);") < result.find("ctx.r3.u32"));
   CHECK(result.find("std::string rex_indirect_target_symbol_") == std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS)") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
-  CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,") !=
-        std::string::npos);
+  CHECK(result.find("rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, "
+                    "call_site,") != std::string::npos);
   CHECK(result.find("target_address, fast_path_hit);") != std::string::npos);
   CHECK(result.find("REX_THUNK_RESERVE_SIZE") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
@@ -355,9 +366,13 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_DIRECT_CALLS)") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
-  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3") != std::string::npos);
+  CHECK(result.find("rex::perf::AddGuestDirectCallPostCallR3") != std::string::npos);
   CHECK(result.find("ctx.r3.u32") != std::string::npos);
+  CHECK(result.find("#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && "
+                    "defined(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS)") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);

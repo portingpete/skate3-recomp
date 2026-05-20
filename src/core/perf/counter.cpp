@@ -37,9 +37,11 @@ REXCVAR_DEFINE_INT64(
     perf_guest_functions_min_exclusive_us, 0, "Perf",
     "Minimum active exclusive guest-function time, in microseconds, for sidecar perf CSV");
 REXCVAR_DEFINE_INT32(perf_guest_direct_calls_top_n, 0, "Perf",
-                     "Write the top N generated direct-call edges to a sidecar perf CSV");
+                     "Write the top N generated direct-call edges to a sidecar perf CSV when "
+                     "generated direct-call probes were compiled in");
 REXCVAR_DEFINE_INT32(perf_guest_indirect_targets_top_n, 0, "Perf",
-                     "Write the top N generated indirect-call targets to a sidecar perf CSV");
+                     "Write the top N generated indirect-call targets to a sidecar perf CSV when "
+                     "generated indirect-call probes were compiled in");
 REXCVAR_DEFINE_INT32(
     perf_guest_conditional_branches_top_n, 0, "Perf",
     "Write the top N generated conditional branch outcomes to a sidecar perf CSV when generated "

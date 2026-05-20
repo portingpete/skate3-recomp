@@ -9,7 +9,8 @@
 // which queries the global FunctionDispatcher across every loaded module.
 //=============================================================================
 
-#if defined(REXGLUE_ENABLE_PROFILING) || defined(REXGLUE_ENABLE_PERF_COUNTERS)
+#if defined(REXGLUE_ENABLE_PROFILING) || \
+    (defined(REXGLUE_ENABLE_PERF_COUNTERS) && defined(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS))
 #include <rex/perf/counter.h>
 #endif
 
@@ -19,17 +20,17 @@
 #define REX_PROFILE_INDIRECT_DISPATCH()
 #endif
 
-#ifdef REXGLUE_ENABLE_PERF_COUNTERS
-#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
-                                               target_address, fast_path_hit)                  \
-  do {                                                                                         \
-    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                      \
-      PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,              \
-                                         target_address, fast_path_hit);                        \
-    }                                                                                          \
+#if defined(REXGLUE_ENABLE_PERF_COUNTERS) && defined(REXGLUE_PROFILE_GUEST_INDIRECT_CALLS)
+#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,      \
+                                               target_address, fast_path_hit)                 \
+  do {                                                                                        \
+    if (rex::perf::IsGuestIndirectCallProfileEnabled()) {                                     \
+      rex::perf::AddGuestIndirectCallTarget(source_address, source_symbol, call_site,         \
+                                            target_address, fast_path_hit);                   \
+    }                                                                                         \
   } while (false)
 #else
-#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
+#define REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, \
                                                target_address, fast_path_hit)
 #endif
 
@@ -96,19 +97,19 @@ static REX_GENERATED_FORCE_INLINE IndirectCallResolution ResolveIndirectCallTarg
   REX_CALL_INDIRECT_FUNC_AT_IMPL2(cache_id, source_address, source_symbol, call_site, x)
 
 #define REX_CALL_INDIRECT_FUNC_AT_IMPL2(cache_id, source_address, source_symbol, call_site, x) \
-  do {                                                                                     \
-    REX_PROFILE_INDIRECT_DISPATCH();                                                       \
-    static thread_local rex::generated::IndirectCallCache REX_JOIN(rex_indirect_cache_,    \
-                                                                   cache_id);              \
-    uint32_t rex_indirect_target_ = (uint32_t)(x);                                         \
-    const auto rex_indirect_call_ =                                                         \
-        rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_,          \
-                                                  REX_JOIN(rex_indirect_cache_, cache_id)); \
-    REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
-                                           rex_indirect_target_,                           \
-                                           rex_indirect_call_.fast_path_hit);               \
-    (void)rex_indirect_call_.fast_path_hit;                                                 \
-    rex_indirect_call_.func(ctx, base);                                                     \
+  do {                                                                                       \
+    REX_PROFILE_INDIRECT_DISPATCH();                                                         \
+    static thread_local rex::generated::IndirectCallCache REX_JOIN(rex_indirect_cache_,      \
+                                                                   cache_id);                \
+    uint32_t rex_indirect_target_ = (uint32_t)(x);                                           \
+    const auto rex_indirect_call_ =                                                          \
+        rex::generated::ResolveIndirectCallTarget(ctx, base, rex_indirect_target_,            \
+                                                  REX_JOIN(rex_indirect_cache_, cache_id));   \
+    REX_PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,          \
+                                           rex_indirect_target_,                              \
+                                           rex_indirect_call_.fast_path_hit);                 \
+    (void)rex_indirect_call_.fast_path_hit;                                                   \
+    rex_indirect_call_.func(ctx, base);                                                       \
   } while (0)
 
 #define REX_CALL_INDIRECT_FUNC(x) REX_CALL_INDIRECT_FUNC_AT(0, "", 0, (x))
