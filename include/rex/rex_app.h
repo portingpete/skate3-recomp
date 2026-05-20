@@ -199,6 +199,14 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   static std::string BuildGeneratedBuildLine(std::string_view generated_build_stamp);
   static std::string BuildGeneratedEntrypointXexHashLine(std::string_view sha256);
   static std::string BuildExecutablePathLine(const std::filesystem::path& executable_path);
+  static std::string BuildLoadedXexExecutionInfoLine(uint32_t title_id, uint32_t media_id,
+                                                     uint32_t version_value,
+                                                     uint8_t disc_number,
+                                                     uint8_t disc_count);
+  static std::string BuildLoadedXexSystemFlagsLine(uint32_t system_flags);
+  static std::string BuildGeneratedEntrypointMismatchLine(
+      std::string_view generated_sha256, std::string_view loaded_sha256,
+      const std::filesystem::path& loaded_path);
   static std::string BuildGameDataRootMissingMessage(std::string_view app_name,
                                                      std::string_view parse_error = {});
   static std::string BuildGameDataRootNotFoundMessage(const std::filesystem::path& game_data_root);

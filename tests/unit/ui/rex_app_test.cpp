@@ -58,6 +58,25 @@ class TestReXApp final : public rex::ReXApp {
     return BuildExecutablePathLine(executable_path);
   }
 
+  static std::string BuildLoadedXexExecutionInfoLineForTest(uint32_t title_id,
+                                                            uint32_t media_id,
+                                                            uint32_t version_value,
+                                                            uint8_t disc_number,
+                                                            uint8_t disc_count) {
+    return BuildLoadedXexExecutionInfoLine(title_id, media_id, version_value, disc_number,
+                                           disc_count);
+  }
+
+  static std::string BuildLoadedXexSystemFlagsLineForTest(uint32_t system_flags) {
+    return BuildLoadedXexSystemFlagsLine(system_flags);
+  }
+
+  static std::string BuildGeneratedEntrypointMismatchLineForTest(
+      std::string_view generated_sha256, std::string_view loaded_sha256,
+      const std::filesystem::path& loaded_path) {
+    return BuildGeneratedEntrypointMismatchLine(generated_sha256, loaded_sha256, loaded_path);
+  }
+
   static std::string BuildGameDataRootNotFoundMessageForTest(
       const std::filesystem::path& game_data_root) {
     return BuildGameDataRootNotFoundMessage(game_data_root);
@@ -213,4 +232,37 @@ TEST_CASE("ReXApp startup identity lines include host build and executable path"
   auto executable_line = TestReXApp::BuildExecutablePathLineForTest(executable);
   CHECK(executable_line.find("Executable:") != std::string::npos);
   CHECK(executable_line.find(executable.string()) != std::string::npos);
+}
+
+TEST_CASE("ReXApp startup identity lines include loaded XEX media details",
+          "[ui][rex_app][paths]") {
+  constexpr uint32_t kVersion = (1u << 28) | (2u << 24) | (345u << 8) | 6u;
+
+  auto execution_line = TestReXApp::BuildLoadedXexExecutionInfoLineForTest(
+      0x545407F2, 0x06759F9C, kVersion, 1, 2);
+  CHECK(execution_line.find("Loaded XEX:") != std::string::npos);
+  CHECK(execution_line.find("title_id=545407F2") != std::string::npos);
+  CHECK(execution_line.find("media_id=06759F9C") != std::string::npos);
+  CHECK(execution_line.find("version=1.2.345.6") != std::string::npos);
+  CHECK(execution_line.find("disc=1/2") != std::string::npos);
+
+  auto no_multidisc_flags = TestReXApp::BuildLoadedXexSystemFlagsLineForTest(0x00000200);
+  CHECK(no_multidisc_flags.find("Loaded XEX system flags: 00000200") != std::string::npos);
+  CHECK(no_multidisc_flags.find("multidisc=none") != std::string::npos);
+
+  auto multidisc_flags = TestReXApp::BuildLoadedXexSystemFlagsLineForTest(0x08018000);
+  CHECK(multidisc_flags.find("multidisc_swap") != std::string::npos);
+  CHECK(multidisc_flags.find("multidisc_insecure_media") != std::string::npos);
+  CHECK(multidisc_flags.find("multidisc_cross_title") != std::string::npos);
+}
+
+TEST_CASE("ReXApp warns when loaded entrypoint hash differs from generated XEX",
+          "[ui][rex_app][paths]") {
+  auto line = TestReXApp::BuildGeneratedEntrypointMismatchLineForTest(
+      "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0",
+      "fa76a67b0be6138783bbd7dfc7d231adbb536f4ae188965085485aae1670a6af",
+      "K:/DoritosRexGlue/games/GTAIV/disc2/default.xex");
+  CHECK(line.find("Generated entrypoint XEX SHA256 does not match loaded XEX") !=
+        std::string::npos);
+  CHECK(line.find("disc2/default.xex") != std::string::npos);
 }

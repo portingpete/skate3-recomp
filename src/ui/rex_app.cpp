@@ -12,6 +12,7 @@
 #include <rex/rex_app.h>
 
 #include <rex/cvar.h>
+#include <rex/crypto/sha256.h>
 #include <rex/ui/flags.h>
 #include <rex/kernel/crt/heap.h>
 #include <rex/filesystem.h>
@@ -33,7 +34,9 @@
 #include <rex/kernel/init.h>
 #include <rex/system.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/user_module.h>
 #include <rex/system/xthread.h>
+#include <rex/system/util/xex2_info.h>
 #include <rex/ui/graphics_provider.h>
 #include <rex/ui/keybinds.h>
 #include <rex/version.h>
@@ -118,6 +121,53 @@ std::string ReXApp::BuildGeneratedEntrypointXexHashLine(std::string_view sha256)
 
 std::string ReXApp::BuildExecutablePathLine(const std::filesystem::path& executable_path) {
   return fmt::format("  Executable:     {}", executable_path.string());
+}
+
+std::string ReXApp::BuildLoadedXexExecutionInfoLine(uint32_t title_id, uint32_t media_id,
+                                                    uint32_t version_value,
+                                                    uint8_t disc_number,
+                                                    uint8_t disc_count) {
+  const uint32_t major = (version_value >> 28) & 0xF;
+  const uint32_t minor = (version_value >> 24) & 0xF;
+  const uint32_t build = (version_value >> 8) & 0xFFFF;
+  const uint32_t qfe = version_value & 0xFF;
+  return fmt::format(
+      "  Loaded XEX: title_id={:08X} media_id={:08X} version={}.{}.{}.{} disc={}/{}",
+      title_id, media_id, major, minor, build, qfe, disc_number, disc_count);
+}
+
+std::string ReXApp::BuildLoadedXexSystemFlagsLine(uint32_t system_flags) {
+  std::string multidisc_flags;
+  auto append_flag = [&multidisc_flags](std::string_view name) {
+    if (!multidisc_flags.empty()) {
+      multidisc_flags += ", ";
+    }
+    multidisc_flags += name;
+  };
+
+  if ((system_flags & XEX_SYSTEM_MULTIDISC_SWAP) != 0) {
+    append_flag("multidisc_swap");
+  }
+  if ((system_flags & XEX_SYSTEM_MULTIDISC_INSECURE_MEDIA) != 0) {
+    append_flag("multidisc_insecure_media");
+  }
+  if ((system_flags & XEX_SYSTEM_MULTIDISC_CROSS_TITLE) != 0) {
+    append_flag("multidisc_cross_title");
+  }
+  if (multidisc_flags.empty()) {
+    multidisc_flags = "multidisc=none";
+  }
+
+  return fmt::format("  Loaded XEX system flags: {:08X} ({})", system_flags, multidisc_flags);
+}
+
+std::string ReXApp::BuildGeneratedEntrypointMismatchLine(
+    std::string_view generated_sha256, std::string_view loaded_sha256,
+    const std::filesystem::path& loaded_path) {
+  return fmt::format(
+      "  Generated entrypoint XEX SHA256 does not match loaded XEX: generated={}, loaded={}, "
+      "path={}",
+      generated_sha256, loaded_sha256, loaded_path.string());
 }
 
 std::string ReXApp::BuildGameDataRootMissingMessage(std::string_view app_name,
@@ -339,6 +389,19 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
       rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
       return false;
     }
+
+    const std::string_view generated_sha = ppc_info_.entrypoint_xex_sha256 != nullptr
+                                               ? ppc_info_.entrypoint_xex_sha256
+                                               : std::string_view{};
+    if (!generated_sha.empty()) {
+      auto loaded_sha = rex::crypto::sha256_file(xex_host);
+      if (!loaded_sha.empty() && loaded_sha != generated_sha) {
+        REXLOG_WARN("{}", BuildGeneratedEntrypointMismatchLine(generated_sha, loaded_sha, xex_host));
+      } else if (loaded_sha.empty()) {
+        REXLOG_WARN("  Unable to hash loaded entrypoint XEX for provenance check: {}",
+                    xex_host.string());
+      }
+    }
   }
 
   status = runtime_->LoadXexImage(xex_image);
@@ -347,6 +410,23 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
     REXLOG_ERROR("{}", msg);
     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
     return false;
+  }
+
+  if (auto executable_module = runtime_->kernel_state()->GetExecutableModule()) {
+    xex2_opt_execution_info* exec_info = nullptr;
+    if (XSUCCEEDED(executable_module->GetOptHeader(XEX_HEADER_EXECUTION_INFO, &exec_info)) &&
+        exec_info != nullptr) {
+      REXLOG_INFO("{}", BuildLoadedXexExecutionInfoLine(
+                            static_cast<uint32_t>(exec_info->title_id),
+                            static_cast<uint32_t>(exec_info->media_id), exec_info->version().value,
+                            exec_info->disc_number, exec_info->disc_count));
+    }
+
+    uint32_t system_flags = 0;
+    if (XSUCCEEDED(executable_module->GetOptHeader<uint32_t>(XEX_HEADER_SYSTEM_FLAGS,
+                                                             &system_flags))) {
+      REXLOG_INFO("{}", BuildLoadedXexSystemFlagsLine(system_flags));
+    }
   }
 
   OnPostLoadXexImage();
