@@ -119,6 +119,7 @@ TEST_CASE("TemplateRegistry: render with codegen data", "[TemplateRegistry]") {
     "code_size": "0x100000",
     "rexcrt_heap": 1,
     "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
+    "entrypoint_xex_sha256": "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0",
     "has_dll_modules": false,
     "is_dll": false,
     "config_flags": {},
@@ -142,6 +143,7 @@ TEST_CASE("TemplateRegistry: generated function registration keeps stable ABI",
     "code_size": "0x100000",
     "rexcrt_heap": 1,
     "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
+    "entrypoint_xex_sha256": "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0",
     "has_dll_modules": false,
     "is_dll": false,
     "config_flags": {},
@@ -177,6 +179,7 @@ TEST_CASE("TemplateRegistry: init_cpp records generated code provenance",
     "code_size": "0x100000",
     "rexcrt_heap": 0,
     "generated_build_stamp": "build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200",
+    "entrypoint_xex_sha256": "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0",
     "has_dll_modules": false,
     "is_dll": false,
     "config_flags": {},
@@ -189,6 +192,10 @@ TEST_CASE("TemplateRegistry: init_cpp records generated code provenance",
   CHECK(result.find(
             ".generated_build_stamp = "
             "\"build: rexglue-v0.8.0-test-win-amd64-Debug@20260519_1200\"") !=
+        std::string::npos);
+  CHECK(result.find(
+            ".entrypoint_xex_sha256 = "
+            "\"e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0\"") !=
         std::string::npos);
 }
 

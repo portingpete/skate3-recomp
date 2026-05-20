@@ -35,6 +35,7 @@ struct PPCImageInfo {
   const PPCFuncMapping* func_mappings;
   bool rexcrt_heap = false;  ///< Set by codegen when [rexcrt] has heap functions
   const char* generated_build_stamp = nullptr;  ///< RexGlue build that emitted the generated C++.
+  const char* entrypoint_xex_sha256 = nullptr;  ///< SHA256 of the XEX analyzed by codegen.
   RegisterModulesFunc register_modules = nullptr;  ///< Set by codegen for multi-binary projects
 };
 

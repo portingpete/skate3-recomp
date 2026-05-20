@@ -15,6 +15,7 @@ const rex::PPCImageInfo PPCImageConfig = {
     .func_mappings = PPCFuncMappings,
     .rexcrt_heap = REXCRT_HEAP,
     .generated_build_stamp = "{{ generated_build_stamp }}",
+    .entrypoint_xex_sha256 = "{{ entrypoint_xex_sha256 }}",
 {% if has_dll_modules and not is_dll %}
     .register_modules = RegisterRecompiledModules,
 {% endif %}

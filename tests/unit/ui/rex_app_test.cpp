@@ -44,6 +44,10 @@ class TestReXApp final : public rex::ReXApp {
     return BuildGeneratedBuildLine(generated_build_stamp);
   }
 
+  static std::string BuildGeneratedEntrypointXexHashLineForTest(std::string_view sha256) {
+    return BuildGeneratedEntrypointXexHashLine(sha256);
+  }
+
   static std::string BuildExecutablePathLineForTest(
       const std::filesystem::path& executable_path) {
     return BuildExecutablePathLine(executable_path);
@@ -178,6 +182,18 @@ TEST_CASE("ReXApp startup identity lines include host build and executable path"
   auto missing_generated_line = TestReXApp::BuildGeneratedBuildLineForTest("");
   CHECK(missing_generated_line.find("Generated code build: unavailable") != std::string::npos);
   CHECK(missing_generated_line.find("regenerate") != std::string::npos);
+
+  auto generated_xex_hash_line = TestReXApp::BuildGeneratedEntrypointXexHashLineForTest(
+      "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0");
+  CHECK(generated_xex_hash_line.find("Generated entrypoint XEX SHA256:") != std::string::npos);
+  CHECK(generated_xex_hash_line.find(
+            "e55b6d34654a3f1ab9eb6c4d88203e82ee0c96cc425ed5a643573a3875e942e0") !=
+        std::string::npos);
+
+  auto missing_xex_hash_line = TestReXApp::BuildGeneratedEntrypointXexHashLineForTest("");
+  CHECK(missing_xex_hash_line.find("Generated entrypoint XEX SHA256: unavailable") !=
+        std::string::npos);
+  CHECK(missing_xex_hash_line.find("regenerate") != std::string::npos);
 
   auto executable = std::filesystem::path("C:/tmp/rex-hosts/gtaiv_disc1/gtaiv_disc1.exe");
   auto executable_line = TestReXApp::BuildExecutablePathLineForTest(executable);

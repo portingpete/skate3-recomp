@@ -197,6 +197,7 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
       const std::filesystem::path& local_cache_root, std::string_view cache_root);
   static std::string BuildHostBuildLine();
   static std::string BuildGeneratedBuildLine(std::string_view generated_build_stamp);
+  static std::string BuildGeneratedEntrypointXexHashLine(std::string_view sha256);
   static std::string BuildExecutablePathLine(const std::filesystem::path& executable_path);
   static std::string BuildGameDataRootMissingMessage(std::string_view app_name);
   static std::string BuildGameDataRootNotFoundMessage(const std::filesystem::path& game_data_root);

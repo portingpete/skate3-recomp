@@ -22,6 +22,7 @@
 
 #include <rex/codegen/function_graph.h>
 #include <rex/codegen/template_registry.h>
+#include <rex/crypto/sha256.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -99,6 +100,7 @@ nlohmann::json buildTemplateData(const rex::codegen::CodegenContext& ctx,
       {"code_size", fmt::format("0x{:X}", codeMax - codeMin)},
       {"rexcrt_heap", cfg.rexcrtFunctions.contains("RtlAllocateHeap") ? 1 : 0},
       {"generated_build_stamp", REXGLUE_BUILD_STAMP},
+      {"entrypoint_xex_sha256", rex::crypto::sha256_file(ctx.configDir() / cfg.filePath)},
       {"thunk_reserve_size", fmt::format("0x{:X}", 0x10000u)},
       {"has_dll_modules", ctx.hasDllModules()},
       {"is_dll", ctx.isDllModule()},
