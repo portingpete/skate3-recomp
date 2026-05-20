@@ -50,6 +50,7 @@ class CodegenWriter {
 
   std::string out;
   size_t cppFileIndex = 0;
+  std::vector<std::string> recompFiles_;
   std::vector<std::pair<std::string, std::string>> pendingWrites;
   std::vector<std::string> deletedFiles_;
   std::vector<std::string> writtenFiles_;

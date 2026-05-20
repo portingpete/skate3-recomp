@@ -235,27 +235,46 @@ bool CodegenWriter::write(bool force) {
   // Generate recomp files with size-based splitting
   REXCODEGEN_TRACE("Recompiling {} functions...", functions.size());
   size_t currentFileBytes = 0;
+  const size_t maxFileSizeBytes = REXCVAR_GET(max_file_size_bytes);
   println("#include \"{}_init.h\"\n", projectName);
 
   for (size_t i = 0; i < functions.size(); i++) {
     std::string code = functions[i]->emitCpp(emitCtx);
 
-    if (currentFileBytes > 0 && currentFileBytes + code.size() > REXCVAR_GET(max_file_size_bytes)) {
+    if (code.size() > maxFileSizeBytes) {
+      if (currentFileBytes > 0) {
+        SaveCurrentOutData();
+        println("#include \"{}_init.h\"\n", projectName);
+        currentFileBytes = 0;
+      }
+
+      const std::string filename =
+          fmt::format("{}_recomp.{}_{:08X}.cpp", projectName, cppFileIndex++, functions[i]->base());
+      REXCODEGEN_WARN("Function 0x{:08X} emitted to {} is {} bytes, exceeds max_file_size_bytes ({})",
+                      functions[i]->base(), filename, code.size(), maxFileSizeBytes);
+
+      out += code;
+      currentFileBytes = code.size();
+      SaveCurrentOutData(filename);
+      println("#include \"{}_init.h\"\n", projectName);
+      currentFileBytes = 0;
+      continue;
+    }
+
+    if (currentFileBytes > 0 && currentFileBytes + code.size() > maxFileSizeBytes) {
       SaveCurrentOutData();
       println("#include \"{}_init.h\"\n", projectName);
       currentFileBytes = 0;
-    }
-
-    if (code.size() > REXCVAR_GET(max_file_size_bytes)) {
-      REXCODEGEN_WARN("Function 0x{:08X} is {} bytes, exceeds max_file_size_bytes ({})",
-                      functions[i]->base(), code.size(), REXCVAR_GET(max_file_size_bytes));
     }
 
     out += code;
     currentFileBytes += code.size();
   }
 
-  SaveCurrentOutData();
+  if (currentFileBytes > 0)
+    SaveCurrentOutData();
+  else
+    out.clear();
   REXCODEGEN_TRACE("Recompilation complete.");
 
   // Generate sources.cmake
@@ -263,8 +282,8 @@ bool CodegenWriter::write(bool force) {
   {
     auto& recompFiles = tmplData["recomp_files"];
     recompFiles = nlohmann::json::array();
-    for (size_t i = 0; i < cppFileIndex; ++i) {
-      recompFiles.push_back(fmt::format("{}_recomp.{}.cpp", projectName, i));
+    for (const auto& recompFile : recompFiles_) {
+      recompFiles.push_back(recompFile);
     }
     out = renderWithJson(registry, "codegen/sources_cmake", tmplData);
     SaveCurrentOutData("sources.cmake");
@@ -285,6 +304,10 @@ void CodegenWriter::SaveCurrentOutData(const std::string_view name) {
     } else {
       filename = std::string(name);
     }
+
+    const std::string recompPrefix = config().projectName + "_recomp";
+    if (filename.starts_with(recompPrefix) && filename.ends_with(".cpp"))
+      recompFiles_.push_back(filename);
 
     pendingWrites.emplace_back(std::move(filename), std::move(out));
     out.clear();
