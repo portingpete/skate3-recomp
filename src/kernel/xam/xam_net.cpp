@@ -50,6 +50,13 @@ namespace {
 
 constexpr u32 kWsaEFault = 0x271Eu;
 constexpr u32 kWsaENotSock = 0x2736u;
+constexpr u32 kWsaInfiniteTimeout = 0xFFFFFFFFu;
+constexpr int64_t kNtTimeoutTicksPerMillisecond = 10000;
+
+// WSA waits use milliseconds; NT waits use signed 100ns ticks, negative for relative.
+uint64_t WsaTimeoutMillisToNtRelativeTimeout(u32 timeout_ms) {
+  return static_cast<uint64_t>(-static_cast<int64_t>(timeout_ms) * kNtTimeoutTicksPerMillisecond);
+}
 
 #if REX_PLATFORM_WIN32
 using host_socket_t = SOCKET;
@@ -60,6 +67,18 @@ using host_socklen_t = socklen_t;
 #endif
 
 }  // namespace
+
+namespace internal {
+
+bool TryConvertWsaTimeoutToNtWaitTimeout(u32 timeout_ms, uint64_t* out_timeout) {
+  if (timeout_ms == kWsaInfiniteTimeout) {
+    return false;
+  }
+  *out_timeout = WsaTimeoutMillisToNtRelativeTimeout(timeout_ms);
+  return true;
+}
+
+}  // namespace internal
 
 // https://github.com/G91/TitanOffLine/blob/1e692d9bb9dfac386d08045ccdadf4ae3227bb5e/xkelib/xam/xamNet.h
 enum {
@@ -505,13 +524,13 @@ u32 NetDll_WSAWaitForMultipleEvents_entry(u32 num_events, mapped_u32 events, u32
     return ~0u;
   }
 
-  uint64_t timeout_wait = (uint64_t)timeout;
+  uint64_t timeout_wait = 0;
+  const bool has_timeout = internal::TryConvertWsaTimeoutToNtWaitTimeout(timeout, &timeout_wait);
 
   X_STATUS result = 0;
   do {
-    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(
-        num_events, events, wait_all, 1, alertable,
-        timeout != 0xFFFFFFFFu ? &timeout_wait : nullptr);
+    result = xboxkrnl::xeNtWaitForMultipleObjectsEx(num_events, events, wait_all, 1, alertable,
+                                                     has_timeout ? &timeout_wait : nullptr);
   } while (result == X_STATUS_ALERTED);
 
   if (XFAILED(result)) {

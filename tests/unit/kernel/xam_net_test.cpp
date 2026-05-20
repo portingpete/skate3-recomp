@@ -64,12 +64,16 @@ u32 NetDll_getsockname_entry(u32 caller, u32 socket_handle,
 u32 NetDll_getpeername_entry(u32 caller, u32 socket_handle,
                              ppc_ptr_t<rex::system::XSOCKADDR> name,
                              mapped_u32 namelen_ptr);
+
 u32 NetDll_WSACancelOverlappedIO_entry(u32 caller, u32 socket_handle);
 u32 NetDll_WSAEventSelect_entry(u32 caller, u32 socket_handle, u32 event_handle,
                                 i32 network_events);
 u32 NetDll_WSASend_entry(u32 caller, u32 socket_handle, ppc_ptr_t<XWSABUF> buffers,
                          u32 buffer_count, mapped_u32 num_bytes_sent, u32 flags,
                          ppc_ptr_t<XWSAOVERLAPPED> overlapped, mapped_void completion_routine);
+namespace internal {
+bool TryConvertWsaTimeoutToNtWaitTimeout(u32 timeout_ms, uint64_t* out_timeout);
+}  // namespace internal
 }  // namespace rex::kernel::xam
 
 namespace {
@@ -110,6 +114,26 @@ TEST_CASE("XNetLogonGetMachineID reports a deterministic offline machine id",
   CHECK(u64(machine_id1) == kOfflineMachineId);
   CHECK(u64(machine_id2) == kOfflineMachineId);
   CHECK(rex::kernel::xam::XNetLogonGetMachineID_entry(mapped_u64(nullptr)) != 0);
+}
+
+TEST_CASE("WSAWaitForMultipleEvents converts finite timeouts to NT wait ticks",
+          "[kernel][xam_net]") {
+  uint64_t timeout = 0;
+
+  REQUIRE(rex::kernel::xam::internal::TryConvertWsaTimeoutToNtWaitTimeout(1000, &timeout));
+  CHECK(static_cast<int64_t>(timeout) == -10000000);
+
+  REQUIRE(rex::kernel::xam::internal::TryConvertWsaTimeoutToNtWaitTimeout(0, &timeout));
+  CHECK(timeout == 0);
+
+  REQUIRE(rex::kernel::xam::internal::TryConvertWsaTimeoutToNtWaitTimeout(0xFFFFFFFEu, &timeout));
+  CHECK(static_cast<int64_t>(timeout) == -42949672940000LL);
+
+  constexpr uint64_t kSentinelTimeout = 0xAABBCCDDEEFF0011ull;
+  timeout = kSentinelTimeout;
+  CHECK_FALSE(rex::kernel::xam::internal::TryConvertWsaTimeoutToNtWaitTimeout(0xFFFFFFFFu,
+                                                                              &timeout));
+  CHECK(timeout == kSentinelTimeout);
 }
 
 TEST_CASE("XNet connection helpers report deterministic offline status", "[kernel][xam_net]") {
