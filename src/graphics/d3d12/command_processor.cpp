@@ -13,6 +13,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <sstream>
+#include <string_view>
 #include <utility>
 
 #include <rex/assert.h>
@@ -2312,7 +2313,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   bool has_pixel_shader_modification = false;
   uint64_t pixel_shader_modification_value = 0;
 
-  auto draw_fail = [&](const char* stage, const char* detail = "") {
+  auto draw_fail = [&](const char* stage, std::string_view detail = {}) {
     auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
     IssueDrawFailureInfo failure_info{
         .backend = "D3D12",
@@ -2473,7 +2474,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   }
   void* pipeline_handle;
   ID3D12RootSignature* root_signature;
-  const char* configure_pipeline_detail = "";
+  std::string configure_pipeline_detail;
   if (!pipeline_cache_->ConfigurePipeline(
           vertex_shader_translation, pixel_shader_translation, primitive_processing_result,
           normalized_depth_control, normalized_color_mask, bound_depth_and_color_render_target_bits,

@@ -91,7 +91,7 @@ class PipelineCache {
                          uint32_t bound_depth_and_color_render_target_bits,
                          const uint32_t* bound_depth_and_color_render_targets_formats,
                          void** pipeline_handle_out, ID3D12RootSignature** root_signature_out,
-                         const char** failure_detail_out = nullptr);
+                         std::string* failure_detail_out = nullptr);
 
   // Returns a pipeline with deferred creation by its handle. May return nullptr
   // while creation is still pending or after creation failed.

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace rex::graphics {
 
@@ -13,10 +14,22 @@ enum class ShaderPipelineStage {
 const char* BuildInvalidShaderDetail(ShaderPipelineStage stage, bool was_translated_before,
                                      bool async_shader_compilation);
 
+struct InvalidShaderDetailInfo {
+  ShaderPipelineStage stage = ShaderPipelineStage::kVertex;
+  bool was_translated_before = false;
+  bool async_shader_compilation = false;
+  bool is_translated = false;
+  bool is_valid = false;
+  bool has_ucode_storage_index = false;
+  uint32_t ucode_storage_index = 0;
+};
+
+std::string BuildInvalidShaderDetail(const InvalidShaderDetailInfo& info);
+
 struct IssueDrawFailureInfo {
   const char* backend = "";
   const char* stage = "";
-  const char* detail = "";
+  std::string_view detail;
   uint32_t prim_type = 0;
   uint32_t index_count = 0;
   uint32_t source_select = 0;

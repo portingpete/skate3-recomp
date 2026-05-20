@@ -4,6 +4,20 @@
 
 namespace rex::graphics {
 
+namespace {
+
+const char* ShaderStageName(ShaderPipelineStage stage) {
+  switch (stage) {
+    case ShaderPipelineStage::kVertex:
+      return "vertex";
+    case ShaderPipelineStage::kPixel:
+      return "pixel";
+  }
+  return "unknown";
+}
+
+}  // namespace
+
 const char* BuildInvalidShaderDetail(ShaderPipelineStage stage, bool was_translated_before,
                                      bool async_shader_compilation) {
   switch (stage) {
@@ -23,6 +37,20 @@ const char* BuildInvalidShaderDetail(ShaderPipelineStage stage, bool was_transla
   return "shader_invalid";
 }
 
+std::string BuildInvalidShaderDetail(const InvalidShaderDetailInfo& info) {
+  std::string text = BuildInvalidShaderDetail(info.stage, info.was_translated_before,
+                                             info.async_shader_compilation);
+  text += fmt::format(
+      " stage={} translated_before={} async={} translated={} valid={}",
+      ShaderStageName(info.stage), uint32_t(info.was_translated_before),
+      uint32_t(info.async_shader_compilation), uint32_t(info.is_translated),
+      uint32_t(info.is_valid));
+  if (info.has_ucode_storage_index) {
+    text += fmt::format(" ucode_storage_index={}", info.ucode_storage_index);
+  }
+  return text;
+}
+
 std::string FormatIssueDrawFailure(const IssueDrawFailureInfo& info) {
   std::string text = fmt::format(
       "{} IssueDraw failed at {} "
@@ -31,7 +59,7 @@ std::string FormatIssueDrawFailure(const IssueDrawFailureInfo& info) {
       info.backend, info.stage, info.prim_type, info.index_count, info.source_select,
       info.major_mode, uint32_t(info.explicit_major), info.path_select, info.tess_mode,
       info.edram_mode);
-  if (info.detail && info.detail[0] != '\0') {
+  if (!info.detail.empty()) {
     text += fmt::format(", detail={}", info.detail);
   }
   if (info.has_vertex_shader_hash) {

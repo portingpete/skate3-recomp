@@ -19,6 +19,7 @@
 #include <deque>
 #include <mutex>
 #include <set>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -902,7 +903,7 @@ bool PipelineCache::ConfigurePipeline(
     reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
     uint32_t bound_depth_and_color_render_target_bits,
     const uint32_t* bound_depth_and_color_render_target_formats, void** pipeline_handle_out,
-    ID3D12RootSignature** root_signature_out, const char** failure_detail_out) {
+    ID3D12RootSignature** root_signature_out, std::string* failure_detail_out) {
 #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
   SCOPE_profile_cpu_f("gpu");
 #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -911,11 +912,11 @@ bool PipelineCache::ConfigurePipeline(
   assert_not_null(root_signature_out);
 
   if (failure_detail_out) {
-    *failure_detail_out = "";
+    failure_detail_out->clear();
   }
-  auto fail = [&](const char* detail) {
+  auto fail = [&](std::string_view detail) {
     if (failure_detail_out) {
-      *failure_detail_out = detail;
+      *failure_detail_out = std::string(detail);
     }
     return false;
   };
@@ -923,6 +924,20 @@ bool PipelineCache::ConfigurePipeline(
   bool use_async = REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
                    pixel_shader != nullptr;
   const bool vertex_shader_was_translated = vertex_shader->is_translated();
+  auto build_invalid_shader_detail = [](ShaderPipelineStage stage,
+                                        D3D12Shader::D3D12Translation& translation,
+                                        bool was_translated_before, bool use_async) {
+    const uint32_t storage_index = translation.shader().ucode_storage_index();
+    return BuildInvalidShaderDetail(InvalidShaderDetailInfo{
+        .stage = stage,
+        .was_translated_before = was_translated_before,
+        .async_shader_compilation = use_async,
+        .is_translated = translation.is_translated(),
+        .is_valid = translation.is_valid(),
+        .has_ucode_storage_index = storage_index != UINT32_MAX,
+        .ucode_storage_index = storage_index,
+    });
+  };
 
   // Ensure shaders are translated - needed now for GetCurrentStateDescription.
   // Edge flags are not supported yet (because polygon primitives are not).
@@ -960,8 +975,8 @@ bool PipelineCache::ConfigurePipeline(
   }
   if (!use_async && !vertex_shader->is_valid()) {
     // Translation attempted previously, but not valid.
-    return fail(BuildInvalidShaderDetail(ShaderPipelineStage::kVertex, vertex_shader_was_translated,
-                                         use_async));
+    return fail(build_invalid_shader_detail(ShaderPipelineStage::kVertex, *vertex_shader,
+                                            vertex_shader_was_translated, use_async));
   }
   if (pixel_shader != nullptr) {
     const bool pixel_shader_was_translated = pixel_shader->is_translated();
@@ -988,8 +1003,8 @@ bool PipelineCache::ConfigurePipeline(
       }
     }
     if (pixel_shader->is_translated() && !pixel_shader->is_valid()) {
-      return fail(BuildInvalidShaderDetail(ShaderPipelineStage::kPixel, pixel_shader_was_translated,
-                                           use_async));
+      return fail(build_invalid_shader_detail(ShaderPipelineStage::kPixel, *pixel_shader,
+                                              pixel_shader_was_translated, use_async));
     }
   }
 

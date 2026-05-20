@@ -65,3 +65,25 @@ TEST_CASE("Invalid shader diagnostics distinguish preexisting async state",
                                                 false) ==
         std::string("vertex_shader_invalid_after_translation"));
 }
+
+TEST_CASE("Invalid shader diagnostics include translation and storage provenance",
+          "[graphics][diagnostics]") {
+  const std::string text = rex::graphics::BuildInvalidShaderDetail(
+      rex::graphics::InvalidShaderDetailInfo{
+          .stage = rex::graphics::ShaderPipelineStage::kPixel,
+          .was_translated_before = true,
+          .async_shader_compilation = true,
+          .is_translated = true,
+          .is_valid = false,
+          .has_ucode_storage_index = true,
+          .ucode_storage_index = 42,
+      });
+
+  CHECK(text.find("pixel_shader_invalid_preexisting_async") != std::string::npos);
+  CHECK(text.find("stage=pixel") != std::string::npos);
+  CHECK(text.find("translated_before=1") != std::string::npos);
+  CHECK(text.find("async=1") != std::string::npos);
+  CHECK(text.find("translated=1") != std::string::npos);
+  CHECK(text.find("valid=0") != std::string::npos);
+  CHECK(text.find("ucode_storage_index=42") != std::string::npos);
+}
