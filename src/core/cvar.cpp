@@ -29,6 +29,7 @@ namespace {
 bool g_finalized = false;
 bool g_lifecycle_override = false;
 std::mutex g_mutex;
+std::string g_last_init_parse_error;
 
 // Recursive: FlagRegistrar chain methods re-enter; change callbacks invoked
 // from SetFlagByName must not mutate the registry.
@@ -491,6 +492,8 @@ void UnregisterChangeCallbacks(std::string_view name) {
 //=============================================================================
 
 std::vector<std::string> Init(int argc, char** argv) {
+  g_last_init_parse_error.clear();
+
   CLI::App app{"", ""};
   app.allow_extras();
 
@@ -510,12 +513,17 @@ std::vector<std::string> Init(int argc, char** argv) {
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError& e) {
+    g_last_init_parse_error = e.what();
     // TODO(tomc): dumb workaround for the stupid chicken and its egg.
     //             dont call rex logging funcs here for now.
     fprintf(stderr, "cvar: CLI11  parse error: %s\n", e.what());
   }
 
   return app.remaining();
+}
+
+std::string GetLastInitParseError() {
+  return g_last_init_parse_error;
 }
 
 void LoadConfig(const std::filesystem::path& config_path) {

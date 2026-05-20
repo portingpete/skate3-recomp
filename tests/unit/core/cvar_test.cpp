@@ -338,6 +338,36 @@ TEST_CASE("cvar Init accepts hyphen aliases for underscore flags", "[cvar]") {
   rex::cvar::testing::ResetAllForTesting();
 }
 
+TEST_CASE("cvar Init records and clears command line parse errors", "[cvar]") {
+  rex::cvar::testing::ResetAllForTesting();
+
+  std::vector<std::string> bad_args = {"test.exe", "--test-string-flag"};
+  std::vector<char*> bad_argv;
+  bad_argv.reserve(bad_args.size());
+  for (auto& arg : bad_args) {
+    bad_argv.push_back(arg.data());
+  }
+
+  rex::cvar::Init(static_cast<int>(bad_argv.size()), bad_argv.data());
+
+  auto parse_error = rex::cvar::GetLastInitParseError();
+  CHECK(parse_error.find("test_string_flag") != std::string::npos);
+  CHECK(parse_error.find("required") != std::string::npos);
+
+  std::vector<std::string> good_args = {"test.exe", "--test-string-flag", "from-cli"};
+  std::vector<char*> good_argv;
+  good_argv.reserve(good_args.size());
+  for (auto& arg : good_args) {
+    good_argv.push_back(arg.data());
+  }
+
+  rex::cvar::Init(static_cast<int>(good_argv.size()), good_argv.data());
+
+  CHECK(rex::cvar::GetLastInitParseError().empty());
+
+  rex::cvar::testing::ResetAllForTesting();
+}
+
 TEST_CASE("cvar TOML serialization", "[cvar]") {
   rex::cvar::testing::ResetAllForTesting();
 

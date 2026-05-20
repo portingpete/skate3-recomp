@@ -120,11 +120,18 @@ std::string ReXApp::BuildExecutablePathLine(const std::filesystem::path& executa
   return fmt::format("  Executable:     {}", executable_path.string());
 }
 
-std::string ReXApp::BuildGameDataRootMissingMessage(std::string_view app_name) {
-  return fmt::format(
+std::string ReXApp::BuildGameDataRootMissingMessage(std::string_view app_name,
+                                                    std::string_view parse_error) {
+  auto message = fmt::format(
       "Game data root was not provided for {}.\n\nLaunch with --game-data-root <folder> or pass "
       "the game-data folder as the final positional argument.",
       app_name);
+  if (!parse_error.empty()) {
+    message += fmt::format("\n\nOne launch option could not be parsed before the game-data folder "
+                           "was checked:\n{}",
+                           parse_error);
+  }
+  return message;
 }
 
 std::string ReXApp::BuildGameDataRootNotFoundMessage(
@@ -260,7 +267,7 @@ bool ReXApp::SetupEnvironment() {
 
 bool ReXApp::ConstructRuntime(const PathConfig& paths) {
   if (paths.game_data_root.empty()) {
-    auto msg = BuildGameDataRootMissingMessage(GetName());
+    auto msg = BuildGameDataRootMissingMessage(GetName(), rex::cvar::GetLastInitParseError());
     REXLOG_ERROR("{}", msg);
     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
     return false;

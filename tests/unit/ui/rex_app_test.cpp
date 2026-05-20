@@ -36,6 +36,11 @@ class TestReXApp final : public rex::ReXApp {
     return BuildGameDataRootMissingMessage(app_name);
   }
 
+  static std::string BuildGameDataRootMissingMessageForTest(std::string_view app_name,
+                                                            std::string_view parse_error) {
+    return BuildGameDataRootMissingMessage(app_name, parse_error);
+  }
+
   static std::string BuildHostBuildLineForTest() {
     return BuildHostBuildLine();
   }
@@ -150,6 +155,15 @@ TEST_CASE("ReXApp game data root errors explain expected launch argument",
   CHECK(missing.find("Game data root was not provided for test_app.") != std::string::npos);
   CHECK(missing.find("--game-data-root <folder>") != std::string::npos);
   CHECK(missing.find("final positional argument") != std::string::npos);
+
+  auto missing_after_parse_error =
+      TestReXApp::BuildGameDataRootMissingMessageForTest("test_app",
+                                                         "--game-data-root: missing value");
+  CHECK(missing_after_parse_error.find("Game data root was not provided for test_app.") !=
+        std::string::npos);
+  CHECK(missing_after_parse_error.find("One launch option could not be parsed") !=
+        std::string::npos);
+  CHECK(missing_after_parse_error.find("--game-data-root: missing value") != std::string::npos);
 
   auto option_value =
       TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("true"));
