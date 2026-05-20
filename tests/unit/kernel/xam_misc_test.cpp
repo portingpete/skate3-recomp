@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <rex/chrono/clock.h>
 #include <rex/system/xtypes.h>
 #include <rex/types.h>
 
@@ -8,6 +9,8 @@ u32 KeQueryPerformanceFrequency_entry();
 }  // namespace rex::kernel::xboxkrnl
 
 namespace rex::kernel::xam {
+u32 GetTickCount_entry();
+void GetSystemTimeAsFileTime_entry(mapped_u64 time_ptr);
 u32 QueryPerformanceCounter_entry(mapped_u64 counter_ptr);
 u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr);
 u32 Refresh_entry(mapped_void refresh_context, u32 refresh_flags, u32 refresh_arg);
@@ -36,6 +39,26 @@ TEST_CASE("XAM performance queries mirror the guest clock", "[kernel][xam]") {
         1);
   CHECK(static_cast<uint64_t>(counter2) >= static_cast<uint64_t>(counter1));
   CHECK(rex::kernel::xam::QueryPerformanceCounter_entry(mapped_u64(nullptr)) == 0);
+}
+
+TEST_CASE("XAM wall-clock queries mirror the guest clock", "[kernel][xam]") {
+  constexpr u32 kClockSkewToleranceMs = 1000;
+  constexpr u64 kClockSkewToleranceFileTime = u64(kClockSkewToleranceMs) * 10000;
+
+  const u32 tick_before = rex::chrono::Clock::QueryGuestUptimeMillis();
+  const u32 tick = rex::kernel::xam::GetTickCount_entry();
+  const u32 tick_after = rex::chrono::Clock::QueryGuestUptimeMillis();
+  CHECK(tick + kClockSkewToleranceMs >= tick_before);
+  CHECK(tick <= tick_after + kClockSkewToleranceMs);
+
+  rex::be_u64 file_time = 0;
+  const u64 file_time_before = rex::chrono::Clock::QueryGuestSystemTime();
+  rex::kernel::xam::GetSystemTimeAsFileTime_entry(mapped_u64(&file_time, 0x40002000));
+  const u64 file_time_after = rex::chrono::Clock::QueryGuestSystemTime();
+  CHECK(static_cast<uint64_t>(file_time) + kClockSkewToleranceFileTime >= file_time_before);
+  CHECK(static_cast<uint64_t>(file_time) <= file_time_after + kClockSkewToleranceFileTime);
+
+  rex::kernel::xam::GetSystemTimeAsFileTime_entry(mapped_u64(nullptr));
 }
 
 TEST_CASE("Refresh is a deterministic offline no-op success", "[kernel][xam]") {

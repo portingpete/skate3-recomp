@@ -45,6 +45,18 @@ u32 QueryPerformanceFrequency_entry(mapped_u64 frequency_ptr) {
   return 1;
 }
 
+u32 GetTickCount_entry() {
+  return chrono::Clock::QueryGuestUptimeMillis();
+}
+
+void GetSystemTimeAsFileTime_entry(mapped_u64 time_ptr) {
+  if (!time_ptr) {
+    return;
+  }
+
+  *time_ptr = chrono::Clock::QueryGuestSystemTime();
+}
+
 u32 Refresh_entry(mapped_void refresh_context, u32 refresh_flags, u32 refresh_arg) {
   REXKRNL_IMPORT_RESULT("Refresh", "{:#x} context={:#x} flags={:#x} arg={:#x}",
                         X_ERROR_SUCCESS, refresh_context.guest_address(), refresh_flags,
@@ -212,8 +224,8 @@ REX_EXPORT_STUB(__imp__GetModuleHandleA);
 REX_EXPORT_STUB(__imp__GetOverlappedResult);
 REX_EXPORT_STUB(__imp__GetProcessHeap);
 REX_EXPORT_STUB(__imp__GetSystemTime);
-REX_EXPORT_STUB(__imp__GetSystemTimeAsFileTime);
-REX_EXPORT_STUB(__imp__GetTickCount);
+REX_EXPORT(__imp__GetSystemTimeAsFileTime, rex::kernel::xam::GetSystemTimeAsFileTime_entry)
+REX_EXPORT(__imp__GetTickCount, rex::kernel::xam::GetTickCount_entry)
 REX_EXPORT_STUB(__imp__GetTimeZoneInformation);
 REX_EXPORT_STUB(__imp__InjectConnectionServerNotification);
 REX_EXPORT_STUB(__imp__IsBadReadPtr);
