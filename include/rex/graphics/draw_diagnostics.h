@@ -5,6 +5,14 @@
 
 namespace rex::graphics {
 
+enum class ShaderPipelineStage {
+  kVertex,
+  kPixel,
+};
+
+const char* BuildInvalidShaderDetail(ShaderPipelineStage stage, bool was_translated_before,
+                                     bool async_shader_compilation);
+
 struct IssueDrawFailureInfo {
   const char* backend = "";
   const char* stage = "";
@@ -19,8 +27,12 @@ struct IssueDrawFailureInfo {
   uint32_t edram_mode = 0;
   bool has_vertex_shader_hash = false;
   uint64_t vertex_shader_hash = 0;
+  bool has_vertex_shader_modification = false;
+  uint64_t vertex_shader_modification = 0;
   bool has_pixel_shader_hash = false;
   uint64_t pixel_shader_hash = 0;
+  bool has_pixel_shader_modification = false;
+  uint64_t pixel_shader_modification = 0;
   bool has_primitive_processing = false;
   uint32_t host_primitive_type = 0;
   uint32_t host_vertex_shader_type = 0;

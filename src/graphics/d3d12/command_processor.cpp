@@ -2307,6 +2307,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   D3D12Shader* pixel_shader = nullptr;
   PrimitiveProcessor::ProcessingResult primitive_processing_result;
   bool has_primitive_processing_result = false;
+  bool has_vertex_shader_modification = false;
+  uint64_t vertex_shader_modification_value = 0;
+  bool has_pixel_shader_modification = false;
+  uint64_t pixel_shader_modification_value = 0;
 
   auto draw_fail = [&](const char* stage, const char* detail = "") {
     auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
@@ -2327,14 +2331,21 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
       failure_info.has_vertex_shader_hash = true;
       failure_info.vertex_shader_hash = vertex_shader->ucode_data_hash();
     }
+    if (has_vertex_shader_modification) {
+      failure_info.has_vertex_shader_modification = true;
+      failure_info.vertex_shader_modification = vertex_shader_modification_value;
+    }
     if (pixel_shader) {
       failure_info.has_pixel_shader_hash = true;
       failure_info.pixel_shader_hash = pixel_shader->ucode_data_hash();
     }
+    if (has_pixel_shader_modification) {
+      failure_info.has_pixel_shader_modification = true;
+      failure_info.pixel_shader_modification = pixel_shader_modification_value;
+    }
     if (has_primitive_processing_result) {
       failure_info.has_primitive_processing = true;
-      failure_info.host_primitive_type =
-          uint32_t(primitive_processing_result.host_primitive_type);
+      failure_info.host_primitive_type = uint32_t(primitive_processing_result.host_primitive_type);
       failure_info.host_vertex_shader_type =
           uint32_t(primitive_processing_result.host_vertex_shader_type);
       failure_info.host_draw_vertex_count = primitive_processing_result.host_draw_vertex_count;
@@ -2423,6 +2434,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
           ? pipeline_cache_->GetCurrentPixelShaderModification(
                 *pixel_shader, interpolator_mask, ps_param_gen_pos, normalized_depth_control)
           : DxbcShaderTranslator::Modification(0);
+  has_vertex_shader_modification = true;
+  vertex_shader_modification_value = vertex_shader_modification.value;
+  if (pixel_shader) {
+    has_pixel_shader_modification = true;
+    pixel_shader_modification_value = pixel_shader_modification.value;
+  }
 
   // Set up the render targets - this may perform dispatches and draws.
   uint32_t normalized_color_mask =

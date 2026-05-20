@@ -33,6 +33,7 @@
 #include <rex/graphics/d3d12/command_processor.h>
 #include <rex/graphics/d3d12/pipeline_cache.h>
 #include <rex/graphics/d3d12/render_target_cache.h>
+#include <rex/graphics/draw_diagnostics.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/format/dxbc.h>
 #include <rex/graphics/pipeline_util.h>
@@ -529,10 +530,9 @@ void PipelineCache::InitializeShaderStorage(const std::filesystem::path& cache_r
     // Launch additional creation threads to use all cores to create
     // pipelines faster. Will also be using the main thread, so minus 1.
     size_t creation_thread_original_count = creation_threads_.size();
-    size_t creation_thread_target_count =
-        pipeline_util::GetPipelineStorageCreationThreadTarget(
-            pipeline_stored_descriptions.size(), logical_processor_count,
-            creation_thread_original_count);
+    size_t creation_thread_target_count = pipeline_util::GetPipelineStorageCreationThreadTarget(
+        pipeline_stored_descriptions.size(), logical_processor_count,
+        creation_thread_original_count);
     while (creation_threads_.size() < creation_thread_target_count) {
       size_t creation_thread_index = creation_threads_.size();
       std::unique_ptr<rex::thread::Thread> creation_thread = rex::thread::Thread::Create(
@@ -922,6 +922,7 @@ bool PipelineCache::ConfigurePipeline(
 
   bool use_async = REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
                    pixel_shader != nullptr;
+  const bool vertex_shader_was_translated = vertex_shader->is_translated();
 
   // Ensure shaders are translated - needed now for GetCurrentStateDescription.
   // Edge flags are not supported yet (because polygon primitives are not).
@@ -959,9 +960,11 @@ bool PipelineCache::ConfigurePipeline(
   }
   if (!use_async && !vertex_shader->is_valid()) {
     // Translation attempted previously, but not valid.
-    return fail("vertex_shader_invalid");
+    return fail(BuildInvalidShaderDetail(ShaderPipelineStage::kVertex, vertex_shader_was_translated,
+                                         use_async));
   }
   if (pixel_shader != nullptr) {
+    const bool pixel_shader_was_translated = pixel_shader->is_translated();
     if (!pixel_shader->is_translated() && !use_async) {
       std::lock_guard<std::mutex> lock(translation_request_lock_);
       if (!pixel_shader->is_translated()) {
@@ -985,17 +988,18 @@ bool PipelineCache::ConfigurePipeline(
       }
     }
     if (pixel_shader->is_translated() && !pixel_shader->is_valid()) {
-      return fail("pixel_shader_invalid");
+      return fail(BuildInvalidShaderDetail(ShaderPipelineStage::kPixel, pixel_shader_was_translated,
+                                           use_async));
     }
   }
 
   PipelineRuntimeDescription runtime_description;
   const char* state_failure_detail = "";
-  if (!GetCurrentStateDescription(
-          vertex_shader, pixel_shader, primitive_processing_result, normalized_depth_control,
-          normalized_color_mask, bound_depth_and_color_render_target_bits,
-          bound_depth_and_color_render_target_formats, runtime_description, use_async,
-          &state_failure_detail)) {
+  if (!GetCurrentStateDescription(vertex_shader, pixel_shader, primitive_processing_result,
+                                  normalized_depth_control, normalized_color_mask,
+                                  bound_depth_and_color_render_target_bits,
+                                  bound_depth_and_color_render_target_formats, runtime_description,
+                                  use_async, &state_failure_detail)) {
     return fail(state_failure_detail && state_failure_detail[0] != '\0'
                     ? state_failure_detail
                     : "state_description_failed");
