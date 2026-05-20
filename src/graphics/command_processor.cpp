@@ -22,6 +22,7 @@
 #include <rex/perf/counter.h>
 #include <rex/chrono/clock.h>
 #include <rex/graphics/command_processor.h>
+#include <rex/graphics/command_processor_diagnostics.h>
 #include <rex/graphics/flags.h>
 #include <rex/graphics/graphics_system.h>
 #include <rex/graphics/pipeline/texture/info.h>
@@ -740,9 +741,18 @@ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
   reader.set_write_offset(count * sizeof(uint32_t));
   do {
     if (!ExecutePacket(&reader)) {
-      // Return up a level if we encounter a bad packet.
-      REXGPU_ERROR("**** INDIRECT RINGBUFFER: Failed to execute packet.");
-      assert_always();
+      const bool shutdown_interrupted_wait =
+          packet_abort_reason_ == PacketAbortReason::kShutdownInterruptedWait;
+      const auto message = BuildIndirectRingBufferPacketFailureMessage(
+          ptr, count, reader.read_offset(), reader.read_count(),
+          shutdown_interrupted_wait || !worker_running_.load());
+      if (shutdown_interrupted_wait) {
+        REXGPU_DEBUG("{}", message);
+      } else {
+        // Return up a level if we encounter a bad packet.
+        REXGPU_ERROR("{}", message);
+        assert_always();
+      }
       break;
     }
   } while (reader.read_count());
@@ -764,6 +774,7 @@ void CommandProcessor::ExecutePacket(uint32_t ptr, uint32_t count) {
 }
 
 bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
+  packet_abort_reason_ = PacketAbortReason::kNone;
   const uint32_t packet = reader->ReadAndSwap<uint32_t>();
   const uint32_t packet_type = packet >> 30;
   if (packet == 0) {
@@ -1183,6 +1194,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
 
         if (!worker_running_) {
           // Short-circuited exit.
+          packet_abort_reason_ = PacketAbortReason::kShutdownInterruptedWait;
           return false;
         }
       } else {

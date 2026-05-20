@@ -24,6 +24,7 @@ add_executable(unit_tests
     core/byte_order_test.cpp
     core/chrono_test.cpp
     filesystem/virtual_file_system_test.cpp
+    graphics/command_processor_diagnostics_test.cpp
     graphics/draw_diagnostics_test.cpp
     graphics/pipeline_util_test.cpp
     kernel/xboxkrnl_rtl_test.cpp

@@ -144,6 +144,11 @@ class CommandProcessor {
   bool Restore(::rex::stream::ByteStream* stream);
 
  protected:
+  enum class PacketAbortReason {
+    kNone,
+    kShutdownInterruptedWait,
+  };
+
   struct IndexBufferInfo {
     xenos::IndexFormat format = xenos::IndexFormat::kInt16;
     xenos::Endian endianness = xenos::Endian::kNone;
@@ -265,6 +270,7 @@ class CommandProcessor {
   system::object_ref<system::XHostThread> worker_thread_;
 
   std::queue<std::function<void()>> pending_fns_;
+  PacketAbortReason packet_abort_reason_ = PacketAbortReason::kNone;
 
   // MicroEngine binary from PM4_ME_INIT
   std::vector<uint32_t> me_bin_;
