@@ -413,6 +413,41 @@ void emit_print(std::string& out, fmt::format_string<Args...> fmt, Args&&... arg
   fmt::vformat_to(std::back_inserter(out), fmt.get(), fmt::make_format_args(args...));
 }
 
+bool IsDb16cycInstruction(const uint32_t* data, uint32_t address) {
+  ppc_insn candidate;
+  Disassemble(data, 4, address, candidate);
+  return candidate.opcode != nullptr && candidate.opcode->id == PPC_INST_DB16CYC;
+}
+
+uint32_t CountStraightLineDb16cycRun(const EmitContext& ctx,
+                                     const std::unordered_set<size_t>& labels,
+                                     uint32_t blockBase, uint32_t blockEnd,
+                                     const uint32_t* data) {
+  if (ctx.config.midAsmHooks.contains(blockBase) || ctx.config.switchTables.contains(blockBase)) {
+    return 1;
+  }
+
+  uint32_t count = 0;
+  uint32_t address = blockBase;
+  const uint32_t* cursor = data;
+  while (address < blockEnd) {
+    if (count > 0 &&
+        (labels.contains(address) || ctx.config.midAsmHooks.contains(address) ||
+         ctx.config.switchTables.contains(address))) {
+      break;
+    }
+
+    if (!IsDb16cycInstruction(cursor, address)) {
+      break;
+    }
+
+    ++count;
+    address += 4;
+    ++cursor;
+  }
+  return count;
+}
+
 }  // namespace
 
 std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
@@ -675,6 +710,19 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
         if (*data != 0)
           REXCODEGEN_WARN("Unable to decode instruction {:X} at {:X}", *data, blockBase);
       } else {
+        if (insn.opcode->id == PPC_INST_DB16CYC) {
+          const uint32_t db16cycRunLength =
+              CountStraightLineDb16cycRun(ctx, labels, blockBase, blockEnd, data);
+          if (db16cycRunLength > 1) {
+            emit_println(body, "\t// db16cyc x{}", db16cycRunLength);
+            emit_println(body, "\tPROFILE_GUEST_SPIN_HINT_EXECUTIONS({});", db16cycRunLength);
+            emit_println(body, "\trex::ppc_delay_execution_hints({});", db16cycRunLength);
+            blockBase += db16cycRunLength * 4;
+            data += db16cycRunLength;
+            continue;
+          }
+        }
+
         // Late jump table detection for bctr
         if (insn.opcode->id == PPC_INST_BCTR && !activeJt) {
           bool is_switch_pattern = false;

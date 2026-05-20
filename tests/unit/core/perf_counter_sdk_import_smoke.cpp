@@ -30,6 +30,8 @@ int main() {
     return 1;
   }
   PROFILE_GUEST_SPIN_HINT_EXECUTION();
+  PROFILE_GUEST_SPIN_HINT_EXECUTIONS(4);
+  rex::ppc_delay_execution_hints(4);
   PROFILE_GUEST_INDIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000, true);
   PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014,
                                                  0x82002000, "sub_82002000", false);

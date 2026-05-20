@@ -76,6 +76,12 @@ inline void ppc_delay_execution_hint() noexcept {
 #endif
 }
 
+inline void ppc_delay_execution_hints(uint32_t count) noexcept {
+  for (uint32_t i = 0; i < count; ++i) {
+    ppc_delay_execution_hint();
+  }
+}
+
 }  // namespace rex
 
 //=============================================================================

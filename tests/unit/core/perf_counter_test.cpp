@@ -367,6 +367,7 @@ TEST_CASE("guest function scope counts dynamic spin hint executions", "[perf][co
       rex::perf::AddGuestSpinHintExecution();
       rex::perf::AddGuestSpinHintExecution();
     }
+    rex::perf::AddGuestSpinHintExecutions(3);
     rex::perf::AddGuestSpinHintExecution();
   }
 
@@ -388,7 +389,7 @@ TEST_CASE("guest function scope counts dynamic spin hint executions", "[perf][co
   REQUIRE(outer != nullptr);
   REQUIRE(inner != nullptr);
   CHECK(outer->static_spin_hint_sites == 2);
-  CHECK(outer->dynamic_spin_hint_executions == 2);
+  CHECK(outer->dynamic_spin_hint_executions == 5);
   CHECK(inner->static_spin_hint_sites == 1);
   CHECK(inner->dynamic_spin_hint_executions == 2);
 }

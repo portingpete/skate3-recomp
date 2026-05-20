@@ -913,11 +913,19 @@ void AddGuestKernelWaitDurationUs(uint64_t duration_us) {
 }
 
 void AddGuestSpinHintExecution() {
+  AddGuestSpinHintExecutions(1);
+}
+
+void AddGuestSpinHintExecutions(uint64_t count) {
+  if (count == 0) {
+    return;
+  }
+
   if (!detail::g_guest_function_profile_enabled.load(std::memory_order_relaxed) ||
       g_guest_function_stack.empty()) {
     return;
   }
-  ++g_guest_function_stack.back().dynamic_spin_hint_executions;
+  g_guest_function_stack.back().dynamic_spin_hint_executions += count;
 }
 
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,

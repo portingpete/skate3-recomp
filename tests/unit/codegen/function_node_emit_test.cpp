@@ -37,6 +37,16 @@ size_t RequireTokenOrder(std::string_view text, std::string_view first, std::str
   return secondPos;
 }
 
+size_t CountOccurrences(std::string_view text, std::string_view needle) {
+  size_t count = 0;
+  size_t pos = 0;
+  while ((pos = text.find(needle, pos)) != std::string_view::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
+}
+
 }  // namespace
 
 TEST_CASE("FunctionNode emit keeps edge-less entry targets local when owned by the function",
@@ -471,6 +481,70 @@ TEST_CASE("FunctionNode emit lowers db16cyc spin hints to host pause hints",
   const std::string cpp = node.emitCpp(ctx);
   CHECK(cpp.find("// db16cyc \n\tPROFILE_GUEST_SPIN_HINT_EXECUTION();\n"
                  "\trex::ppc_delay_execution_hint();") != std::string::npos);
+}
+
+TEST_CASE("FunctionNode emit batches consecutive db16cyc spin hints",
+          "[codegen][FunctionNode]") {
+  constexpr std::array<uint8_t, 16> kConsecutiveDb16cyc = {
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kConsecutiveDb16cyc);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 16, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 16}}, {}, {});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  CHECK(cpp.find("\tPROFILE_GUEST_FUNCTION_SCOPE(0x00001000, \"sub_00001000\", 3);") !=
+        std::string::npos);
+  CHECK(cpp.find("// db16cyc x3\n\tPROFILE_GUEST_SPIN_HINT_EXECUTIONS(3);\n"
+                 "\trex::ppc_delay_execution_hints(3);") != std::string::npos);
+  CHECK(CountOccurrences(cpp, "PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 0);
+  CHECK(CountOccurrences(cpp, "rex::ppc_delay_execution_hint();") == 0);
+}
+
+TEST_CASE("FunctionNode emit does not batch db16cyc across labels",
+          "[codegen][FunctionNode]") {
+  constexpr std::array<uint8_t, 12> kLabeledDb16cyc = {
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+      0x7F, 0xFF, 0xFB, 0x78,  // db16cyc
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kLabeledDb16cyc);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  rex::codegen::FunctionNode node(0x1000, 12, rex::codegen::FunctionAuthority::CONFIG);
+  node.discover({rex::codegen::Block{.base = 0x1000, .size = 12}}, {}, {0x1004});
+  node.seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node.emitCpp(ctx);
+  CHECK(cpp.find("loc_1004:") != std::string::npos);
+  CHECK(CountOccurrences(cpp, "PROFILE_GUEST_SPIN_HINT_EXECUTION();") == 2);
+  CHECK(CountOccurrences(cpp, "rex::ppc_delay_execution_hint();") == 2);
+  CHECK(cpp.find("PROFILE_GUEST_SPIN_HINT_EXECUTIONS(2);") == std::string::npos);
+  CHECK(cpp.find("rex::ppc_delay_execution_hints(2);") == std::string::npos);
 }
 
 TEST_CASE("FunctionNode emit falls back to CTR when jump-table index is out of range",

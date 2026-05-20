@@ -152,6 +152,7 @@ void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t i
                                 uint64_t dynamic_spin_hint_executions = 0);
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
 void AddGuestSpinHintExecution();
+void AddGuestSpinHintExecutions(uint64_t count);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 bool fast_path_hit);
@@ -302,11 +303,12 @@ class Profiler {
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()                                                \
   rex::perf::ScopedGuestKernelWaitProfile REX_PERF_CONCAT(_rex_perf_guest_wait_scope_, \
                                                           __LINE__)
-#define PROFILE_GUEST_SPIN_HINT_EXECUTION()                                                \
-  do {                                                                                    \
-    if (rex::perf::IsGuestFunctionProfileEnabled()) {                                     \
-      rex::perf::AddGuestSpinHintExecution();                                             \
-    }                                                                                     \
+#define PROFILE_GUEST_SPIN_HINT_EXECUTION() PROFILE_GUEST_SPIN_HINT_EXECUTIONS(1)
+#define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)                                          \
+  do {                                                                                     \
+    if (rex::perf::IsGuestFunctionProfileEnabled()) {                                      \
+      rex::perf::AddGuestSpinHintExecutions(count);                                        \
+    }                                                                                      \
   } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
                                            target_address, fast_path_hit)                 \
@@ -377,6 +379,7 @@ class Profiler {
 #define PROFILE_GUEST_FUNCTION_DISPATCH_SCOPE()
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
 #define PROFILE_GUEST_SPIN_HINT_EXECUTION()
+#define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
                                            fast_path_hit)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \
