@@ -10,6 +10,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstddef>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -224,7 +225,9 @@ struct X_KTHREAD {
   rex::be<uint32_t> unk_14;          // 0x14
   X_KTIMER wait_timeout_timer;       // 0x18
   X_KWAIT_BLOCK wait_timeout_block;  // 0x40
-  uint8_t unk_58[0x4];               // 0x58
+  // Thread-local kernel time. GTAIV reads current_thread + 0x58 as a
+  // wait/progress timestamp; the exact update source is still unconfirmed.
+  rex::be<uint32_t> kernel_time;     // 0x58
   rex::be<uint32_t> stack_base;      // 0x5C
   rex::be<uint32_t> stack_limit;     // 0x60
   rex::be<uint32_t> stack_kernel;    // 0x64
