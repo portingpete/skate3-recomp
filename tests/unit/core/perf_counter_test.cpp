@@ -242,6 +242,21 @@ TEST_CASE("perf_log_csv cvar writes indexed frame CSV output", "[perf][counter]"
   CHECK(frame1_values[audio_underrun_frames_col] == "0");
 }
 
+TEST_CASE("buffer queue depth persists as a gauge until it is updated", "[perf][counter]") {
+  rex::perf::Init();
+
+  rex::perf::SetCounter(rex::perf::CounterId::kBufferQueueDepth, 3);
+  rex::perf::ResetFrameCounters();
+  CHECK(rex::perf::GetSnapshotCounter(rex::perf::CounterId::kBufferQueueDepth) == 3);
+
+  rex::perf::ResetFrameCounters();
+  CHECK(rex::perf::GetSnapshotCounter(rex::perf::CounterId::kBufferQueueDepth) == 3);
+
+  rex::perf::SetCounter(rex::perf::CounterId::kBufferQueueDepth, 0);
+  rex::perf::ResetFrameCounters();
+  CHECK(rex::perf::GetSnapshotCounter(rex::perf::CounterId::kBufferQueueDepth) == 0);
+}
+
 TEST_CASE("guest function profile aggregates top active exclusive durations", "[perf][counter]") {
   rex::perf::Init();
 

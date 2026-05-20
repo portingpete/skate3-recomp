@@ -115,7 +115,7 @@ constexpr bool kIsGauge[] = {
     false,  // kAudioSilenceFrames
     false,  // kAudioStartupSilenceFrames
     false,  // kAudioUnderrunFrames
-    false,  // kBufferQueueDepth  (set each frame)
+    true,   // kBufferQueueDepth  (live queued audio frames)
     false,  // kFunctionsDispatched
     false,  // kInterruptDispatches
     true,   // kActiveThreads     (inc/dec over lifetime)
