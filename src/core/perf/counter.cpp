@@ -774,7 +774,8 @@ void ConfigureGuestFunctionCsv(const std::string& path) {
 
   std::fputs("frame_index,elapsed_us,rank,guest_address,symbol,calls,inclusive_us,exclusive_us,"
              "blocking_wait_us,active_exclusive_us,static_spin_hint_sites,"
-             "dynamic_spin_hint_executions\n",
+             "dynamic_spin_hint_executions,active_exclusive_us_per_call,"
+             "dynamic_spin_hint_executions_per_call\n",
              g_guest_function_csv_file);
   g_guest_function_summary_top_n = static_cast<size_t>(top_n);
   g_guest_function_profile_generation.fetch_add(1, std::memory_order_relaxed);
@@ -933,15 +934,20 @@ void WriteGuestFunctionCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                  static_cast<unsigned long long>(elapsed_us),
                  static_cast<unsigned long long>(i + 1), entry.address);
     WriteCsvCell(g_guest_function_csv_file, entry.symbol);
+    const std::string active_us_per_call =
+        FormatPerCallMetric(entry.active_exclusive_us, entry.calls);
+    const std::string spin_hints_per_call =
+        FormatPerCallMetric(entry.dynamic_spin_hint_executions, entry.calls);
     std::fprintf(g_guest_function_csv_file,
-                 ",%llu,%llu,%llu,%llu,%llu,%u,%llu\n",
+                 ",%llu,%llu,%llu,%llu,%llu,%u,%llu,%s,%s\n",
                  static_cast<unsigned long long>(entry.calls),
                  static_cast<unsigned long long>(entry.inclusive_us),
                  static_cast<unsigned long long>(entry.exclusive_us),
                  static_cast<unsigned long long>(entry.blocking_wait_us),
                  static_cast<unsigned long long>(entry.active_exclusive_us),
                  entry.static_spin_hint_sites,
-                 static_cast<unsigned long long>(entry.dynamic_spin_hint_executions));
+                 static_cast<unsigned long long>(entry.dynamic_spin_hint_executions),
+                 active_us_per_call.c_str(), spin_hints_per_call.c_str());
   }
 }
 
