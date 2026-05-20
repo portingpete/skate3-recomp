@@ -50,6 +50,7 @@ add_executable(unit_tests
     codegen/template_registry_test.cpp
     ppc/import_function_test.cpp
     ppc/stack_test.cpp
+    system/export_resolver_test.cpp
     system/guest_path_test.cpp
     system/function_dispatcher_test.cpp
     system/xthread_test.cpp
