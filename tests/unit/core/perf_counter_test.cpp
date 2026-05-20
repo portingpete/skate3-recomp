@@ -478,10 +478,16 @@ TEST_CASE("guest direct call profile aggregates current generated source",
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
                                       "sub,target");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub,source", 0x82220010,
+                                          0x82300000, "sub,target", 0);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub,source", 0x82220010, 0x82300000,
                                       "sub,target");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub,source", 0x82220010,
+                                          0x82300000, "sub,target", 1);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub,source", 0x82220014, 0x82400000,
                                       "sub_82400000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub,source", 0x82220014,
+                                          0x82400000, "sub_82400000", 0x82400000);
   rex::perf::AddGuestDirectCallTarget(0x82230000, "sub_82230000", 0x82230008, 0x82500000,
                                       "sub_82500000");
 
@@ -493,18 +499,24 @@ TEST_CASE("guest direct call profile aggregates current generated source",
   CHECK(entries[0].target_address == 0x82300000);
   CHECK(entries[0].target_symbol == "sub,target");
   CHECK(entries[0].calls == 2);
+  CHECK(entries[0].post_call_r3_zero == 1);
+  CHECK(entries[0].post_call_r3_nonzero == 1);
 
   CHECK(entries[1].source_address == 0x82220000);
   CHECK(entries[1].call_site == 0x82220014);
   CHECK(entries[1].target_address == 0x82400000);
   CHECK(entries[1].target_symbol == "sub_82400000");
   CHECK(entries[1].calls == 1);
+  CHECK(entries[1].post_call_r3_zero == 0);
+  CHECK(entries[1].post_call_r3_nonzero == 1);
 
   CHECK(entries[2].source_address == 0x82230000);
   CHECK(entries[2].call_site == 0x82230008);
   CHECK(entries[2].target_address == 0x82500000);
   CHECK(entries[2].target_symbol == "sub_82500000");
   CHECK(entries[2].calls == 1);
+  CHECK(entries[2].post_call_r3_zero == 0);
+  CHECK(entries[2].post_call_r3_nonzero == 0);
 
   CHECK(rex::perf::SnapshotGuestDirectCallProfile(/*max_entries=*/4).empty());
 }
@@ -521,10 +533,16 @@ TEST_CASE("perf_log_csv writes per-frame guest direct call sidecar when enabled"
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 0);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 5);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220014,
                                       0x82400000, "sub_82400000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220014,
+                                          0x82400000, "sub_82400000", 0);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
   rex::perf::FlushCsv();
@@ -541,12 +559,13 @@ TEST_CASE("perf_log_csv writes per-frame guest direct call sidecar when enabled"
 
   CHECK(header ==
         "frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-        "call_site_symbol,target_guest_address,target_symbol,calls");
+        "call_site_symbol,target_guest_address,target_symbol,calls,post_call_r3_zero,"
+        "post_call_r3_nonzero");
 
   const auto rank0_values = SplitCsvRow(rank0);
   const auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 10);
-  REQUIRE(rank1_values.size() == 10);
+  REQUIRE(rank0_values.size() == 12);
+  REQUIRE(rank1_values.size() == 12);
   CHECK(rank0_values[0] == "0");
   CHECK(rank0_values[2] == "1");
   CHECK(rank0_values[3] == "0x82220000");
@@ -556,6 +575,8 @@ TEST_CASE("perf_log_csv writes per-frame guest direct call sidecar when enabled"
   CHECK(rank0_values[7] == "0x82300000");
   CHECK(rank0_values[8] == "sub_82300000");
   CHECK(rank0_values[9] == "2");
+  CHECK(rank0_values[10] == "1");
+  CHECK(rank0_values[11] == "1");
 
   CHECK(rank1_values[0] == "0");
   CHECK(rank1_values[2] == "2");
@@ -566,6 +587,8 @@ TEST_CASE("perf_log_csv writes per-frame guest direct call sidecar when enabled"
   CHECK(rank1_values[7] == "0x82400000");
   CHECK(rank1_values[8] == "sub_82400000");
   CHECK(rank1_values[9] == "1");
+  CHECK(rank1_values[10] == "1");
+  CHECK(rank1_values[11] == "0");
 }
 
 TEST_CASE("perf_log_csv writes aggregate guest direct call summary sidecar when enabled",
@@ -580,17 +603,27 @@ TEST_CASE("perf_log_csv writes aggregate guest direct call summary sidecar when 
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 0);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 1);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220014,
                                       0x82400000, "sub_82400000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220014,
+                                          0x82400000, "sub_82400000", 0);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
 
   rex::perf::AddGuestDirectCallTarget(0x82230000, "sub_82230000", 0x82230008,
                                       0x82500000, "sub_82500000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82230000, "sub_82230000", 0x82230008,
+                                          0x82500000, "sub_82500000", 0x82500000);
   rex::perf::AddGuestDirectCallTarget(0x82230000, "sub_82230000", 0x82230008,
                                       0x82500000, "sub_82500000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82230000, "sub_82230000", 0x82230008,
+                                          0x82500000, "sub_82500000", 0x82500001);
   rex::perf::ResetFrameCounters();
   rex::perf::WriteCsvFrame();
   rex::perf::FlushCsv();
@@ -607,12 +640,12 @@ TEST_CASE("perf_log_csv writes aggregate guest direct call summary sidecar when 
 
   CHECK(header ==
         "rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
-        "target_guest_address,target_symbol,calls");
+        "target_guest_address,target_symbol,calls,post_call_r3_zero,post_call_r3_nonzero");
 
   const auto rank0_values = SplitCsvRow(rank0);
   const auto rank1_values = SplitCsvRow(rank1);
-  REQUIRE(rank0_values.size() == 8);
-  REQUIRE(rank1_values.size() == 8);
+  REQUIRE(rank0_values.size() == 10);
+  REQUIRE(rank1_values.size() == 10);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[2] == "sub_82220000");
@@ -621,6 +654,8 @@ TEST_CASE("perf_log_csv writes aggregate guest direct call summary sidecar when 
   CHECK(rank0_values[5] == "0x82300000");
   CHECK(rank0_values[6] == "sub_82300000");
   CHECK(rank0_values[7] == "2");
+  CHECK(rank0_values[8] == "1");
+  CHECK(rank0_values[9] == "1");
 
   CHECK(rank1_values[0] == "2");
   CHECK(rank1_values[1] == "0x82230000");
@@ -630,6 +665,8 @@ TEST_CASE("perf_log_csv writes aggregate guest direct call summary sidecar when 
   CHECK(rank1_values[5] == "0x82500000");
   CHECK(rank1_values[6] == "sub_82500000");
   CHECK(rank1_values[7] == "2");
+  CHECK(rank1_values[8] == "0");
+  CHECK(rank1_values[9] == "2");
 }
 
 TEST_CASE("perf_log_csv applies live guest direct call summary limit",
@@ -644,8 +681,12 @@ TEST_CASE("perf_log_csv applies live guest direct call summary limit",
   rex::perf::ConfigureCsvLogPathFromCvar();
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 0);
   rex::perf::AddGuestDirectCallTarget(0x82220000, "sub_82220000", 0x82220010,
                                       0x82300000, "sub_82300000");
+  rex::perf::AddGuestDirectCallPostCallR3(0x82220000, "sub_82220000", 0x82220010,
+                                          0x82300000, "sub_82300000", 1);
   rex::perf::AddGuestDirectCallTarget(0x82230000, "sub_82230000", 0x82230008,
                                       0x82500000, "sub_82500000");
   rex::perf::ResetFrameCounters();
@@ -665,10 +706,12 @@ TEST_CASE("perf_log_csv applies live guest direct call summary limit",
   CHECK_FALSE(std::getline(summary_csv, rank1));
 
   const auto rank0_values = SplitCsvRow(rank0);
-  REQUIRE(rank0_values.size() == 8);
+  REQUIRE(rank0_values.size() == 10);
   CHECK(rank0_values[0] == "1");
   CHECK(rank0_values[1] == "0x82220000");
   CHECK(rank0_values[7] == "2");
+  CHECK(rank0_values[8] == "1");
+  CHECK(rank0_values[9] == "1");
 }
 
 TEST_CASE("guest indirect target profile aggregates current generated source",

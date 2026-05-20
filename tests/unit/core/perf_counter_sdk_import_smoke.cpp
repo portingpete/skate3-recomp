@@ -55,6 +55,8 @@ int main() {
   PROFILE_GUEST_INDIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010, 0x82001000, true);
   PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010,
                                    0x82001000, "sub_82001000");
+  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010,
+                                         0x82001000, "sub_82001000", 0);
   PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(0x82000000, "sub_82000000", 0x82000014,
                                                  0x82002000, "sub_82002000", false);
 
@@ -75,6 +77,8 @@ int main() {
 
   PROFILE_GUEST_DIRECT_CALL_TARGET(0x82000000, "sub_82000000", 0x82000010,
                                    0x82001000, "sub_82001000");
+  PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(0x82000000, "sub_82000000", 0x82000010,
+                                         0x82001000, "sub_82001000", 1);
 
   if (!rex::cvar::SetFlagByName("perf_guest_direct_calls_top_n", "0") ||
       !rex::cvar::SetFlagByName("perf_guest_indirect_targets_top_n", "0")) {

@@ -288,6 +288,10 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol,") !=
+        std::string::npos);
+  CHECK(result.find("ctx.r3.u32") != std::string::npos);
+  CHECK(result.find("fn(ctx, base);") < result.find("ctx.r3.u32"));
   CHECK(result.find("std::string rex_indirect_target_symbol_") == std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,") !=
@@ -342,6 +346,8 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3") != std::string::npos);
+  CHECK(result.find("ctx.r3.u32") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);

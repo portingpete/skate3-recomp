@@ -19,13 +19,33 @@
                                        target_address, target_symbol);                       \
     }                                                                                        \
   } while (false)
+#define REX_PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
+                                                   target_address, target_symbol, post_r3)   \
+  do {                                                                                       \
+    if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                      \
+      PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site,       \
+                                             target_address, target_symbol, post_r3);        \
+    }                                                                                        \
+  } while (false)
+#define REX_CALL_DIRECT_FUNC_AT(source_address, source_symbol, call_site, target_address, target_symbol, fn) \
+  do {                                                                                                       \
+    const bool rex_profile_guest_direct_call_ = rex::perf::IsGuestDirectCallProfileEnabled();                \
+    if (rex_profile_guest_direct_call_) {                                                                    \
+      PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, target_symbol); \
+    }                                                                                                        \
+    fn(ctx, base);                                                                                           \
+    if (rex_profile_guest_direct_call_) {                                                                    \
+      PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, target_address,       \
+                                             target_symbol, ctx.r3.u32);                                     \
+    }                                                                                                        \
+  } while (0)
 #else
 #define REX_PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
                                              target_address, target_symbol)
-#endif
-
+#define REX_PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
+                                                   target_address, target_symbol, post_r3)
 #define REX_CALL_DIRECT_FUNC_AT(source_address, source_symbol, call_site, target_address, target_symbol, fn) \
   do {                                                                                                       \
-    REX_PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, target_symbol); \
-    fn(ctx, base);                                                                                          \
+    fn(ctx, base);                                                                                           \
   } while (0)
+#endif

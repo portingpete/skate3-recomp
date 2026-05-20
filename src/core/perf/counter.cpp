@@ -210,6 +210,8 @@ struct GuestDirectCallProfileTotals {
   std::string source_symbol;
   std::string target_symbol;
   uint64_t calls = 0;
+  uint64_t post_call_r3_zero = 0;
+  uint64_t post_call_r3_nonzero = 0;
 };
 
 std::string FormatGuestFunctionSymbol(uint32_t address) {
@@ -419,7 +421,7 @@ void AddGuestIndirectCallTargetLocked(
   }
 }
 
-void AddGuestDirectCallTargetLocked(
+GuestDirectCallProfileTotals& EnsureGuestDirectCallProfileEntryLocked(
     std::unordered_map<GuestDirectCallTargetKey, GuestDirectCallProfileTotals,
                        GuestDirectCallTargetKeyHash>& map,
     const GuestDirectCallTargetKey& key, const char* source_symbol, const char* target_symbol) {
@@ -430,7 +432,28 @@ void AddGuestDirectCallTargetLocked(
   if (entry.target_symbol.empty() && target_symbol) {
     entry.target_symbol = target_symbol;
   }
+  return entry;
+}
+
+void AddGuestDirectCallTargetLocked(
+    std::unordered_map<GuestDirectCallTargetKey, GuestDirectCallProfileTotals,
+                       GuestDirectCallTargetKeyHash>& map,
+    const GuestDirectCallTargetKey& key, const char* source_symbol, const char* target_symbol) {
+  auto& entry = EnsureGuestDirectCallProfileEntryLocked(map, key, source_symbol, target_symbol);
   ++entry.calls;
+}
+
+void AddGuestDirectCallPostCallR3Locked(
+    std::unordered_map<GuestDirectCallTargetKey, GuestDirectCallProfileTotals,
+                       GuestDirectCallTargetKeyHash>& map,
+    const GuestDirectCallTargetKey& key, const char* source_symbol, const char* target_symbol,
+    uint32_t post_call_r3) {
+  auto& entry = EnsureGuestDirectCallProfileEntryLocked(map, key, source_symbol, target_symbol);
+  if (post_call_r3 == 0) {
+    ++entry.post_call_r3_zero;
+  } else {
+    ++entry.post_call_r3_nonzero;
+  }
 }
 
 std::vector<GuestFunctionProfileEntry> BuildGuestFunctionEntries(
@@ -528,6 +551,8 @@ std::vector<GuestDirectCallProfileEntry> BuildGuestDirectCallEntries(
         .target_symbol = totals.target_symbol.empty() ? FormatGuestFunctionSymbol(key.target_address)
                                                       : totals.target_symbol,
         .calls = totals.calls,
+        .post_call_r3_zero = totals.post_call_r3_zero,
+        .post_call_r3_nonzero = totals.post_call_r3_nonzero,
     });
   }
 
@@ -634,7 +659,8 @@ void WriteGuestDirectCallSummaryCsv() {
   }
 
   std::fputs("rank,source_guest_address,source_symbol,call_site,call_site_symbol,"
-             "target_guest_address,target_symbol,calls\n",
+             "target_guest_address,target_symbol,calls,post_call_r3_zero,"
+             "post_call_r3_nonzero\n",
              summary_file);
   for (size_t i = 0; i < entries.size(); ++i) {
     const auto& entry = entries[i];
@@ -647,8 +673,10 @@ void WriteGuestDirectCallSummaryCsv() {
                                            entry.call_site));
     std::fprintf(summary_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(summary_file, entry.target_symbol);
-    std::fprintf(summary_file, ",%llu\n",
-                 static_cast<unsigned long long>(entry.calls));
+    std::fprintf(summary_file, ",%llu,%llu,%llu\n",
+                 static_cast<unsigned long long>(entry.calls),
+                 static_cast<unsigned long long>(entry.post_call_r3_zero),
+                 static_cast<unsigned long long>(entry.post_call_r3_nonzero));
   }
 
   std::fflush(summary_file);
@@ -803,7 +831,8 @@ void ConfigureGuestDirectCallCsv(const std::string& path) {
   }
 
   std::fputs("frame_index,elapsed_us,rank,source_guest_address,source_symbol,call_site,"
-             "call_site_symbol,target_guest_address,target_symbol,calls\n",
+             "call_site_symbol,target_guest_address,target_symbol,calls,post_call_r3_zero,"
+             "post_call_r3_nonzero\n",
              g_guest_direct_call_csv_file);
   g_guest_direct_call_summary_top_n = static_cast<size_t>(top_n);
   detail::g_guest_direct_call_profile_enabled.store(true, std::memory_order_relaxed);
@@ -977,8 +1006,10 @@ void WriteGuestDirectCallCsvFrame(uint64_t frame_index, uint64_t elapsed_us) {
                                            entry.call_site));
     std::fprintf(g_guest_direct_call_csv_file, ",0x%08X,", entry.target_address);
     WriteCsvCell(g_guest_direct_call_csv_file, entry.target_symbol);
-    std::fprintf(g_guest_direct_call_csv_file, ",%llu\n",
-                 static_cast<unsigned long long>(entry.calls));
+    std::fprintf(g_guest_direct_call_csv_file, ",%llu,%llu,%llu\n",
+                 static_cast<unsigned long long>(entry.calls),
+                 static_cast<unsigned long long>(entry.post_call_r3_zero),
+                 static_cast<unsigned long long>(entry.post_call_r3_nonzero));
   }
 }
 
@@ -1241,6 +1272,26 @@ void AddGuestDirectCallTarget(uint32_t source_address, const char* source_symbol
                                  target_symbol);
   AddGuestDirectCallTargetLocked(g_guest_direct_call_summary_profile, key, source_symbol,
                                  target_symbol);
+}
+
+void AddGuestDirectCallPostCallR3(uint32_t source_address, const char* source_symbol,
+                                  uint32_t call_site, uint32_t target_address,
+                                  const char* target_symbol, uint32_t post_call_r3) {
+  if (!detail::g_guest_direct_call_profile_enabled.load(std::memory_order_relaxed)) {
+    return;
+  }
+
+  const GuestDirectCallTargetKey key{
+      .source_address = source_address,
+      .call_site = call_site,
+      .target_address = target_address,
+  };
+
+  std::lock_guard lock(g_guest_direct_call_profile_mutex);
+  AddGuestDirectCallPostCallR3Locked(g_guest_direct_call_profile, key, source_symbol,
+                                     target_symbol, post_call_r3);
+  AddGuestDirectCallPostCallR3Locked(g_guest_direct_call_summary_profile, key, source_symbol,
+                                     target_symbol, post_call_r3);
 }
 
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,

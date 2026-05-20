@@ -160,6 +160,8 @@ struct GuestDirectCallProfileEntry {
   uint32_t target_address = 0;
   std::string target_symbol;
   uint64_t calls = 0;
+  uint64_t post_call_r3_zero = 0;
+  uint64_t post_call_r3_nonzero = 0;
 };
 
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
@@ -172,6 +174,9 @@ void AddGuestSpinHintExecutions(uint64_t count);
 void AddGuestDirectCallTarget(uint32_t source_address, const char* source_symbol,
                               uint32_t call_site, uint32_t target_address,
                               const char* target_symbol);
+void AddGuestDirectCallPostCallR3(uint32_t source_address, const char* source_symbol,
+                                  uint32_t call_site, uint32_t target_address,
+                                  const char* target_symbol, uint32_t post_call_r3);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 bool fast_path_hit);
@@ -338,6 +343,14 @@ class Profiler {
                                           target_address, target_symbol);                 \
     }                                                                                    \
   } while (false)
+#define PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
+                                               target_address, target_symbol, post_r3)    \
+  do {                                                                                   \
+    if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                  \
+      rex::perf::AddGuestDirectCallPostCallR3(source_address, source_symbol, call_site,   \
+                                              target_address, target_symbol, post_r3);    \
+    }                                                                                    \
+  } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
                                            target_address, fast_path_hit)                 \
   do {                                                                                   \
@@ -412,6 +425,8 @@ class Profiler {
 #define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)
 #define PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
                                          target_symbol)
+#define PROFILE_GUEST_DIRECT_CALL_POST_CALL_R3(source_address, source_symbol, call_site, \
+                                               target_address, target_symbol, post_r3)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
                                            fast_path_hit)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \
