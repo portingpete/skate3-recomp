@@ -8,6 +8,7 @@ namespace rex::graphics {
 struct IssueDrawFailureInfo {
   const char* backend = "";
   const char* stage = "";
+  const char* detail = "";
   uint32_t prim_type = 0;
   uint32_t index_count = 0;
   uint32_t source_select = 0;

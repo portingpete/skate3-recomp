@@ -9,6 +9,7 @@ TEST_CASE("IssueDraw failure diagnostics include backend stage and draw state",
   rex::graphics::IssueDrawFailureInfo info{
       .backend = "D3D12",
       .stage = "configure_pipeline",
+      .detail = "state_description_root_signature_failed",
       .prim_type = 6,
       .index_count = 4,
       .source_select = 2,
@@ -28,6 +29,7 @@ TEST_CASE("IssueDraw failure diagnostics include backend stage and draw state",
   const std::string text = rex::graphics::FormatIssueDrawFailure(info);
 
   CHECK(text.find("D3D12 IssueDraw failed at configure_pipeline") != std::string::npos);
+  CHECK(text.find("detail=state_description_root_signature_failed") != std::string::npos);
   CHECK(text.find("prim_type=6") != std::string::npos);
   CHECK(text.find("index_count=4") != std::string::npos);
   CHECK(text.find("source_select=2") != std::string::npos);

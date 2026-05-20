@@ -902,13 +902,23 @@ bool PipelineCache::ConfigurePipeline(
     reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
     uint32_t bound_depth_and_color_render_target_bits,
     const uint32_t* bound_depth_and_color_render_target_formats, void** pipeline_handle_out,
-    ID3D12RootSignature** root_signature_out) {
+    ID3D12RootSignature** root_signature_out, const char** failure_detail_out) {
 #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
   SCOPE_profile_cpu_f("gpu");
 #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
 
   assert_not_null(pipeline_handle_out);
   assert_not_null(root_signature_out);
+
+  if (failure_detail_out) {
+    *failure_detail_out = "";
+  }
+  auto fail = [&](const char* detail) {
+    if (failure_detail_out) {
+      *failure_detail_out = detail;
+    }
+    return false;
+  };
 
   bool use_async = REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
                    pixel_shader != nullptr;
@@ -932,7 +942,7 @@ bool PipelineCache::ConfigurePipeline(
       if (!TranslateAnalyzedShader(*shader_translator_, *vertex_shader, dxbc_converter_, dxc_utils_,
                                    dxc_compiler_)) {
         REXGPU_ERROR("Failed to translate the vertex shader!");
-        return false;
+        return fail("vertex_shader_translation_failed");
       }
       if (shader_storage_file_ &&
           vertex_shader->shader().ucode_storage_index() != shader_storage_index_) {
@@ -949,7 +959,7 @@ bool PipelineCache::ConfigurePipeline(
   }
   if (!use_async && !vertex_shader->is_valid()) {
     // Translation attempted previously, but not valid.
-    return false;
+    return fail("vertex_shader_invalid");
   }
   if (pixel_shader != nullptr) {
     if (!pixel_shader->is_translated() && !use_async) {
@@ -959,7 +969,7 @@ bool PipelineCache::ConfigurePipeline(
         if (!TranslateAnalyzedShader(*shader_translator_, *pixel_shader, dxbc_converter_,
                                      dxc_utils_, dxc_compiler_)) {
           REXGPU_ERROR("Failed to translate the pixel shader!");
-          return false;
+          return fail("pixel_shader_translation_failed");
         }
         if (shader_storage_file_ &&
             pixel_shader->shader().ucode_storage_index() != shader_storage_index_) {
@@ -975,16 +985,20 @@ bool PipelineCache::ConfigurePipeline(
       }
     }
     if (pixel_shader->is_translated() && !pixel_shader->is_valid()) {
-      return false;
+      return fail("pixel_shader_invalid");
     }
   }
 
   PipelineRuntimeDescription runtime_description;
+  const char* state_failure_detail = "";
   if (!GetCurrentStateDescription(
           vertex_shader, pixel_shader, primitive_processing_result, normalized_depth_control,
           normalized_color_mask, bound_depth_and_color_render_target_bits,
-          bound_depth_and_color_render_target_formats, runtime_description, use_async)) {
-    return false;
+          bound_depth_and_color_render_target_formats, runtime_description, use_async,
+          &state_failure_detail)) {
+    return fail(state_failure_detail && state_failure_detail[0] != '\0'
+                    ? state_failure_detail
+                    : "state_description_failed");
   }
   PipelineDescription& description = runtime_description.description;
 
@@ -1239,13 +1253,24 @@ bool PipelineCache::GetCurrentStateDescription(
     reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
     uint32_t bound_depth_and_color_render_target_bits,
     const uint32_t* bound_depth_and_color_render_target_formats,
-    PipelineRuntimeDescription& runtime_description_out, bool for_placeholder) {
+    PipelineRuntimeDescription& runtime_description_out, bool for_placeholder,
+    const char** failure_detail_out) {
   // Translated shaders needed at least for the root signature, unless in
   // placeholder mode (async compilation) where both VS and PS translation
   // may be deferred to background threads.
   assert_true(for_placeholder || (vertex_shader->is_translated() && vertex_shader->is_valid()));
   assert_true(for_placeholder || !pixel_shader ||
               (pixel_shader->is_translated() && pixel_shader->is_valid()));
+
+  if (failure_detail_out) {
+    *failure_detail_out = "";
+  }
+  auto fail = [&](const char* detail) {
+    if (failure_detail_out) {
+      *failure_detail_out = detail;
+    }
+    return false;
+  };
 
   PipelineDescription& description_out = runtime_description_out.description;
 
@@ -1269,7 +1294,7 @@ bool PipelineCache::GetCurrentStateDescription(
   if (!rasterization_enabled) {
     assert_null(pixel_shader);
     if (pixel_shader) {
-      return false;
+      return fail("rasterization_disabled_with_pixel_shader");
     }
   }
 
@@ -1283,7 +1308,7 @@ bool PipelineCache::GetCurrentStateDescription(
                                          : nullptr,
       tessellated);
   if (runtime_description_out.root_signature == nullptr) {
-    return false;
+    return fail("state_description_root_signature_failed");
   }
 
   // Vertex shader.

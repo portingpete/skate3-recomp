@@ -90,7 +90,8 @@ class PipelineCache {
                          uint32_t normalized_color_mask,
                          uint32_t bound_depth_and_color_render_target_bits,
                          const uint32_t* bound_depth_and_color_render_targets_formats,
-                         void** pipeline_handle_out, ID3D12RootSignature** root_signature_out);
+                         void** pipeline_handle_out, ID3D12RootSignature** root_signature_out,
+                         const char** failure_detail_out = nullptr);
 
   // Returns a pipeline with deferred creation by its handle. May return nullptr
   // while creation is still pending or after creation failed.
@@ -289,7 +290,8 @@ class PipelineCache {
       reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
       uint32_t bound_depth_and_color_render_target_bits,
       const uint32_t* bound_depth_and_color_render_target_formats,
-      PipelineRuntimeDescription& runtime_description_out, bool for_placeholder = false);
+      PipelineRuntimeDescription& runtime_description_out, bool for_placeholder = false,
+      const char** failure_detail_out = nullptr);
 
   static bool GetGeometryShaderKey(PipelineGeometryShader geometry_shader_type,
                                    DxbcShaderTranslator::Modification vertex_shader_modification,

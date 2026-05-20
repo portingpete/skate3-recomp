@@ -2308,11 +2308,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   PrimitiveProcessor::ProcessingResult primitive_processing_result;
   bool has_primitive_processing_result = false;
 
-  auto draw_fail = [&](const char* stage) {
+  auto draw_fail = [&](const char* stage, const char* detail = "") {
     auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
     IssueDrawFailureInfo failure_info{
         .backend = "D3D12",
         .stage = stage,
+        .detail = detail,
         .prim_type = uint32_t(primitive_type),
         .index_count = index_count,
         .source_select = uint32_t(vgt_draw_initiator.source_select),
@@ -2455,11 +2456,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   }
   void* pipeline_handle;
   ID3D12RootSignature* root_signature;
+  const char* configure_pipeline_detail = "";
   if (!pipeline_cache_->ConfigurePipeline(
           vertex_shader_translation, pixel_shader_translation, primitive_processing_result,
           normalized_depth_control, normalized_color_mask, bound_depth_and_color_render_target_bits,
-          bound_depth_and_color_render_target_formats, &pipeline_handle, &root_signature)) {
-    return draw_fail("configure_pipeline");
+          bound_depth_and_color_render_target_formats, &pipeline_handle, &root_signature,
+          &configure_pipeline_detail)) {
+    return draw_fail("configure_pipeline", configure_pipeline_detail);
   }
   if (REXCVAR_GET(async_shader_compilation)) {
     const pipeline_util::PipelineCreationStatus pipeline_status =

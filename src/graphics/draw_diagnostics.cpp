@@ -12,6 +12,9 @@ std::string FormatIssueDrawFailure(const IssueDrawFailureInfo& info) {
       info.backend, info.stage, info.prim_type, info.index_count, info.source_select,
       info.major_mode, uint32_t(info.explicit_major), info.path_select, info.tess_mode,
       info.edram_mode);
+  if (info.detail && info.detail[0] != '\0') {
+    text += fmt::format(", detail={}", info.detail);
+  }
   if (info.has_vertex_shader_hash) {
     text += fmt::format(", vs=0x{:016X}", info.vertex_shader_hash);
   }
