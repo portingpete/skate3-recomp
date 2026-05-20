@@ -208,7 +208,7 @@ bool build_bctr(BuilderContext& ctx) {
             if (targetFn->isImport()) {
               ctx.emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t");
             } else {
-              ctx.println("\t\t{}(ctx, base);", targetFn->name());
+              ctx.emit_direct_function_call(targetFn, "\t\t");
             }
           } else {
             REXCODEGEN_ERROR(

@@ -323,6 +323,77 @@ TEST_CASE("FunctionNode emit wraps import nodes resolved as function targets for
   CHECK(cpp.find("__imp__NtWaitForSingleObjectEx(ctx, base);") == std::string::npos);
 }
 
+TEST_CASE("FunctionNode emit attributes resolved direct guest calls for profiling",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 8> kDirectCall = {
+      0x48, 0x00, 0x10, 0x01,  // 0x1000: bl 0x2000
+      0x4E, 0x80, 0x00, 0x20,  // 0x1004: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kDirectCall);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* caller = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  auto* callee = graph.addFunction(0x2000, 4, rex::codegen::FunctionAuthority::CONFIG, true);
+  REQUIRE(caller != nullptr);
+  REQUIRE(callee != nullptr);
+  caller->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  callee->discover({rex::codegen::Block{.base = 0x2000, .size = 4}}, {}, {});
+  graph.addCallToFunction(0x1000, 0x1000, rex::codegen::CallTarget::function(callee));
+  caller->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = caller->emitCpp(ctx);
+  const std::string direct_call =
+      "REX_CALL_DIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+      "0x00002000, \"sub_00002000\", sub_00002000);";
+  CHECK(cpp.find(direct_call) != std::string::npos);
+  CHECK(cpp.find("\tsub_00002000(ctx, base);") == std::string::npos);
+  RequireTokenOrder(cpp, "ctx.lr = 0x1004;", direct_call);
+}
+
+TEST_CASE("FunctionNode emit excludes register save helpers from direct call profiling",
+          "[codegen][FunctionNode][perf]") {
+  constexpr std::array<uint8_t, 8> kDirectCall = {
+      0x48, 0x00, 0x10, 0x01,  // 0x1000: bl 0x2000
+      0x4E, 0x80, 0x00, 0x20,  // 0x1004: blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kDirectCall);
+  rex::codegen::RecompilerConfig config;
+  rex::codegen::FunctionGraph graph;
+  auto* caller = graph.addFunction(0x1000, 8, rex::codegen::FunctionAuthority::CONFIG, true);
+  auto* helper = graph.addFunction(0x2000, 4, rex::codegen::FunctionAuthority::HELPER, true);
+  REQUIRE(caller != nullptr);
+  REQUIRE(helper != nullptr);
+  helper->setName("__savegprlr_29");
+  caller->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+  helper->discover({rex::codegen::Block{.base = 0x2000, .size = 4}}, {}, {});
+  graph.addCallToFunction(0x1000, 0x1000, rex::codegen::CallTarget::function(helper));
+  caller->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = caller->emitCpp(ctx);
+  CHECK(cpp.find("\t__savegprlr_29(ctx, base);") != std::string::npos);
+  CHECK(cpp.find("REX_CALL_DIRECT_FUNC_AT(0x00001000, \"sub_00001000\", 0x00001000, "
+                 "0x00002000, \"__savegprlr_29\", __savegprlr_29);") ==
+        std::string::npos);
+}
+
 TEST_CASE("FunctionNode emit handles conditional branch-to-CTR-and-link",
           "[codegen][FunctionNode]") {
   // 0x4C820421 = bnectrl cr0. The call is conditional and must preserve

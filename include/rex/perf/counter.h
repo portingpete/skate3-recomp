@@ -31,11 +31,16 @@ namespace rex::perf {
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
 namespace detail {
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_function_profile_enabled;
+extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_direct_call_profile_enabled;
 extern REX_PERF_RUNTIME_DATA std::atomic<bool> g_guest_indirect_call_profile_enabled;
 }  // namespace detail
 
 inline bool IsGuestFunctionProfileEnabled() noexcept {
   return detail::g_guest_function_profile_enabled.load(std::memory_order_relaxed);
+}
+
+inline bool IsGuestDirectCallProfileEnabled() noexcept {
+  return detail::g_guest_direct_call_profile_enabled.load(std::memory_order_relaxed);
 }
 
 inline bool IsGuestIndirectCallProfileEnabled() noexcept {
@@ -148,6 +153,15 @@ struct GuestIndirectCallTargetProfileEntry {
   uint64_t fallback_hits = 0;
 };
 
+struct GuestDirectCallProfileEntry {
+  uint32_t source_address = 0;
+  std::string source_symbol;
+  uint32_t call_site = 0;
+  uint32_t target_address = 0;
+  std::string target_symbol;
+  uint64_t calls = 0;
+};
+
 void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t inclusive_us,
                                 uint64_t exclusive_us, uint64_t blocking_wait_us = 0,
                                 uint32_t static_spin_hint_sites = 0,
@@ -155,6 +169,9 @@ void AddGuestFunctionDurationUs(uint32_t address, const char* symbol, uint64_t i
 void AddGuestKernelWaitDurationUs(uint64_t duration_us);
 void AddGuestSpinHintExecution();
 void AddGuestSpinHintExecutions(uint64_t count);
+void AddGuestDirectCallTarget(uint32_t source_address, const char* source_symbol,
+                              uint32_t call_site, uint32_t target_address,
+                              const char* target_symbol);
 void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symbol,
                                 uint32_t call_site, uint32_t target_address,
                                 bool fast_path_hit);
@@ -165,6 +182,7 @@ void AddGuestIndirectCallTarget(uint32_t source_address, const char* source_symb
 // Returns the current top entries and clears the frame-local accumulator.
 std::vector<GuestFunctionProfileEntry> SnapshotGuestFunctionProfile(size_t max_entries,
                                                                     uint64_t min_exclusive_us);
+std::vector<GuestDirectCallProfileEntry> SnapshotGuestDirectCallProfile(size_t max_entries);
 std::vector<GuestIndirectCallTargetProfileEntry> SnapshotGuestIndirectCallTargetProfile(
     size_t max_entries);
 
@@ -312,6 +330,14 @@ class Profiler {
       rex::perf::AddGuestSpinHintExecutions(count);                                        \
     }                                                                                      \
   } while (false)
+#define PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,       \
+                                         target_address, target_symbol)                  \
+  do {                                                                                   \
+    if (rex::perf::IsGuestDirectCallProfileEnabled()) {                                  \
+      rex::perf::AddGuestDirectCallTarget(source_address, source_symbol, call_site,       \
+                                          target_address, target_symbol);                 \
+    }                                                                                    \
+  } while (false)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,     \
                                            target_address, fast_path_hit)                 \
   do {                                                                                   \
@@ -384,6 +410,8 @@ class Profiler {
 #define PROFILE_GUEST_KERNEL_WAIT_SCOPE()
 #define PROFILE_GUEST_SPIN_HINT_EXECUTION()
 #define PROFILE_GUEST_SPIN_HINT_EXECUTIONS(count)
+#define PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
+                                         target_symbol)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site, target_address, \
                                            fast_path_hit)
 #define PROFILE_GUEST_INDIRECT_CALL_TARGET_WITH_SYMBOL(source_address, source_symbol, call_site, \

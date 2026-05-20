@@ -231,6 +231,14 @@ struct BuilderContext {
   void emit_function_call(uint32_t address);
 
   /**
+   * @brief Emit C++ code for a resolved guest-to-guest direct call.
+   * @param targetFn Resolved target function node
+   * @param indent Leading whitespace for the emitted statement
+   */
+  void emit_direct_function_call(const FunctionNode* targetFn,
+                                 std::string_view indent = "\t");
+
+  /**
    * @brief Emit C++ code for a native/import call.
    * @param address Import thunk address used for profiling attribution
    * @param func_name Generated import wrapper symbol to call

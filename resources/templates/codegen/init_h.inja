@@ -227,6 +227,8 @@ extern PPCFuncMapping PPCFuncMappings[];
 // Function Dispatch
 //=============================================================================
 
+{% include "codegen/_direct_call.inja" %}
+
 #define REX_CALL_FUNC(x) x(ctx, base)
 
 {% include "codegen/_indirect_call.inja" %}

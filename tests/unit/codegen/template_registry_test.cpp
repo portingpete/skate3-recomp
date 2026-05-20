@@ -46,7 +46,7 @@ TEST_CASE("TemplateRegistry: registeredIds returns all template IDs", "[Template
   rex::codegen::TemplateRegistry registry;
   auto ids = registry.registeredIds();
 
-  REQUIRE(ids.size() == 17);
+  REQUIRE(ids.size() == 18);
 
   auto has = [&](const std::string& id) {
     return std::find(ids.begin(), ids.end(), id) != ids.end();
@@ -61,6 +61,7 @@ TEST_CASE("TemplateRegistry: registeredIds returns all template IDs", "[Template
   CHECK(has("codegen/init_cpp"));
   CHECK(has("codegen/sources_cmake"));
   CHECK(has("codegen/_indirect_call"));
+  CHECK(has("codegen/_direct_call"));
   CHECK(has("codegen/dll_targets_cmake"));
   CHECK(has("codegen/module_registry_cpp"));
   CHECK(has("codegen/register_cpp"));
@@ -284,6 +285,9 @@ TEST_CASE("TemplateRegistry: init_h includes shared indirect-call partial", "[Te
   CHECK(result.find("ResolveIndirectFunctionSymbol") == std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
+  CHECK(result.find("PROFILE_GUEST_DIRECT_CALL_TARGET(source_address, source_symbol, call_site,") != std::string::npos);
   CHECK(result.find("std::string rex_indirect_target_symbol_") == std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("PROFILE_GUEST_INDIRECT_CALL_TARGET(source_address, source_symbol, call_site,") !=
@@ -336,6 +340,8 @@ TEST_CASE("TemplateRegistry: ppc_config_h includes shared indirect-call partial"
   CHECK(result.find("ResolveIndirectFunction") != std::string::npos);
   CHECK(result.find("last_indirect_target") != std::string::npos);
   CHECK(result.find("REX_CALL_INDIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("REX_CALL_DIRECT_FUNC_AT") != std::string::npos);
+  CHECK(result.find("rex::perf::IsGuestDirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("rex::perf::IsGuestIndirectCallProfileEnabled()") != std::string::npos);
   CHECK(result.find("[[likely]]") != std::string::npos);
   CHECK(result.find("REX_CALL_NATIVE_FUNC") != std::string::npos);

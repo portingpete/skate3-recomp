@@ -56,6 +56,10 @@ std::string EscapeCppString(std::string_view value) {
   return escaped;
 }
 
+bool IsRegisterSaveRestoreHelper(std::string_view name) {
+  return name.starts_with("__save") || name.starts_with("__rest");
+}
+
 std::string SanitizeImportFunctionName(std::string name) {
   std::replace(name.begin(), name.end(), '@', '_');
   std::replace(name.begin(), name.end(), '.', '_');
@@ -188,6 +192,18 @@ const char* BuilderContext::ea() {
   return "ea";
 }
 
+void BuilderContext::emit_direct_function_call(const FunctionNode* targetFn,
+                                               std::string_view indent) {
+  if (IsRegisterSaveRestoreHelper(targetFn->name())) {
+    println("{}{}(ctx, base);", indent, targetFn->name());
+    return;
+  }
+
+  println("{}REX_CALL_DIRECT_FUNC_AT(0x{:08X}, \"{}\", 0x{:08X}, 0x{:08X}, \"{}\", {});",
+          indent, fn.base(), EscapeCppString(fn.name()), base, targetFn->base(),
+          EscapeCppString(targetFn->name()), targetFn->name());
+}
+
 void BuilderContext::emit_native_function_call(uint32_t address, std::string_view func_name,
                                                std::string_view indent) {
   if (config().setJmpAddress != 0 || config().longJmpAddress != 0) {
@@ -302,13 +318,12 @@ void BuilderContext::emit_function_call(uint32_t address) {
       }
 
       // Handle save/restore helpers
-      if (cfg.nonVolatileRegistersAsLocalVariables &&
-          (name.find("__rest") == 0 || name.find("__save") == 0)) {
+      if (cfg.nonVolatileRegistersAsLocalVariables && IsRegisterSaveRestoreHelper(name)) {
         // print nothing - these are handled by local variable tracking
         return;
       }
 
-      println("\t{}(ctx, base);", name);
+      emit_direct_function_call(targetFn);
       return;
     }
 
@@ -355,7 +370,7 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
           if (targetFn->isImport()) {
             emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t");
           } else {
-            println("\t\t{}(ctx, base);", targetFn->name());
+            emit_direct_function_call(targetFn, "\t\t");
           }
           println("\t\treturn;");
           println("\t}}");
