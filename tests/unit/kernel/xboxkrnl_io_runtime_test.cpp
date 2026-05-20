@@ -127,6 +127,14 @@ bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
          text.find("0x0") != std::string_view::npos;
 }
 
+bool IsZeroByteShaderDiagnostic(std::string_view text) {
+  return text.find("zero-byte shader resource") != std::string_view::npos &&
+         text.find("GenericVS.xvu") != std::string_view::npos &&
+         text.find("file_size=0") != std::string_view::npos &&
+         text.find("requested=0x0") != std::string_view::npos &&
+         text.find("bytes=0") != std::string_view::npos;
+}
+
 u32 StoreAnsiString(rex::memory::Memory* memory, const std::string_view value) {
   const u32 chars_guest = memory->SystemHeapAlloc(static_cast<u32>(value.size()));
   auto* chars = memory->TranslateVirtual<char*>(chars_guest);
@@ -208,6 +216,80 @@ TEST_CASE("NtReadFile noisy result logs path and byte counts for zero-length rea
         return entry.level == spdlog::level::trace && IsNtReadFileZeroLengthShaderLog(entry.text);
       });
   CHECK(read_result_count == 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("NtReadFile logs zero-byte shader resources without noisy tracing",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_ntreadfile_zero_byte_shader_diag_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "shaders");
+  {
+    std::ofstream file(root / "shaders" / "GenericVS.xvu", std::ios::binary);
+    REQUIRE(file.good());
+  }
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+
+  const bool old_noisy = REXCVAR_GET(log_noisy);
+  REXCVAR_SET(log_noisy, false);
+
+  auto krnl_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), krnl_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "game:\\shaders\\GenericVS.xvu");
+
+  rex::system::X_OBJECT_ATTRIBUTES attrs{};
+  attrs.root_directory = 0;
+  attrs.name_ptr = path_guest;
+  attrs.attributes = 0x40;
+
+  rex::system::X_IO_STATUS_BLOCK create_iosb{};
+  rex::be_u32 handle = X_INVALID_HANDLE_VALUE;
+  REQUIRE(rex::kernel::xboxkrnl::NtCreateFile_entry(
+              mapped_u32(&handle, 0x40001000), rex::filesystem::FileAccess::kGenericRead,
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&create_iosb, 0x40003000),
+              mapped_u64(nullptr), rex::system::X_FILE_ATTRIBUTE_NORMAL, 1,
+              static_cast<u32>(rex::filesystem::FileDisposition::kOpen), 0x20u) ==
+          X_STATUS_SUCCESS);
+
+  rex::system::X_IO_STATUS_BLOCK read_iosb{};
+  CHECK(rex::kernel::xboxkrnl::NtReadFile_entry(
+            static_cast<u32>(handle), 0, mapped_void(nullptr), mapped_void(nullptr),
+            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&read_iosb, 0x40004000),
+            mapped_void(nullptr, 0x40005000), 0, mapped_u64(nullptr)) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(read_iosb.status) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(read_iosb.information) == 0);
+
+  std::vector<rex::LogEntry> krnl_entries;
+  krnl_sink->CopyEntries(krnl_entries);
+  rex::RemoveSink(rex::log::krnl(), krnl_sink);
+  REXCVAR_SET(log_noisy, old_noisy);
+
+  const auto diagnostic_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsZeroByteShaderDiagnostic(entry.text);
+      });
+  const auto warning_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsZeroByteShaderDiagnostic(entry.text);
+      });
+  CHECK(diagnostic_count == 1);
+  CHECK(warning_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
 }

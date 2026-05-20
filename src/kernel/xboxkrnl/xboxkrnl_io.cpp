@@ -95,6 +95,33 @@ bool IsExpectedTitleDebugLogWriteProbe(X_STATUS status, std::string_view target_
          rex::string::utf8_equal_case(target_path, "D:\\lhdebug.log");
 }
 
+bool IsShaderBytecodeResourcePath(std::string_view path) {
+  constexpr std::string_view kPixelShaderExtension = ".xpu";
+  constexpr std::string_view kVertexShaderExtension = ".xvu";
+
+  if (path.size() < kPixelShaderExtension.size()) {
+    return false;
+  }
+
+  const auto extension = path.substr(path.size() - kPixelShaderExtension.size());
+  return rex::string::utf8_equal_case(extension, kPixelShaderExtension) ||
+         rex::string::utf8_equal_case(extension, kVertexShaderExtension);
+}
+
+void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 requested_bytes,
+                                   u32 bytes_read) {
+  const auto* entry = file.entry();
+  if (!entry || XFAILED(result) || entry->size() != 0 || bytes_read != 0 ||
+      !IsShaderBytecodeResourcePath(file.path())) {
+    return;
+  }
+
+  REXKRNL_DEBUG(
+      "[NtReadFile] zero-byte shader resource observed path='{}' file_size={} requested={:#x} "
+      "bytes={}",
+      file.path(), entry->size(), requested_bytes, bytes_read);
+}
+
 }  // namespace
 
 static bool IsValidPath(const std::string_view s, bool is_pattern) {
@@ -344,6 +371,7 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
 
   // Log detailed completion info for debugging async IO issues
   if (file) {
+    LogZeroByteShaderResourceRead(*file, result, buffer_length, bytes_read);
     REXKRNL_IMPORT_RESULT(
         "NtReadFile",
         "{:#x} path='{}' len={:#x} offset={} bytes={} (sync={}, iosb_status={:#x}, "
