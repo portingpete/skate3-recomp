@@ -4,6 +4,8 @@
 # Set REXSDK_VERSION to pin a specific SDK version.
 # Otherwise, the version of the SDK that generated this file is used.
 set(REXSDK_VERSION "" CACHE STRING "Override SDK version (leave empty for default)")
+option(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES
+    "Compile generated conditional branch outcome profiling probes" OFF)
 
 # Find SDK
 set(REXSDK_DIR "" CACHE PATH "Path to rexglue-sdk source tree")
@@ -56,6 +58,9 @@ macro(rexglue_setup_target target_name)
             $<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>)
     endif()
     rexglue_configure_target({{ cmake_var("target_name") }})
+    if(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)
+        target_compile_definitions({{ cmake_var("target_name") }} PRIVATE REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES=1)
+    endif()
     if(REXGLUE_ENTRYPOINT_GENERATED_USES_SEH)
         if(MSVC)
             target_compile_options({{ cmake_var("target_name") }} PRIVATE /EHa)

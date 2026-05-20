@@ -387,21 +387,34 @@ inline bool isMMIOUpperBits(uint32_t imm) {
  */
 inline void emitBranchWithBoundsCheck(BuilderContext& ctx, uint32_t target,
                                       std::string_view condition, std::string_view instr_name) {
+  const bool target_is_local = ctx.fn.containsAddress(target) || ctx.fn.isWithinBounds(target);
+  if (!target_is_local) {
+    REXCODEGEN_WARN("{} at {:X} branches outside function to {:X}", instr_name, ctx.base, target);
+  }
+
+  ctx.println("#if defined(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)");
   ctx.println("\t{{");
   ctx.println("\t\tconst bool rex_branch_taken_{:08X} = {};", ctx.base, condition);
   ctx.println(
       "\t\tPROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x{:08X}, \"{}\", 0x{:08X}, "
       "0x{:08X}, rex_branch_taken_{:08X});",
       ctx.fn.base(), ctx.fn.name(), ctx.base, target, ctx.base);
-  if (ctx.fn.containsAddress(target) || ctx.fn.isWithinBounds(target)) {
+  if (target_is_local) {
     ctx.println("\t\tif (rex_branch_taken_{:08X}) goto loc_{:X};", ctx.base, target);
   } else {
-    REXCODEGEN_WARN("{} at {:X} branches outside function to {:X}", instr_name, ctx.base, target);
     ctx.println(
         "\t\tif (rex_branch_taken_{:08X}) {{ /* branch to 0x{:X} outside function */ return; }}",
         ctx.base, target);
   }
   ctx.println("\t}}");
+  ctx.println("#else");
+  if (target_is_local) {
+    ctx.println("\tif ({}) goto loc_{:X};", condition, target);
+  } else {
+    ctx.println("\tif ({}) {{ /* branch to 0x{:X} outside function */ return; }}", condition,
+                target);
+  }
+  ctx.println("#endif");
 }
 
 //=============================================================================

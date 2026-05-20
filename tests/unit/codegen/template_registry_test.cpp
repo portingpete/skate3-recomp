@@ -222,6 +222,16 @@ TEST_CASE("Template: rexglue target setup exposes source-tree ImGui includes",
         std::string::npos);
 }
 
+TEST_CASE("Template: rexglue target setup gates generated branch profiling at compile time",
+          "[TemplateRegistry]") {
+  rex::codegen::TemplateRegistry registry;
+  std::string json = R"({"sdk_version": "0.8.0", "entrypoint_out_dir": "generated/default", "names": {"snake_case": "mygame"}})";
+  std::string result = registry.render("init/rexglue_cmake", json);
+
+  CHECK(result.find("option(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES") != std::string::npos);
+  CHECK(result.find("target_compile_definitions(${target_name} PRIVATE "
+                    "REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES=1)") != std::string::npos);
+}
 TEST_CASE("Template: rexglue target setup applies generated SEH compile options",
           "[TemplateRegistry]") {
   rex::codegen::TemplateRegistry registry;

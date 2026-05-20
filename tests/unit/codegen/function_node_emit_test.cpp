@@ -167,12 +167,17 @@ TEST_CASE("FunctionNode emit profiles local conditional branch outcomes",
   };
 
   const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("#if defined(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)") != std::string::npos);
   CHECK(cpp.find("const bool rex_branch_taken_00001004 = ctx.cr0.eq;") != std::string::npos);
   CHECK(cpp.find("PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x00001000, \"sub_00001000\", "
                  "0x00001004, 0x00001010, rex_branch_taken_00001004);") != std::string::npos);
   CHECK(cpp.find("if (rex_branch_taken_00001004) goto loc_00001010;") != std::string::npos);
-  RequireTokenOrder(cpp, "const bool rex_branch_taken_00001004 = ctx.cr0.eq;",
-                    "if (rex_branch_taken_00001004) goto loc_00001010;");
+  CHECK(cpp.find("#else") != std::string::npos);
+  CHECK(cpp.find("if (ctx.cr0.eq) goto loc_00001010;") != std::string::npos);
+  CHECK(cpp.find("#endif") != std::string::npos);
+  RequireTokenOrder(cpp, "#if defined(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)",
+                    "PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x00001000, \"sub_00001000\", ");
+  RequireTokenOrder(cpp, "#else", "if (ctx.cr0.eq) goto loc_00001010;");
 }
 
 TEST_CASE("FunctionNode emit profiles bounded decrement branch outcomes",
@@ -211,10 +216,15 @@ TEST_CASE("FunctionNode emit profiles bounded decrement branch outcomes",
   };
 
   const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("#if defined(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)") != std::string::npos);
   CHECK(cpp.find("const bool rex_branch_taken_00001078 = ctx.ctr.u32 != 0;") != std::string::npos);
   CHECK(cpp.find("PROFILE_GUEST_CONDITIONAL_BRANCH_OUTCOME(0x00001080, \"sub_00001080\", "
                  "0x00001078, 0x00001024, rex_branch_taken_00001078);") != std::string::npos);
   CHECK(cpp.find("if (rex_branch_taken_00001078) goto loc_1024;") != std::string::npos);
+  CHECK(cpp.find("#else") != std::string::npos);
+  CHECK(cpp.find("if (ctx.ctr.u32 != 0) goto loc_1024;") != std::string::npos);
+  CHECK(cpp.find("#endif") != std::string::npos);
+  RequireTokenOrder(cpp, "#else", "if (ctx.ctr.u32 != 0) goto loc_1024;");
 }
 TEST_CASE("FunctionNode emit starts promoted alternate entries at the entry label",
           "[codegen][FunctionNode]") {

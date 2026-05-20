@@ -369,13 +369,30 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
 
   auto kind = classify_branch_target(target, false);
 
+  const auto emit_profile_guard_start = [&]() {
+    println("#if defined(REXGLUE_PROFILE_GUEST_CONDITIONAL_BRANCHES)");
+  };
+  const auto emit_profile_guard_else = [&]() { println("#else"); };
+  const auto emit_profile_guard_end = [&]() { println("#endif"); };
+
+  const auto emit_unprofiled_tail_call = [&](const auto& emit_call) {
+    println("\tif ({}) {{", condition);
+    emit_call("\t\t");
+    println("\t\treturn;");
+    println("\t}}");
+  };
+
   switch (kind) {
     case TargetKind::InternalLabel:
       // Target is within this function - local goto
+      emit_profile_guard_start();
       println("\t{{");
       emit_profiled_condition("\t\t");
       println("\t\tif (rex_branch_taken_{:08X}) goto loc_{:08X};", base, target);
       println("\t}}");
+      emit_profile_guard_else();
+      println("\tif ({}) goto loc_{:08X};", condition, target);
+      emit_profile_guard_end();
       break;
 
     case TargetKind::Function:
@@ -384,31 +401,46 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
       if (const auto* callTarget = findCallTarget(base)) {
         if (callTarget->isFunction()) {
           auto* targetFn = callTarget->asFunction();
+          const auto emit_call = [&](std::string_view indent) {
+            if (targetFn->isImport()) {
+              emit_native_function_call(targetFn->base(), targetFn->name(), indent);
+            } else {
+              emit_direct_function_call(targetFn, indent);
+            }
+          };
+          emit_profile_guard_start();
           println("\t{{");
           emit_profiled_condition("\t\t");
           println("\t\tif (rex_branch_taken_{:08X}) {{", base);
-          if (targetFn->isImport()) {
-            emit_native_function_call(targetFn->base(), targetFn->name(), "\t\t\t");
-          } else {
-            emit_direct_function_call(targetFn, "\t\t\t");
-          }
+          emit_call("\t\t\t");
           println("\t\t\treturn;");
           println("\t\t}}");
           println("\t}}");
+          emit_profile_guard_else();
+          emit_unprofiled_tail_call(emit_call);
+          emit_profile_guard_end();
         } else if (callTarget->isImport()) {
           const auto& importTarget = std::get<CallTarget::ToImport>(callTarget->value);
+          const auto emit_call = [&](std::string_view indent) {
+            emit_native_function_call(importTarget.address,
+                                      ResolveImportFunctionName(emitCtx, importTarget), indent);
+          };
+          emit_profile_guard_start();
           println("\t{{");
           emit_profiled_condition("\t\t");
           println("\t\tif (rex_branch_taken_{:08X}) {{", base);
-          emit_native_function_call(importTarget.address,
-                                    ResolveImportFunctionName(emitCtx, importTarget), "\t\t\t");
+          emit_call("\t\t\t");
           println("\t\t\treturn;");
           println("\t\t}}");
           println("\t}}");
+          emit_profile_guard_else();
+          emit_unprofiled_tail_call(emit_call);
+          emit_profile_guard_end();
         }
       } else {
         REXCODEGEN_ERROR("Unresolved conditional branch to 0x{:08X} from 0x{:08X} (no CallTarget)",
                          target, base);
+        emit_profile_guard_start();
         println("\t{{");
         emit_profiled_condition("\t\t");
         println(
@@ -416,12 +448,17 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
             "REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
             base, base, target);
         println("\t}}");
+        emit_profile_guard_else();
+        println("\tif ({}) REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");", condition,
+                base, target);
+        emit_profile_guard_end();
       }
       break;
 
     case TargetKind::Unknown:
       REXCODEGEN_ERROR("Unresolved conditional branch to 0x{:08X} from 0x{:08X}", target, base);
       println("\t// ERROR: conditional branch to unknown address 0x{:08X}", target);
+      emit_profile_guard_start();
       println("\t{{");
       emit_profiled_condition("\t\t");
       println(
@@ -429,6 +466,10 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
           "REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");",
           base, base, target);
       println("\t}}");
+      emit_profile_guard_else();
+      println("\tif ({}) REX_FATAL(\"Unresolved branch from 0x{:08X} to 0x{:08X}\");", condition,
+              base, target);
+      emit_profile_guard_end();
       break;
   }
 }
