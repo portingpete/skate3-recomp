@@ -13,6 +13,7 @@ add_executable(unit_tests
     kernel/xboxkrnl_ob_test.cpp
     kernel/xboxkrnl_video_test.cpp
     kernel/xboxkrnl_xconfig_test.cpp
+    kernel/xboxkrnl_time_test.cpp
     kernel/xboxkrnl_io_stub_test.cpp
     kernel/xboxkrnl_usbcam_test.cpp
     core/cvar_test.cpp

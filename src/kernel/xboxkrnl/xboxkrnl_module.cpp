@@ -13,6 +13,7 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -47,6 +48,22 @@ REXCVAR_DEFINE_BOOL(kernel_cert_monitor, false, "Kernel", "Enable cert monitor")
 
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
+
+namespace internal {
+
+void WriteKeTimeStampBundle(uint8_t* bundle) {
+  const uint64_t interrupt_time = chrono::Clock::QueryGuestInterruptTime();
+  const uint64_t system_time = chrono::Clock::guest_system_time_base() + interrupt_time;
+  const auto tick_count = static_cast<uint32_t>(
+      std::min<uint64_t>(interrupt_time / 10000, std::numeric_limits<uint32_t>::max()));
+
+  memory::store_and_swap<uint64_t>(bundle + 0, interrupt_time);
+  memory::store_and_swap<uint64_t>(bundle + 8, system_time);
+  memory::store_and_swap<uint32_t>(bundle + 16, tick_count);
+  memory::store_and_swap<uint32_t>(bundle + 20, 0);
+}
+
+}  // namespace internal
 
 bool XboxkrnlModule::SendPIXCommand(const char* cmd) {
   // TODO: JIT - PIX commands require JIT processor->Execute
@@ -187,15 +204,10 @@ XboxkrnlModule::XboxkrnlModule(Runtime* emulator, KernelState* kernel_state)
   uint32_t pKeTimeStampBundle = memory_->SystemHeapAlloc(24);
   auto lpKeTimeStampBundle = memory_->TranslateVirtual(pKeTimeStampBundle);
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x00AD, pKeTimeStampBundle);
-  memory::store_and_swap<uint64_t>(lpKeTimeStampBundle + 0, 0);
-  memory::store_and_swap<uint64_t>(lpKeTimeStampBundle + 8, 0);
-  memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
-                                   chrono::Clock::QueryGuestUptimeMillis());
-  memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 20, 0);
+  internal::WriteKeTimeStampBundle(lpKeTimeStampBundle);
   timestamp_timer_ = rex::thread::HighResolutionTimer::CreateRepeating(
       std::chrono::milliseconds(1), [lpKeTimeStampBundle]() {
-        memory::store_and_swap<uint32_t>(lpKeTimeStampBundle + 16,
-                                         chrono::Clock::QueryGuestUptimeMillis());
+        internal::WriteKeTimeStampBundle(lpKeTimeStampBundle);
       });
 
   // Wire kernel object type variables to KernelGuestGlobals.

@@ -160,6 +160,10 @@ uint64_t Clock::QueryGuestTickCount() {
   return guest_tick_count;
 }
 
+uint64_t Clock::QueryGuestInterruptTime() {
+  return QueryGuestSystemTimeOffset();
+}
+
 uint64_t Clock::QueryGuestSystemTime() {
   if (REXCVAR_GET(clock_no_scaling)) {
     return Clock::QueryHostSystemTime();

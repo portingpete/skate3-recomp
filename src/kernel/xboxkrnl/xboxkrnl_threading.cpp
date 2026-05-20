@@ -398,6 +398,10 @@ u32 NtYieldExecution_entry() {
   return X_STATUS_SUCCESS;
 }
 
+u64 KeQueryInterruptTime_entry() {
+  return chrono::Clock::QueryGuestInterruptTime();
+}
+
 void KeQuerySystemTime_entry(mapped_u64 time_ptr) {
   uint64_t time = chrono::Clock::QueryGuestSystemTime();
   if (time_ptr) {
@@ -1471,6 +1475,7 @@ REX_EXPORT(__imp__KeQueryPerformanceFrequency,
            rex::kernel::xboxkrnl::KeQueryPerformanceFrequency_entry)
 REX_EXPORT(__imp__KeDelayExecutionThread, rex::kernel::xboxkrnl::KeDelayExecutionThread_entry)
 REX_EXPORT(__imp__NtYieldExecution, rex::kernel::xboxkrnl::NtYieldExecution_entry)
+REX_EXPORT(__imp__KeQueryInterruptTime, rex::kernel::xboxkrnl::KeQueryInterruptTime_entry)
 REX_EXPORT(__imp__KeQuerySystemTime, rex::kernel::xboxkrnl::KeQuerySystemTime_entry)
 REX_EXPORT(__imp__KeTlsAlloc, rex::kernel::xboxkrnl::KeTlsAlloc_entry)
 REX_EXPORT(__imp__KeTlsFree, rex::kernel::xboxkrnl::KeTlsFree_entry)
@@ -1556,7 +1561,6 @@ REX_EXPORT_STUB(__imp__KeInitializeQueue);
 // REX_EXPORT_STUB(__imp__KeInitializeTimerEx); -- implemented below
 REX_EXPORT_STUB(__imp__KeIpiGenericCall);
 REX_EXPORT_STUB(__imp__KeQueryBackgroundProcessors);
-REX_EXPORT_STUB(__imp__KeQueryInterruptTime);
 REX_EXPORT_STUB(__imp__KeRegisterDriverNotification);
 REX_EXPORT_STUB(__imp__KeRestoreFloatingPointState);
 REX_EXPORT_STUB(__imp__KeRestoreVectorUnitState);

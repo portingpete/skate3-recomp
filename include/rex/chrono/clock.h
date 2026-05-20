@@ -71,6 +71,8 @@ class Clock {
   // Queries the current guest tick count, accounting for frequency adjustment
   // and scaling.
   static uint64_t QueryGuestTickCount();
+  // Queries interrupt time in 100ns units since guest startup, accounting for scaling.
+  static uint64_t QueryGuestInterruptTime();
   // Queries the guest time, in FILETIME format, accounting for scaling.
   static uint64_t QueryGuestSystemTime();
   // Queries the milliseconds since the guest began, accounting for scaling.
