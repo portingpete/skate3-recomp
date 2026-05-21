@@ -168,6 +168,38 @@ bool IsNewVegasUpdateShaderPackageProbeLog(std::string_view text) {
          text.find("update:\\data\\shaders\\shaderpackage.sdp") != std::string_view::npos;
 }
 
+bool IsRageAudioConfigProbeLog(std::string_view text) {
+  return text.find("xbox360\\audio\\config") != std::string_view::npos &&
+         text.find("optional RAGE audio config probe") != std::string_view::npos;
+}
+
+bool IsRageShaderFallbackProbeLog(std::string_view text) {
+  return (text.find("rage_postfx_e2dcl") != std::string_view::npos ||
+          text.find("water_e2dcl") != std::string_view::npos) &&
+         text.find("optional RAGE shader fallback probe") != std::string_view::npos;
+}
+
+bool IsOptionalLocalizationMediaProbeLog(std::string_view text) {
+  return text.find("data\\language") != std::string_view::npos &&
+         text.find("optional localization media probe") != std::string_view::npos;
+}
+
+bool IsOptionalGamefaceScriptProbeLog(std::string_view text) {
+  return text.find("data\\scripts\\gameface") != std::string_view::npos &&
+         text.find("optional gameface script probe") != std::string_view::npos;
+}
+
+bool IsNullDeviceResolvePathLog(std::string_view text, std::string_view path) {
+  constexpr std::string_view kPrefix = "NullDevice::ResolvePath(";
+  const size_t prefix_pos = text.find(kPrefix);
+  if (prefix_pos == std::string_view::npos) {
+    return false;
+  }
+  const std::string_view logged_path = text.substr(prefix_pos + kPrefix.size());
+  return logged_path.size() > path.size() && logged_path.substr(0, path.size()) == path &&
+         logged_path[path.size()] == ')';
+}
+
 bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
   return text.find("NtReadFile") != std::string_view::npos &&
          text.find("GenericVS.xvu") != std::string_view::npos &&
@@ -955,6 +987,78 @@ TEST_CASE("Optional XEX patch probes are labelled without warning",
   std::filesystem::remove_all(root, cleanup_error);
 }
 
+TEST_CASE("Fable2 optional localization and gameface probes are labelled without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_fable2_optional_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "data" / "language" / "cs-cz" / "text");
+  std::filesystem::create_directories(root / "data" / "language" / "en-uk" / "fonts");
+  std::filesystem::create_directories(root / "data" / "language" / "en-uk" / "speech");
+  std::filesystem::create_directories(root / "data" / "language" / "en-uk" / "lipsync");
+  std::filesystem::create_directories(root / "data" / "language" / "en-uk" / "videos");
+  std::filesystem::create_directories(root / "data" / "scripts" / "Startup");
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("game:\\data\\language\\en-uk\\fonts") != nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\language\\cs-cz\\fonts") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\language\\cs-cz\\speech") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\language\\cs-cz\\lipsync") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\language\\cs-cz\\videos") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\scripts\\gameface\\") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\language\\cs-cz\\text\\missing.babel") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\scripts\\missing\\") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto localization_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               IsOptionalLocalizationMediaProbeLog(entry.text);
+      });
+  const auto gameface_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               IsOptionalGamefaceScriptProbeLog(entry.text);
+      });
+  const auto labelled_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               (IsOptionalLocalizationMediaProbeLog(entry.text) ||
+                IsOptionalGamefaceScriptProbeLog(entry.text));
+      });
+  const auto unrelated_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return (entry.text.find("missing.babel") != std::string_view::npos ||
+                entry.text.find("scripts\\missing") != std::string_view::npos) &&
+               (entry.text.find("optional localization media probe") != std::string_view::npos ||
+                entry.text.find("optional gameface script probe") != std::string_view::npos);
+      });
+
+  CHECK(localization_label_count == 4);
+  CHECK(gameface_label_count == 1);
+  CHECK(labelled_warning_count == 0);
+  CHECK(unrelated_label_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
 TEST_CASE("Repeated VFS entry misses are coalesced",
           "[runtime][kernel][xboxkrnl][io]") {
   const auto root =
@@ -1458,6 +1562,126 @@ TEST_CASE("New Vegas update shader package probe misses update device without wa
   std::filesystem::remove_all(root, cleanup_error);
 }
 
+TEST_CASE("GTAIV optional audio and shader fallback probes are labelled without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_gtaiv_optional_probe_labels_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "xbox360" / "audio" / "sfx");
+  std::filesystem::create_directories(root / "update" / "shaders" / "dcl");
+  std::filesystem::create_directories(root / "update" / "shaders" / "fxl_final");
+
+  rex::Runtime runtime(root, {}, root / "update", {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("game:\\xbox360\\audio\\config") == nullptr);
+  CHECK(fs->ResolvePath("update:\\shaders\\rage_postfx_e2dcl\\rage_postfx_e2dcl") == nullptr);
+  CHECK(fs->ResolvePath("game:\\update\\shaders\\rage_postfx_e2dcl\\rage_postfx_e2dcl") ==
+        nullptr);
+  CHECK(fs->ResolvePath("update:\\shaders\\water_e2dcl\\water_e2dcl") == nullptr);
+  CHECK(fs->ResolvePath("game:\\update\\shaders\\water_e2dcl\\water_e2dcl") == nullptr);
+  CHECK(fs->ResolvePath("game:\\xbox360\\audio\\other") == nullptr);
+  CHECK(fs->ResolvePath("update:\\shaders\\other_shader\\other_shader") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto audio_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsRageAudioConfigProbeLog(entry.text);
+      });
+  const auto shader_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsRageShaderFallbackProbeLog(entry.text);
+      });
+  const auto labelled_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               (IsRageAudioConfigProbeLog(entry.text) ||
+                IsRageShaderFallbackProbeLog(entry.text));
+      });
+  const auto unrelated_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return (entry.text.find("audio\\other") != std::string_view::npos ||
+                entry.text.find("other_shader") != std::string_view::npos) &&
+               (entry.text.find("optional RAGE audio config probe") != std::string_view::npos ||
+                entry.text.find("optional RAGE shader fallback probe") != std::string_view::npos);
+      });
+
+  CHECK(audio_label_count == 1);
+  CHECK(shader_label_count == 4);
+  CHECK(labelled_warning_count == 0);
+  CHECK(unrelated_label_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("NullDevice resolve logs include the mounted path",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_nulldevice_resolve_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("\\Device\\Harddisk0") != nullptr);
+  CHECK(fs->ResolvePath("\\Device\\Harddisk0\\Partition0") != nullptr);
+  CHECK(fs->ResolvePath("\\Device\\Harddisk0\\Missing") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto root_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               IsNullDeviceResolvePathLog(entry.text, "\\Device\\Harddisk0");
+      });
+  const auto partition_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               IsNullDeviceResolvePathLog(entry.text, "\\Device\\Harddisk0\\Partition0");
+      });
+  const auto blank_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.text.find("NullDevice::ResolvePath()") != std::string_view::npos;
+      });
+
+  CHECK(root_count == 1);
+  CHECK(partition_count == 1);
+  CHECK(blank_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
 TEST_CASE("Volume and STFS no-op helpers are trace-only compatibility shims",
           "[runtime][kernel][xboxkrnl][io]") {
   rex::InitLogging(nullptr, spdlog::level::trace);

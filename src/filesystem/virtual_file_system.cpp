@@ -67,6 +67,48 @@ bool IsOptionalUpdateShaderPackageProbePath(const std::string_view path) {
          rex::string::utf8_ends_with_case(path, kEmbeddedUpdateShaderPackage);
 }
 
+bool IsOptionalLocalizationMediaProbePath(const std::string_view path) {
+  constexpr std::string_view kLanguagePathMarker = "\\data\\language\\";
+  const size_t marker_pos = rex::string::utf8_find_first_of_case(path, kLanguagePathMarker);
+  if (marker_pos == std::string_view::npos) {
+    return false;
+  }
+
+  const std::string_view locale_and_leaf = path.substr(marker_pos + kLanguagePathMarker.size());
+  const size_t separator_pos = locale_and_leaf.find('\\');
+  if (separator_pos == std::string_view::npos || separator_pos == 0) {
+    return false;
+  }
+
+  const std::string_view leaf = locale_and_leaf.substr(separator_pos + 1);
+  if (leaf.empty() || leaf.find('\\') != std::string_view::npos) {
+    return false;
+  }
+
+  return rex::string::utf8_equal_case(leaf, "fonts") ||
+         rex::string::utf8_equal_case(leaf, "speech") ||
+         rex::string::utf8_equal_case(leaf, "lipsync") ||
+         rex::string::utf8_equal_case(leaf, "videos");
+}
+
+bool IsOptionalGamefaceScriptProbePath(const std::string_view path) {
+  return rex::string::utf8_ends_with_case(path, "\\data\\scripts\\gameface") ||
+         rex::string::utf8_ends_with_case(path, "\\data\\scripts\\gameface\\");
+}
+
+bool IsRageAudioConfigProbePath(const std::string_view path) {
+  return rex::string::utf8_equal_case(path, "game:\\xbox360\\audio\\config") ||
+         rex::string::utf8_ends_with_case(path, "\\xbox360\\audio\\config");
+}
+
+bool IsRageShaderFallbackProbePath(const std::string_view path) {
+  constexpr std::string_view kRagePostFxFallback =
+      "\\shaders\\rage_postfx_e2dcl\\rage_postfx_e2dcl";
+  constexpr std::string_view kWaterFallback = "\\shaders\\water_e2dcl\\water_e2dcl";
+  return rex::string::utf8_ends_with_case(path, kRagePostFxFallback) ||
+         rex::string::utf8_ends_with_case(path, kWaterFallback);
+}
+
 bool IsOptionalXexPatchProbePath(const std::string_view path) {
   return rex::string::utf8_ends_with_case(rex::string::utf8_find_name_from_guest_path(path),
                                           ".xexp");
@@ -107,6 +149,22 @@ std::string_view ClassifyEntryNotFoundProbePath(const std::string_view request_p
   if (IsOptionalUpdateShaderPackageProbePath(request_path) ||
       IsOptionalUpdateShaderPackageProbePath(lookup_path)) {
     return "optional update shader package probe";
+  }
+
+  if (IsOptionalLocalizationMediaProbePath(request_path) ||
+      IsOptionalLocalizationMediaProbePath(lookup_path)) {
+    return "optional localization media probe";
+  }
+  if (IsOptionalGamefaceScriptProbePath(request_path) ||
+      IsOptionalGamefaceScriptProbePath(lookup_path)) {
+    return "optional gameface script probe";
+  }
+
+  if (IsRageAudioConfigProbePath(request_path) || IsRageAudioConfigProbePath(lookup_path)) {
+    return "optional RAGE audio config probe";
+  }
+  if (IsRageShaderFallbackProbePath(request_path) || IsRageShaderFallbackProbePath(lookup_path)) {
+    return "optional RAGE shader fallback probe";
   }
   if (IsOptionalXexPatchProbePath(request_path) || IsOptionalXexPatchProbePath(lookup_path)) {
     return "optional XEX patch probe";
