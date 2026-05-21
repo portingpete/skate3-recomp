@@ -107,7 +107,7 @@ bool IsShaderBytecodeResourcePath(std::string_view path) {
 }
 
 void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 requested_bytes,
-                                   u32 bytes_read) {
+                                   u32 buffer_address, u32 bytes_read) {
   const auto* entry = file.entry();
   if (!entry || XFAILED(result) || entry->size() != 0 || bytes_read != 0 ||
       !IsShaderBytecodeResourcePath(file.path())) {
@@ -115,9 +115,9 @@ void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 reque
   }
 
   REXKRNL_DEBUG(
-      "[NtReadFile] zero-byte shader resource observed path='{}' file_size={} requested={:#x} "
-      "bytes={}",
-      file.path(), entry->size(), requested_bytes, bytes_read);
+      "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} file_size={} "
+      "requested={:#x} bytes={}",
+      file.path(), buffer_address, entry->size(), requested_bytes, bytes_read);
 }
 
 }  // namespace
@@ -370,7 +370,7 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
 
   // Log detailed completion info for debugging async IO issues
   if (file) {
-    LogZeroByteShaderResourceRead(*file, result, buffer_length, bytes_read);
+    LogZeroByteShaderResourceRead(*file, result, buffer_length, buffer.guest_address(), bytes_read);
     REXKRNL_IMPORT_RESULT(
         "NtReadFile",
         "{:#x} path='{}' len={:#x} offset={} bytes={} (sync={}, iosb_status={:#x}, "

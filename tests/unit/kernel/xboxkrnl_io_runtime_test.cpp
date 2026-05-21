@@ -153,6 +153,7 @@ bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
 bool IsZeroByteShaderDiagnostic(std::string_view text) {
   return text.find("zero-byte shader resource") != std::string_view::npos &&
          text.find("GenericVS.xvu") != std::string_view::npos &&
+         text.find("buffer=0x40005000") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
