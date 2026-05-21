@@ -199,6 +199,19 @@ TEST_CASE("ReXApp game data root errors explain expected launch argument",
       TestReXApp::BuildGameDataRootNotFoundMessageForTest(std::filesystem::path("--user-root"));
   CHECK(user_root_alias.find("Game data root does not exist: --user-root") != std::string::npos);
   CHECK(user_root_alias.find("Did you mean --user-data-root?") != std::string::npos);
+
+  auto spaced_root_parent = MakeTempGameRoot("unquoted_space_parent");
+  auto quoted_disc_root = spaced_root_parent / "Disc 1";
+  std::filesystem::create_directories(quoted_disc_root);
+  auto unquoted_disc_root = TestReXApp::BuildGameDataRootNotFoundMessageForTest(
+      spaced_root_parent / "Disc");
+  CHECK(unquoted_disc_root.find("Game data root does not exist:") != std::string::npos);
+  CHECK(unquoted_disc_root.find("looks like an unquoted path with spaces") !=
+        std::string::npos);
+  CHECK(unquoted_disc_root.find(quoted_disc_root.string()) != std::string::npos);
+
+  std::error_code ec;
+  std::filesystem::remove_all(spaced_root_parent, ec);
 }
 
 TEST_CASE("ReXApp startup identity lines include host build and executable path",

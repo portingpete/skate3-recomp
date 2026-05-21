@@ -51,6 +51,44 @@
 
 namespace rex {
 
+namespace {
+
+std::filesystem::path FindLikelyUnquotedSpacedPath(
+    const std::filesystem::path& missing_path) {
+  const auto missing_name = missing_path.filename().string();
+  if (missing_name.empty()) {
+    return {};
+  }
+
+  const auto parent = missing_path.parent_path();
+  if (parent.empty()) {
+    return {};
+  }
+
+  std::error_code ec;
+  if (!std::filesystem::is_directory(parent, ec)) {
+    return {};
+  }
+
+  const auto sibling_prefix = missing_name + " ";
+  for (std::filesystem::directory_iterator it(parent, ec), end; !ec && it != end;
+       it.increment(ec)) {
+    std::error_code entry_ec;
+    if (!it->is_directory(entry_ec)) {
+      continue;
+    }
+
+    const auto sibling_name = it->path().filename().string();
+    if (sibling_name.starts_with(sibling_prefix)) {
+      return it->path();
+    }
+  }
+
+  return {};
+}
+
+}  // namespace
+
 // --- ReXApp ---
 
 ReXApp::~ReXApp() = default;
@@ -199,6 +237,14 @@ std::string ReXApp::BuildGameDataRootNotFoundMessage(
   }
   if (argument == "--user-root") {
     message += "\n\nDid you mean --user-data-root?";
+  }
+
+  const auto likely_quoted_path = FindLikelyUnquotedSpacedPath(game_data_root);
+  if (!likely_quoted_path.empty()) {
+    message += fmt::format(
+        "\n\nThe path shown above looks like an unquoted path with spaces. Try quoting the "
+        "full path, for example:\n--game-data-root \"{}\"",
+        likely_quoted_path.string());
   }
 
   return message;
