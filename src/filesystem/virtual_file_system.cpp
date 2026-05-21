@@ -56,10 +56,18 @@ bool IsOptionalStorageRootProbePath(const std::string_view path) {
   return false;
 }
 
+bool IsOptionalUpdateShaderPackageProbePath(const std::string_view path) {
+  return rex::string::utf8_equal_case(path, "update:\\data\\shaders\\shaderpackage.sdp");
+}
+
 bool IsTitleDebugLogWriteProbePath(const std::string_view path,
                                    const FileDisposition creation_disposition) {
   return creation_disposition == FileDisposition::kOverwriteIf &&
          rex::string::utf8_equal_case(path, "D:\\lhdebug.log");
+}
+
+bool IsTitleTempDirectoryWriteProbePath(const std::string_view path) {
+  return rex::string::utf8_equal_case(path, "D:\\temp");
 }
 
 std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
@@ -69,6 +77,9 @@ std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
   }
   if (IsOptionalStorageRootProbePath(request_path)) {
     return "optional storage probe";
+  }
+  if (IsOptionalUpdateShaderPackageProbePath(request_path)) {
+    return "optional update shader package probe";
   }
   if (IsCacheBigFallbackProbePath(request_path)) {
     return "cache fallback probe";
@@ -330,6 +341,9 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry, const std::string_view p
     // Match Xenia behavior: downgrade to read access instead of failing.
     if (IsTitleDebugLogWriteProbePath(path, creation_disposition)) {
       REXFS_DEBUG("Attempted to open read-only file/dir for write: {} [title debug log probe]",
+                  path);
+    } else if (IsTitleTempDirectoryWriteProbePath(path)) {
+      REXFS_DEBUG("Attempted to open read-only file/dir for write: {} [title temp directory probe]",
                   path);
     } else {
       REXFS_WARN("Attempted to open read-only file/dir for write: {}", path);

@@ -95,6 +95,12 @@ bool IsExpectedTitleDebugLogWriteProbe(X_STATUS status, std::string_view target_
          rex::string::utf8_equal_case(target_path, "D:\\lhdebug.log");
 }
 
+bool IsExpectedTitleTempDirectoryWriteProbe(X_STATUS status, std::string_view target_path,
+                                            u32 root_directory) {
+  return status == X_STATUS_ACCESS_DENIED && IsNullOrDosDevicesRoot(root_directory) &&
+         rex::string::utf8_equal_case(target_path, "D:\\temp");
+}
+
 bool IsShaderBytecodeResourcePath(std::string_view path) {
   return rex::string::utf8_ends_with_case(path, ".xpu") ||
          rex::string::utf8_ends_with_case(path, ".xvu");
@@ -247,7 +253,8 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
                                             creation_disposition, create_options) ||
         IsExpectedTitleDebugLogWriteProbe(result, target_path, object_attrs->root_directory,
                                           desired_access, file_attributes, share_access,
-                                          creation_disposition, create_options)) {
+                                          creation_disposition, create_options) ||
+        IsExpectedTitleTempDirectoryWriteProbe(result, target_path, object_attrs->root_directory)) {
       REXKRNL_IMPORT_WARN("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
     } else {
       REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);

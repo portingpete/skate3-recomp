@@ -92,9 +92,19 @@ bool IsTitleDebugLogWriteProbeLog(std::string_view text) {
          text.find("0xc0000022") != std::string_view::npos;
 }
 
+bool IsTitleTempWriteProbeLog(std::string_view text) {
+  return text.find("D:\\temp") != std::string_view::npos &&
+         text.find("0xc0000022") != std::string_view::npos;
+}
+
 bool IsReadOnlyTitleDebugLogProbeLog(std::string_view text) {
   return text.find("read-only file/dir") != std::string_view::npos &&
          text.find("D:\\lhdebug.log") != std::string_view::npos;
+}
+
+bool IsReadOnlyTitleTempProbeLog(std::string_view text) {
+  return text.find("read-only file/dir") != std::string_view::npos &&
+         text.find("D:\\temp") != std::string_view::npos;
 }
 
 bool IsCacheBigProbeLog(std::string_view text) {
@@ -125,6 +135,11 @@ bool IsOptionalStorageRootProbeLog(std::string_view text) {
                      [text](const std::string_view fragment) {
                        return text.find(fragment) != std::string_view::npos;
                      });
+}
+
+bool IsNewVegasUpdateShaderPackageProbeLog(std::string_view text) {
+  return text.find("update:\\Data\\Shaders\\shaderpackage.sdp") != std::string_view::npos ||
+         text.find("update:\\data\\shaders\\shaderpackage.sdp") != std::string_view::npos;
 }
 
 bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
@@ -817,6 +832,110 @@ TEST_CASE("Fable2 title debug log write probe fails without warning",
   std::filesystem::remove_all(root, cleanup_error);
 }
 
+TEST_CASE("New Vegas temp directory write probe fails without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_newvegas_temp_probe_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root);
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  const bool old_noisy = REXCVAR_GET(log_noisy);
+  REXCVAR_SET(log_noisy, true);
+
+  auto krnl_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), krnl_sink);
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "D:\\temp");
+
+  struct TempProbeShape {
+    u32 root_handle;
+    u32 creation_disposition;
+    u32 create_options;
+  };
+  constexpr std::array<TempProbeShape, 4> kProbeShapes = {{{
+      0,
+      static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf),
+      0x60u,
+  }, {
+      0xFFFFFFFDu,
+      static_cast<u32>(rex::filesystem::FileDisposition::kOverwriteIf),
+      0x60u,
+  }, {
+      0,
+      static_cast<u32>(rex::filesystem::FileDisposition::kOpenIf),
+      0x21u,
+  }, {
+      0xFFFFFFFDu,
+      static_cast<u32>(rex::filesystem::FileDisposition::kOpenIf),
+      0x21u,
+  }}};
+  for (const auto& probe : kProbeShapes) {
+    rex::system::X_OBJECT_ATTRIBUTES attrs{};
+    attrs.root_directory = probe.root_handle;
+    attrs.name_ptr = path_guest;
+    attrs.attributes = 0x40;
+
+    rex::system::X_IO_STATUS_BLOCK iosb{};
+    rex::be_u32 handle = 0;
+
+    CHECK(rex::kernel::xboxkrnl::NtCreateFile_entry(
+              mapped_u32(&handle, 0x40001000), 0x40100080u,
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&iosb, 0x40003000), mapped_u64(nullptr),
+              rex::system::X_FILE_ATTRIBUTE_NORMAL, 3, probe.creation_disposition,
+              probe.create_options) == X_STATUS_ACCESS_DENIED);
+    CHECK(static_cast<u32>(iosb.status) == X_STATUS_ACCESS_DENIED);
+    CHECK(static_cast<u32>(handle) == X_INVALID_HANDLE_VALUE);
+  }
+  std::vector<rex::LogEntry> krnl_entries;
+  krnl_sink->CopyEntries(krnl_entries);
+  rex::RemoveSink(rex::log::krnl(), krnl_sink);
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+  REXCVAR_SET(log_noisy, old_noisy);
+
+  const auto krnl_warning_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsTitleTempWriteProbeLog(entry.text);
+      });
+  const auto krnl_debug_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsTitleTempWriteProbeLog(entry.text);
+      });
+  const auto fs_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsReadOnlyTitleTempProbeLog(entry.text);
+      });
+  const auto fs_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsReadOnlyTitleTempProbeLog(entry.text);
+      });
+
+  CHECK(krnl_debug_count == 4);
+  CHECK(krnl_warning_count == 0);
+  CHECK(fs_debug_count == 4);
+  CHECK(fs_warning_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
 TEST_CASE("Cache big fallback probes miss devices without warning",
           "[runtime][kernel][xboxkrnl][io]") {
   const auto root =
@@ -921,6 +1040,66 @@ TEST_CASE("Optional storage root probes miss devices without warning",
   CHECK(optional_debug_count == 4);
   CHECK(optional_warning_count == 0);
   CHECK(update_content_warning_count >= 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("New Vegas update shader package probe misses update device without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_newvegas_update_shader_probe_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "Data" / "Shaders");
+  {
+    std::ofstream file(root / "Data" / "Shaders" / "shaderpackage.sdp", std::ios::binary);
+    REQUIRE(file.good());
+    file << "base shader package";
+  }
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("game:\\Data\\Shaders\\shaderpackage.sdp") != nullptr);
+  CHECK(fs->ResolvePath("update:\\Data\\Shaders\\shaderpackage.sdp") == nullptr);
+  CHECK(fs->ResolvePath("update:\\Data\\Shaders\\other.sdp") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto shader_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               IsNewVegasUpdateShaderPackageProbeLog(entry.text);
+      });
+  const auto shader_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug &&
+               IsNewVegasUpdateShaderPackageProbeLog(entry.text) &&
+               entry.text.find("optional update shader package probe") != std::string_view::npos;
+      });
+  const auto other_update_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn &&
+               entry.text.find("update:\\Data\\Shaders\\other.sdp") != std::string_view::npos;
+      });
+
+  CHECK(shader_debug_count == 1);
+  CHECK(shader_warning_count == 0);
+  CHECK(other_update_warning_count >= 1);
 
   std::filesystem::remove_all(root, cleanup_error);
 }
