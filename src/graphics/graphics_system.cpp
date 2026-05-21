@@ -100,7 +100,7 @@ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context) 
   }
 
   app_context_ = app_context;
-  auto loss_cb = [this](bool is_responsible, bool statically_from_ui_thread) {
+  auto loss_cb = [this](bool is_responsible, [[maybe_unused]] bool statically_from_ui_thread) {
     OnHostGpuLossFromAnyThread(is_responsible);
   };
   if (app_context_) {
@@ -229,12 +229,13 @@ void GraphicsSystem::OnHostGpuLossFromAnyThread([[maybe_unused]] bool is_respons
   rex::FatalError("Graphics device lost (probably due to an internal error)");
 }
 
-uint32_t GraphicsSystem::ReadRegisterThunk(void* ppc_context, GraphicsSystem* gs, uint32_t addr) {
+uint32_t GraphicsSystem::ReadRegisterThunk([[maybe_unused]] void* ppc_context, GraphicsSystem* gs,
+                                           uint32_t addr) {
   return gs->ReadRegister(addr);
 }
 
-void GraphicsSystem::WriteRegisterThunk(void* ppc_context, GraphicsSystem* gs, uint32_t addr,
-                                        uint32_t value) {
+void GraphicsSystem::WriteRegisterThunk([[maybe_unused]] void* ppc_context, GraphicsSystem* gs,
+                                        uint32_t addr, uint32_t value) {
   gs->WriteRegister(addr, value);
 }
 
@@ -281,7 +282,9 @@ void GraphicsSystem::WriteRegister(uint32_t addr, uint32_t value) {
     case 0x1844:  // AVIVO_D1GRPH_PRIMARY_SURFACE_ADDRESS
       break;
     default:
-      REXGPU_WARN("Unknown GPU register {:04X} write: {:08X}", r, value);
+      if (!register_file_.GetRegisterInfo(r)) {
+        REXGPU_WARN("Unknown GPU register {:04X} write: {:08X}", r, value);
+      }
       break;
   }
 

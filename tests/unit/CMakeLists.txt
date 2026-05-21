@@ -136,6 +136,7 @@ catch_discover_tests(unit_tests
 add_executable(runtime_unit_tests
     audio/sdl_audio_driver_test.cpp
     audio/xma_decoder_runtime_test.cpp
+    graphics/graphics_system_test.cpp
     graphics/texture_cache_test.cpp
     kernel/xboxkrnl_io_runtime_test.cpp
     kernel/xboxkrnl_memory_runtime_test.cpp
