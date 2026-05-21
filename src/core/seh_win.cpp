@@ -64,14 +64,33 @@ void LogSehTrace(const char* stage, uint32_t code, uintptr_t info0, uintptr_t in
 static thread_local SehThreadState tls_seh_state;
 static thread_local bool tls_seh_active = false;
 static thread_local bool tls_force_handle_next_exception = false;
+static thread_local bool tls_preserve_guest_fault_next_exception = false;
 
 SehThreadState& seh_thread_state() {
   return tls_seh_state;
 }
 
+void seh_clear_guest_memory_fault() {
+  tls_seh_state.guest_fault_instruction = 0;
+  tls_seh_state.guest_fault_operation = nullptr;
+}
+
+void seh_record_guest_memory_fault(u32 instruction, const char* operation) {
+  if (tls_seh_state.guest_fault_instruction != 0 ||
+      tls_seh_state.guest_fault_operation != nullptr) {
+    return;
+  }
+  if (instruction == 0 && operation == nullptr) {
+    return;
+  }
+  tls_seh_state.guest_fault_instruction = instruction;
+  tls_seh_state.guest_fault_operation = operation;
+}
+
 int seh_filter(uint32_t code, void* ep) {
   auto* pointers = static_cast<EXCEPTION_POINTERS*>(ep);
   const bool force_handle = tls_force_handle_next_exception;
+  const bool preserve_guest_fault = tls_preserve_guest_fault_next_exception;
   switch (code) {
     case EXCEPTION_ACCESS_VIOLATION:
     case EXCEPTION_IN_PAGE_ERROR:
@@ -88,6 +107,10 @@ int seh_filter(uint32_t code, void* ep) {
   }
 
   tls_force_handle_next_exception = false;
+  tls_preserve_guest_fault_next_exception = false;
+  if (!preserve_guest_fault) {
+    seh_clear_guest_memory_fault();
+  }
   tls_seh_state.code = code;
   tls_seh_state.info[0] = 0;
   tls_seh_state.info[1] = 0;
@@ -122,12 +145,18 @@ int seh_thread_boundary_filter(uint32_t code, void* ep) {
   return tls_seh_state.raised_by_runtime ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
 }
 
-[[noreturn]] void seh_raise(uint32_t code, uintptr_t info0, uintptr_t info1, uint32_t info_count) {
+[[noreturn]] void seh_raise(uint32_t code, uintptr_t info0, uintptr_t info1,
+                            uint32_t info_count, bool preserve_guest_memory_fault) {
+  if (!preserve_guest_memory_fault) {
+    seh_clear_guest_memory_fault();
+  }
+
   tls_seh_state.code = code;
   tls_seh_state.info[0] = info0;
   tls_seh_state.info[1] = info1;
   tls_seh_state.raised_by_runtime = true;
   tls_force_handle_next_exception = true;
+  tls_preserve_guest_fault_next_exception = preserve_guest_memory_fault;
 
   ULONG_PTR info[2] = {static_cast<ULONG_PTR>(info0), static_cast<ULONG_PTR>(info1)};
   const ULONG arg_count = std::min<ULONG>(info_count, 2);
@@ -145,7 +174,7 @@ int seh_thread_boundary_filter(uint32_t code, void* ep) {
 [[noreturn]] void seh_rethrow() {
   LogSehTrace("rethrow", tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1],
               reinterpret_cast<uintptr_t>(_ReturnAddress()), false);
-  seh_raise(tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1], 2);
+  seh_raise(tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1], 2, true);
 }
 
 void seh_initialize() {

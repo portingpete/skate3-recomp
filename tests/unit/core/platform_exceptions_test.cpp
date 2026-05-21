@@ -3,6 +3,8 @@
 #include <rex/platform/exceptions.h>
 #include <rex/platform/seh.h>
 
+#include <string_view>
+
 #if REX_PLATFORM_WIN32
 #include <windows.h>
 #endif
@@ -92,6 +94,23 @@ TEST_CASE("Platform SEH raise captures guest exception payloads",
   CHECK(capture.code == 0xE1234567u);
   CHECK(capture.info0 == 0x11112222u);
   CHECK(capture.info1 == 0x33334444u);
+}
+
+TEST_CASE("Platform SEH guest memory breadcrumb keeps the first faulting op",
+          "[core][platform]") {
+  rex::platform::seh_clear_guest_memory_fault();
+  auto& seh_state = rex::platform::seh_thread_state();
+
+  rex::platform::seh_record_guest_memory_fault(0x00001000u, "lwz");
+  rex::platform::seh_record_guest_memory_fault(0x00002000u, "stw");
+
+  CHECK(seh_state.guest_fault_instruction == 0x00001000u);
+  REQUIRE(seh_state.guest_fault_operation != nullptr);
+  CHECK(std::string_view(seh_state.guest_fault_operation) == "lwz");
+
+  rex::platform::seh_clear_guest_memory_fault();
+  CHECK(seh_state.guest_fault_instruction == 0u);
+  CHECK(seh_state.guest_fault_operation == nullptr);
 }
 
 #if REX_PLATFORM_WIN32

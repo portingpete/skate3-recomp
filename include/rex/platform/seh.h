@@ -26,10 +26,18 @@ struct SehThreadState {
   u32 code = 0;
   uintptr_t info[2] = {0, 0};
   bool raised_by_runtime = false;
+  u32 guest_fault_instruction = 0;
+  const char* guest_fault_operation = nullptr;
 };
 
 /// Get the thread-local SEH state.
 SehThreadState& seh_thread_state();
+
+/// Clear the captured guest memory breadcrumb for a new exception.
+void seh_clear_guest_memory_fault();
+
+/// Preserve the first generated guest memory operation associated with this exception.
+void seh_record_guest_memory_fault(u32 instruction, const char* operation);
 
 /// SEH filter function - captures exception info and determines whether to handle.
 /// Returns non-zero if the exception should be handled.
@@ -44,7 +52,7 @@ int seh_thread_boundary_filter(u32 code, void* exception_pointers);
 
 /// Raise a guest exception so generated SEH wrappers can dispatch it.
 [[noreturn]] void seh_raise(u32 code, uintptr_t info0 = 0, uintptr_t info1 = 0,
-                            u32 info_count = 0);
+                            u32 info_count = 0, bool preserve_guest_memory_fault = false);
 
 /// Initialize SEH signal handlers (POSIX only, no-op on Windows).
 void seh_initialize();

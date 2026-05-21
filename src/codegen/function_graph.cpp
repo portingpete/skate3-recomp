@@ -819,16 +819,27 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(body, "\t\t}} SEH_CATCH_ALL {{");
     emit_println(body, "\t\t\tconst auto& seh_state = ::rex::platform::seh_thread_state();");
     emit_println(body,
+                 "\t\t\tif (!seh_state.raised_by_runtime && "
+                 "(seh_state.code == 0xC0000005u || seh_state.code == 0xC0000006u)) {{");
+    emit_println(body,
+                 "\t\t\t\t::rex::platform::seh_record_guest_memory_fault("
+                 "ctx.last_guest_memory_instruction, ctx.last_guest_memory_operation);");
+    emit_println(body, "\t\t\t}}");
+    emit_println(body,
                  "\t\t\tREXLOG_DEBUG(\"SEH exception caught in sub_{:08X}: code=0x{{:08X}} "
                  "info0=0x{{:X}} info1=0x{{:X}} fault=0x{{:X}} lr=0x{{:08X}} "
-                 "last_mem=0x{{:08X}} last_mem_op={{}} r1=0x{{:08X}} "
+                 "last_mem=0x{{:08X}} last_mem_op={{}} "
+                 "fault_mem=0x{{:08X}} fault_mem_op={{}} r1=0x{{:08X}} "
                  "r3=0x{{:08X}} r4=0x{{:08X}} r5=0x{{:08X}} r6=0x{{:08X}} "
-                 "r28=0x{{:08X}} r29=0x{{:08X}} r30=0x{{:08X}} r31=0x{{:08X}}\", "
-                 "seh_state.code, seh_state.info[0], seh_state.info[1], seh_state.info[1], ctx.lr, "
-                 "ctx.last_guest_memory_instruction, "
+                 "r28=0x{{:08X}} r29=0x{{:08X}} r30=0x{{:08X}} "
+                 "r31=0x{{:08X}}\", "
+                 "seh_state.code, seh_state.info[0], seh_state.info[1], seh_state.info[1], "
+                 "ctx.lr, ctx.last_guest_memory_instruction, "
                  "ctx.last_guest_memory_operation != nullptr ? ctx.last_guest_memory_operation : \"\", "
-                 "ctx.r1.u32, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r28.u32, "
-                 "ctx.r29.u32, ctx.r30.u32, ctx.r31.u32);",
+                 "seh_state.guest_fault_instruction, "
+                 "seh_state.guest_fault_operation != nullptr ? seh_state.guest_fault_operation : \"\", "
+                 "ctx.r1.u32, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, "
+                 "ctx.r28.u32, ctx.r29.u32, ctx.r30.u32, ctx.r31.u32);",
                  base());
     emit_println(body,
                  "\t\t\tREXLOG_DEBUG(\"SEH guest regs in sub_{:08X}: r7=0x{{:08X}} "

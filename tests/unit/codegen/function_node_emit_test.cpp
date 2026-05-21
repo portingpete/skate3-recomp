@@ -858,10 +858,18 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
   CHECK(cpp.find("if (seh_dispatch_target == 0x00001008) goto loc_1008;") != std::string::npos);
   CHECK(cpp.find("const auto& seh_state = ::rex::platform::seh_thread_state();") !=
         std::string::npos);
+  CHECK(cpp.find("!seh_state.raised_by_runtime") != std::string::npos);
+  CHECK(cpp.find("seh_state.code == 0xC0000005u") != std::string::npos);
+  CHECK(cpp.find("::rex::platform::seh_record_guest_memory_fault("
+                 "ctx.last_guest_memory_instruction, ctx.last_guest_memory_operation);") !=
+        std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH exception caught in sub_00001000: code=0x{:08X}") !=
         std::string::npos);
   CHECK(cpp.find("fault=0x{:X}") != std::string::npos);
   CHECK(cpp.find("last_mem=0x{:08X} last_mem_op={}") != std::string::npos);
+  CHECK(cpp.find("fault_mem=0x{:08X} fault_mem_op={}") != std::string::npos);
+  CHECK(cpp.find("seh_state.guest_fault_instruction") != std::string::npos);
+  CHECK(cpp.find("seh_state.guest_fault_operation != nullptr") != std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH guest regs in sub_00001000: r7=0x{:08X}") !=
         std::string::npos);
   CHECK(cpp.find("const uint32_t seh_saved_r1 = ctx.r1.u32;") != std::string::npos);

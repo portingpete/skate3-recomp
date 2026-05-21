@@ -25,6 +25,23 @@ SehThreadState& seh_thread_state() {
   return tls_seh_state;
 }
 
+void seh_clear_guest_memory_fault() {
+  tls_seh_state.guest_fault_instruction = 0;
+  tls_seh_state.guest_fault_operation = nullptr;
+}
+
+void seh_record_guest_memory_fault(u32 instruction, const char* operation) {
+  if (tls_seh_state.guest_fault_instruction != 0 ||
+      tls_seh_state.guest_fault_operation != nullptr) {
+    return;
+  }
+  if (instruction == 0 && operation == nullptr) {
+    return;
+  }
+  tls_seh_state.guest_fault_instruction = instruction;
+  tls_seh_state.guest_fault_operation = operation;
+}
+
 int seh_filter(uint32_t /*code*/, void* /*ep*/) {
   // Not used on POSIX - signal handlers throw directly
   return 0;
@@ -64,6 +81,7 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
   uintptr_t address = info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0;
 
   // Store in thread state for potential rethrow
+  seh_clear_guest_memory_fault();
   tls_seh_state.code = static_cast<uint32_t>(code);
   tls_seh_state.info[0] = 0;
   tls_seh_state.info[1] = address;
@@ -75,11 +93,15 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
 }
 
 [[noreturn]] void seh_rethrow() {
-  seh_raise(tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1], 2);
+  seh_raise(tls_seh_state.code, tls_seh_state.info[0], tls_seh_state.info[1], 2, true);
 }
 
 [[noreturn]] void seh_raise(uint32_t code, uintptr_t info0, uintptr_t info1,
-                            uint32_t /*info_count*/) {
+                            uint32_t /*info_count*/, bool preserve_guest_memory_fault) {
+  if (!preserve_guest_memory_fault) {
+    seh_clear_guest_memory_fault();
+  }
+
   tls_seh_state.code = code;
   tls_seh_state.info[0] = info0;
   tls_seh_state.info[1] = info1;
