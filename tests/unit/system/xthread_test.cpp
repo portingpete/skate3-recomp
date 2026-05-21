@@ -36,6 +36,14 @@ TEST_CASE("XThread diagnostics preserve high fault address bits", "[system][xthr
         "fault=0x0000000100000000");
 }
 
+TEST_CASE("XThread diagnostics include preserved guest memory fault breadcrumbs",
+          "[system][xthread]") {
+  CHECK(DescribeUnhandledGuestThreadException(6, 0x820B7090, 0x820B7090, 0, 0, 0xC0000005,
+                                             0x100000000ull, 0x820B861C, "lwz") ==
+        "thid=6, entry=0x820B7090 (sub_820B7090), context=0x00000000, code=0xC0000005, "
+        "fault=0x0000000100000000, fault_mem=0x820B861C fault_mem_op=lwz");
+}
+
 TEST_CASE("XThread layout names the kernel time field at the observed KTHREAD offset",
           "[system][xthread][layout]") {
   CHECK(offsetof(rex::system::X_KTHREAD, kernel_time) == 0x58);

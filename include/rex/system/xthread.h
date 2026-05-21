@@ -75,7 +75,9 @@ std::string DescribeUnhandledGuestThreadException(uint32_t thread_id, uint32_t e
                                                   uint32_t start_address, uint32_t start_context,
                                                   uint32_t xapi_thread_startup,
                                                   uint32_t exception_code,
-                                                  uintptr_t exception_address);
+                                                  uintptr_t exception_address,
+                                                  uint32_t guest_fault_instruction = 0,
+                                                  const char* guest_fault_operation = nullptr);
 
 struct XDPC {
   rex::be<uint16_t> type;
