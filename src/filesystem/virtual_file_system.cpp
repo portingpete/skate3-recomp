@@ -33,6 +33,9 @@ VirtualFileSystem::~VirtualFileSystem() {
 
 namespace {
 
+constexpr uint32_t kEntryNotFoundDetailLogLimit = 4;
+constexpr uint64_t kEntryNotFoundSummaryLogInterval = 1024;
+
 bool IsBareRelativeGuestPath(const std::string_view path) {
   return !path.empty() && path.find(':') == std::string_view::npos && path.front() != '\\' &&
          path.front() != '/';
@@ -94,6 +97,7 @@ std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
 
 bool VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
   auto global_lock = global_critical_region_.Acquire();
+  ResetEntryNotFoundLogState();
   devices_.emplace_back(std::move(device));
   return true;
 }
@@ -102,6 +106,7 @@ bool VirtualFileSystem::UnregisterDevice(const std::string_view path) {
   auto global_lock = global_critical_region_.Acquire();
   for (auto it = devices_.begin(); it != devices_.end(); ++it) {
     if ((*it)->mount_path() == path) {
+      ResetEntryNotFoundLogState();
       REXFS_DEBUG("Unregistered device: {}", (*it)->mount_path());
       devices_.erase(it);
       return true;
@@ -113,6 +118,7 @@ bool VirtualFileSystem::UnregisterDevice(const std::string_view path) {
 bool VirtualFileSystem::RegisterSymbolicLink(const std::string_view path,
                                              const std::string_view target) {
   auto global_lock = global_critical_region_.Acquire();
+  ResetEntryNotFoundLogState();
   symlinks_.insert({std::string(path), std::string(target)});
   REXFS_DEBUG("Registered symbolic link: {} => {}", path, target);
 
@@ -127,6 +133,7 @@ bool VirtualFileSystem::UnregisterSymbolicLink(const std::string_view path) {
   if (it == symlinks_.end()) {
     return false;
   }
+  ResetEntryNotFoundLogState();
   REXFS_DEBUG("Unregistered symbolic link: {} => {}", it->first, it->second);
 
   symlinks_.erase(it);
@@ -161,6 +168,69 @@ bool VirtualFileSystem::ResolveSymbolicLink(const std::string_view path, std::st
     was_resolved = true;
   }
   return was_resolved;
+}
+
+void VirtualFileSystem::LogEntryNotFound(const std::string_view path,
+                                         const std::string_view normalized_path,
+                                         const std::string_view device_mount_path,
+                                         bool had_symlink) {
+  const bool same_miss = entry_not_found_log_.active && entry_not_found_log_.path == path &&
+                         entry_not_found_log_.normalized_path == normalized_path &&
+                         entry_not_found_log_.device_mount_path == device_mount_path &&
+                         entry_not_found_log_.had_symlink == had_symlink;
+  if (!same_miss) {
+    entry_not_found_log_ = {};
+    entry_not_found_log_.active = true;
+    entry_not_found_log_.had_symlink = had_symlink;
+    entry_not_found_log_.path = path;
+    entry_not_found_log_.normalized_path = normalized_path;
+    entry_not_found_log_.device_mount_path = device_mount_path;
+  }
+
+  const auto log_detail = [&]() {
+    if (had_symlink) {
+      REXFS_DEBUG("VFS: entry not found for '{}' (via symlink '{}') on device '{}'", path,
+                  normalized_path, device_mount_path);
+    } else {
+      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'", path, device_mount_path);
+    }
+  };
+
+  if (entry_not_found_log_.detail_count < kEntryNotFoundDetailLogLimit) {
+    ++entry_not_found_log_.detail_count;
+    log_detail();
+    return;
+  }
+
+  ++entry_not_found_log_.suppressed_count;
+  if (entry_not_found_log_.suppressed_count == 1) {
+    if (had_symlink) {
+      REXFS_DEBUG(
+          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'; suppressing repeated "
+          "misses",
+          path, normalized_path, device_mount_path);
+    } else {
+      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'; suppressing repeated misses", path,
+                  device_mount_path);
+    }
+    return;
+  }
+
+  if ((entry_not_found_log_.suppressed_count % kEntryNotFoundSummaryLogInterval) == 0) {
+    if (had_symlink) {
+      REXFS_DEBUG(
+          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'; suppressed {} "
+          "repeated misses",
+          path, normalized_path, device_mount_path, entry_not_found_log_.suppressed_count);
+    } else {
+      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'; suppressed {} repeated misses",
+                  path, device_mount_path, entry_not_found_log_.suppressed_count);
+    }
+  }
+}
+
+void VirtualFileSystem::ResetEntryNotFoundLogState() {
+  entry_not_found_log_ = {};
 }
 
 Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
@@ -198,6 +268,7 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
   auto* entry = device->ResolvePath(relative_path);
 
   if (entry) {
+    ResetEntryNotFoundLogState();
     if (had_symlink) {
       REXFS_TRACE("VFS resolved '{}' via symlink '{}' on device '{}' -> '{}'", path,
                   normalized_path, device->mount_path(), entry->absolute_path());
@@ -206,12 +277,7 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
                   entry->absolute_path());
     }
   } else {
-    if (had_symlink) {
-      REXFS_DEBUG("VFS: entry not found for '{}' (via symlink '{}') on device '{}'", path,
-                  normalized_path, device->mount_path());
-    } else {
-      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'", path, device->mount_path());
-    }
+    LogEntryNotFound(path, normalized_path, device->mount_path(), had_symlink);
   }
 
   return entry;

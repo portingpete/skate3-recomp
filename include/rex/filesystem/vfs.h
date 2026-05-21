@@ -49,11 +49,25 @@ class VirtualFileSystem {
                     FileAction* out_action);
 
  private:
+  struct EntryNotFoundLogState {
+    bool active = false;
+    bool had_symlink = false;
+    uint32_t detail_count = 0;
+    uint64_t suppressed_count = 0;
+    std::string path;
+    std::string normalized_path;
+    std::string device_mount_path;
+  };
+
   rex::thread::global_critical_region global_critical_region_;
   std::vector<std::unique_ptr<Device>> devices_;
   std::unordered_map<std::string, std::string> symlinks_;
+  EntryNotFoundLogState entry_not_found_log_;
 
   bool ResolveSymbolicLink(const std::string_view path, std::string& result);
+  void LogEntryNotFound(const std::string_view path, const std::string_view normalized_path,
+                        const std::string_view device_mount_path, bool had_symlink);
+  void ResetEntryNotFoundLogState();
 };
 
 }  // namespace rex::filesystem

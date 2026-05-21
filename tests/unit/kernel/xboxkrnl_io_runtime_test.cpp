@@ -71,6 +71,19 @@ bool IsVfsEntryNotFoundLog(std::string_view text) {
          text.find("game:\\data") != std::string_view::npos;
 }
 
+bool IsRepeatedVfsEntryNotFoundDetailLog(std::string_view text) {
+  return text.find("VFS: entry not found for") != std::string_view::npos &&
+         text.find("eyereflection.ddx") != std::string_view::npos &&
+         text.find("suppressed") == std::string_view::npos &&
+         text.find("suppressing") == std::string_view::npos;
+}
+
+bool IsRepeatedVfsEntryNotFoundSuppressionLog(std::string_view text) {
+  return text.find("VFS: entry not found") != std::string_view::npos &&
+         text.find("eyereflection.ddx") != std::string_view::npos &&
+         text.find("suppressing repeated misses") != std::string_view::npos;
+}
+
 bool IsShaderDumpProbeLog(std::string_view text) {
   return text.find("ShaderDumpxe:\\CompareBackEnds") != std::string_view::npos ||
          text.find("ShaderDumpxe:/CompareBackEnds") != std::string_view::npos;
@@ -744,6 +757,52 @@ TEST_CASE("Bare relative file probes miss devices without warning",
   CHECK(relative_debug_count == 1);
   CHECK(relative_warning_count == 0);
   CHECK(device_warning_count >= 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Repeated VFS entry misses are coalesced",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_repeated_vfs_miss_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "Data" / "Textures" / "Effects");
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  for (size_t i = 0; i < 8; ++i) {
+    CHECK(fs->ResolvePath("game:\\Data\\Textures\\Effects\\eyereflection.ddx") == nullptr);
+  }
+  CHECK(fs->ResolvePath("game:\\Data\\Textures\\Effects\\reflection.ddx") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  CHECK(std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+    return IsRepeatedVfsEntryNotFoundDetailLog(entry.text);
+  }) == 4);
+  CHECK(std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+    return IsRepeatedVfsEntryNotFoundSuppressionLog(entry.text);
+  }) == 1);
+  CHECK(std::any_of(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+    return entry.text.find("reflection.ddx") != std::string_view::npos &&
+           entry.text.find("suppressed") == std::string_view::npos;
+  }));
 
   std::filesystem::remove_all(root, cleanup_error);
 }
