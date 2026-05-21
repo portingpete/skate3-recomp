@@ -112,6 +112,14 @@ struct GuestDwordHead {
   u32 words[3]{};
 };
 
+struct GuestBufferRegionInfo {
+  std::string_view status = "unmapped";
+  u32 base = 0;
+  u32 size = 0;
+  u32 state = 0;
+  u32 protect = 0;
+};
+
 bool IsReadableAccess(rex::memory::PageAccess access) {
   switch (access) {
     case rex::memory::PageAccess::kReadOnly:
@@ -157,6 +165,38 @@ GuestDwordHead TryReadGuestDwordHead(u32 guest_address) {
   return head;
 }
 
+GuestBufferRegionInfo QueryGuestBufferRegion(u32 guest_address) {
+  GuestBufferRegionInfo region;
+  if (!guest_address) {
+    region.status = "null";
+    return region;
+  }
+
+  auto* memory = REX_KERNEL_MEMORY();
+  auto* heap = memory->LookupHeap(guest_address);
+  if (!heap) {
+    return region;
+  }
+
+  rex::memory::HeapAllocationInfo info{};
+  if (!heap->QueryRegionInfo(guest_address, &info)) {
+    region.status = "query_failed";
+    return region;
+  }
+  if (!info.state) {
+    region.status = "free";
+    region.size = info.region_size;
+    return region;
+  }
+
+  region.status = "allocated";
+  region.base = info.allocation_base;
+  region.size = info.allocation_size;
+  region.state = info.state;
+  region.protect = info.protect;
+  return region;
+}
+
 void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 requested_bytes,
                                    u32 buffer_address, u32 bytes_read) {
   const auto* entry = file.entry();
@@ -166,22 +206,30 @@ void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 reque
   }
 
   const auto buffer_head = TryReadGuestDwordHead(buffer_address);
+  const auto buffer_region = QueryGuestBufferRegion(buffer_address);
   if (buffer_head.readable) {
     const bool buffer_head_all_zero = buffer_head.words[0] == 0 && buffer_head.words[1] == 0 &&
                                       buffer_head.words[2] == 0;
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
         "buffer_head={:#010x},{:#010x},{:#010x} buffer_head_status={} "
-        "buffer_head_all_zero={} file_size={} requested={:#x} bytes={}",
+        "buffer_head_all_zero={} buffer_region_status={} buffer_region_base={:#x} "
+        "buffer_region_size={:#x} buffer_region_state={:#x} buffer_region_protect={:#x} "
+        "file_size={} requested={:#x} bytes={}",
         file.path(), buffer_address, buffer_head.words[0], buffer_head.words[1],
-        buffer_head.words[2], buffer_head.status, buffer_head_all_zero, entry->size(),
-        requested_bytes, bytes_read);
+        buffer_head.words[2], buffer_head.status, buffer_head_all_zero, buffer_region.status,
+        buffer_region.base, buffer_region.size, buffer_region.state, buffer_region.protect,
+        entry->size(), requested_bytes, bytes_read);
   } else {
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
-        "buffer_head=unreadable buffer_head_status={} buffer_head_all_zero=unknown file_size={} "
-        "requested={:#x} bytes={}",
-        file.path(), buffer_address, buffer_head.status, entry->size(), requested_bytes, bytes_read);
+        "buffer_head=unreadable buffer_head_status={} buffer_head_all_zero=unknown "
+        "buffer_region_status={} buffer_region_base={:#x} buffer_region_size={:#x} "
+        "buffer_region_state={:#x} buffer_region_protect={:#x} file_size={} requested={:#x} "
+        "bytes={}",
+        file.path(), buffer_address, buffer_head.status, buffer_region.status, buffer_region.base,
+        buffer_region.size, buffer_region.state, buffer_region.protect, entry->size(),
+        requested_bytes, bytes_read);
   }
 }
 

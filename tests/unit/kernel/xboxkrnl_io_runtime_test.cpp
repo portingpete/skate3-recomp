@@ -183,6 +183,11 @@ bool IsZeroByteShaderDiagnostic(std::string_view text) {
          text.find("buffer_head=0x11223344,0x55667788,0x99aabbcc") != std::string_view::npos &&
          text.find("buffer_head_status=readable") != std::string_view::npos &&
          text.find("buffer_head_all_zero=false") != std::string_view::npos &&
+         text.find("buffer_region_status=allocated") != std::string_view::npos &&
+         text.find("buffer_region_base=0x") != std::string_view::npos &&
+         text.find("buffer_region_size=0x1000") != std::string_view::npos &&
+         text.find("buffer_region_state=0x3") != std::string_view::npos &&
+         text.find("buffer_region_protect=0x3") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
@@ -195,6 +200,11 @@ bool IsAllZeroByteShaderDiagnostic(std::string_view text) {
          text.find("buffer_head=0x00000000,0x00000000,0x00000000") != std::string_view::npos &&
          text.find("buffer_head_status=readable") != std::string_view::npos &&
          text.find("buffer_head_all_zero=true") != std::string_view::npos &&
+         text.find("buffer_region_status=allocated") != std::string_view::npos &&
+         text.find("buffer_region_base=0x") != std::string_view::npos &&
+         text.find("buffer_region_size=0x1000") != std::string_view::npos &&
+         text.find("buffer_region_state=0x3") != std::string_view::npos &&
+         text.find("buffer_region_protect=0x3") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
@@ -206,6 +216,11 @@ bool IsUnreadableZeroByteShaderDiagnostic(std::string_view text) {
          text.find("buffer_head=unreadable") != std::string_view::npos &&
          text.find("buffer_head_status=unmapped") != std::string_view::npos &&
          text.find("buffer_head_all_zero=unknown") != std::string_view::npos &&
+         text.find("buffer_region_status=unmapped") != std::string_view::npos &&
+         text.find("buffer_region_base=0x0") != std::string_view::npos &&
+         text.find("buffer_region_size=0x0") != std::string_view::npos &&
+         text.find("buffer_region_state=0x0") != std::string_view::npos &&
+         text.find("buffer_region_protect=0x0") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
