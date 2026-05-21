@@ -71,6 +71,12 @@ bool IsVfsEntryNotFoundLog(std::string_view text) {
          text.find("game:\\data") != std::string_view::npos;
 }
 
+bool IsOptionalXexPatchProbeLog(std::string_view text) {
+  return text.find("VFS: entry not found") != std::string_view::npos &&
+         text.find("default.xexp") != std::string_view::npos &&
+         text.find("optional XEX patch probe") != std::string_view::npos;
+}
+
 bool IsRepeatedVfsEntryNotFoundDetailLog(std::string_view text) {
   return text.find("VFS: entry not found for") != std::string_view::npos &&
          text.find("eyereflection.ddx") != std::string_view::npos &&
@@ -873,6 +879,63 @@ TEST_CASE("Bare relative file probes miss devices without warning",
   CHECK(relative_debug_count == 1);
   CHECK(relative_warning_count == 0);
   CHECK(device_warning_count >= 1);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("Optional XEX patch probes are labelled without warning",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_xex_patch_probe_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "data");
+  {
+    std::ofstream file(root / "default.xex", std::ios::binary);
+    REQUIRE(file.good());
+    file << "xex";
+  }
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::fs(), spdlog::level::trace);
+
+  auto fs_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::fs(), fs_sink);
+
+  auto* fs = runtime.kernel_state()->file_system();
+  CHECK(fs->ResolvePath("game:\\default.xexp") == nullptr);
+  CHECK(fs->ResolvePath("\\Device\\Harddisk0\\Partition1\\default.xexp") == nullptr);
+  CHECK(fs->ResolvePath("game:\\data\\missing_asset.bin") == nullptr);
+
+  std::vector<rex::LogEntry> fs_entries;
+  fs_sink->CopyEntries(fs_entries);
+  rex::RemoveSink(rex::log::fs(), fs_sink);
+
+  const auto xexp_debug_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsOptionalXexPatchProbeLog(entry.text);
+      });
+  const auto xexp_warning_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsOptionalXexPatchProbeLog(entry.text);
+      });
+  const auto unrelated_probe_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.text.find("missing_asset.bin") != std::string_view::npos &&
+               entry.text.find("optional XEX patch probe") != std::string_view::npos;
+      });
+
+  CHECK(xexp_debug_count == 2);
+  CHECK(xexp_warning_count == 0);
+  CHECK(unrelated_probe_label_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
 }

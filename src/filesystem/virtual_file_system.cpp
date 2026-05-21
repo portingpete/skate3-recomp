@@ -63,6 +63,11 @@ bool IsOptionalUpdateShaderPackageProbePath(const std::string_view path) {
   return rex::string::utf8_equal_case(path, "update:\\data\\shaders\\shaderpackage.sdp");
 }
 
+bool IsOptionalXexPatchProbePath(const std::string_view path) {
+  return rex::string::utf8_ends_with_case(rex::string::utf8_find_name_from_guest_path(path),
+                                          ".xexp");
+}
+
 bool IsTitleDebugLogWriteProbePath(const std::string_view path,
                                    const FileDisposition creation_disposition) {
   return creation_disposition == FileDisposition::kOverwriteIf &&
@@ -89,6 +94,14 @@ std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
   }
   if (IsBareRelativeGuestPath(lookup_path)) {
     return "relative file probe";
+  }
+  return {};
+}
+
+std::string_view ClassifyEntryNotFoundProbePath(const std::string_view request_path,
+                                                const std::string_view lookup_path) {
+  if (IsOptionalXexPatchProbePath(request_path) || IsOptionalXexPatchProbePath(lookup_path)) {
+    return "optional XEX patch probe";
   }
   return {};
 }
@@ -187,12 +200,16 @@ void VirtualFileSystem::LogEntryNotFound(const std::string_view path,
     entry_not_found_log_.device_mount_path = device_mount_path;
   }
 
+  const std::string_view probe_label = ClassifyEntryNotFoundProbePath(path, normalized_path);
+  const std::string_view probe_label_prefix = probe_label.empty() ? "" : "; ";
+
   const auto log_detail = [&]() {
     if (had_symlink) {
-      REXFS_DEBUG("VFS: entry not found for '{}' (via symlink '{}') on device '{}'", path,
-                  normalized_path, device_mount_path);
+      REXFS_DEBUG("VFS: entry not found for '{}' (via symlink '{}') on device '{}'{}{}", path,
+                  normalized_path, device_mount_path, probe_label_prefix, probe_label);
     } else {
-      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'", path, device_mount_path);
+      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'{}{}", path, device_mount_path,
+                  probe_label_prefix, probe_label);
     }
   };
 
@@ -206,12 +223,13 @@ void VirtualFileSystem::LogEntryNotFound(const std::string_view path,
   if (entry_not_found_log_.suppressed_count == 1) {
     if (had_symlink) {
       REXFS_DEBUG(
-          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'; suppressing repeated "
-          "misses",
-          path, normalized_path, device_mount_path);
+          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'{}{}; suppressing "
+          "repeated misses",
+          path, normalized_path, device_mount_path, probe_label_prefix, probe_label);
     } else {
-      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'; suppressing repeated misses", path,
-                  device_mount_path);
+      REXFS_DEBUG(
+          "VFS: entry not found for '{}' on device '{}'{}{}; suppressing repeated misses", path,
+          device_mount_path, probe_label_prefix, probe_label);
     }
     return;
   }
@@ -219,12 +237,14 @@ void VirtualFileSystem::LogEntryNotFound(const std::string_view path,
   if ((entry_not_found_log_.suppressed_count % kEntryNotFoundSummaryLogInterval) == 0) {
     if (had_symlink) {
       REXFS_DEBUG(
-          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'; suppressed {} "
+          "VFS: entry not found for '{}' (via symlink '{}') on device '{}'{}{}; suppressed {} "
           "repeated misses",
-          path, normalized_path, device_mount_path, entry_not_found_log_.suppressed_count);
+          path, normalized_path, device_mount_path, probe_label_prefix, probe_label,
+          entry_not_found_log_.suppressed_count);
     } else {
-      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'; suppressed {} repeated misses",
-                  path, device_mount_path, entry_not_found_log_.suppressed_count);
+      REXFS_DEBUG("VFS: entry not found for '{}' on device '{}'{}{}; suppressed {} repeated misses",
+                  path, device_mount_path, probe_label_prefix, probe_label,
+                  entry_not_found_log_.suppressed_count);
     }
   }
 }
