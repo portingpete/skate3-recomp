@@ -153,7 +153,8 @@ bool IsNtReadFileZeroLengthShaderLog(std::string_view text) {
 bool IsZeroByteShaderDiagnostic(std::string_view text) {
   return text.find("zero-byte shader resource") != std::string_view::npos &&
          text.find("GenericVS.xvu") != std::string_view::npos &&
-         text.find("buffer=0x40005000") != std::string_view::npos &&
+         text.find("buffer=0x") != std::string_view::npos &&
+         text.find("buffer_head=0x11223344,0x55667788,0x99aabbcc") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
@@ -291,11 +292,17 @@ TEST_CASE("NtReadFile logs zero-byte shader resources without noisy tracing",
               static_cast<u32>(rex::filesystem::FileDisposition::kOpen), 0x20u) ==
           X_STATUS_SUCCESS);
 
+  const u32 read_buffer_guest = memory->SystemHeapAlloc(0x20);
+  auto* read_buffer = memory->TranslateVirtual<u8*>(read_buffer_guest);
+  rex::memory::store_and_swap<u32>(read_buffer + 0, 0x11223344);
+  rex::memory::store_and_swap<u32>(read_buffer + 4, 0x55667788);
+  rex::memory::store_and_swap<u32>(read_buffer + 8, 0x99aabbcc);
+
   rex::system::X_IO_STATUS_BLOCK read_iosb{};
   CHECK(rex::kernel::xboxkrnl::NtReadFile_entry(
             static_cast<u32>(handle), 0, mapped_void(nullptr), mapped_void(nullptr),
             ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&read_iosb, 0x40004000),
-            mapped_void(nullptr, 0x40005000), 0, mapped_u64(nullptr)) == X_STATUS_SUCCESS);
+            mapped_void(read_buffer, read_buffer_guest), 0, mapped_u64(nullptr)) == X_STATUS_SUCCESS);
   CHECK(static_cast<u32>(read_iosb.status) == X_STATUS_SUCCESS);
   CHECK(static_cast<u32>(read_iosb.information) == 0);
 
