@@ -39,8 +39,61 @@ REXCVAR_DEFINE_BOOL(scribble_heap, false, "Memory", "Scribble 0xCD into all allo
 
 namespace rex::memory {
 
+namespace {
+
+constexpr uint32_t kDuplicateReserveDetailLogLimit = 4;
+constexpr uint64_t kDuplicateReserveSummaryLogInterval = 1024;
+
+}  // namespace
+
 uint32_t get_page_count(uint32_t value, uint32_t page_size, uint32_t page_size_shift) {
   return rex::round_up(value, page_size) >> page_size_shift;
+}
+
+void BaseHeap::LogDuplicateFixedReserveRejected(uint32_t requested_base_address,
+                                                uint32_t requested_size,
+                                                uint32_t base_address, uint32_t size,
+                                                uint32_t allocation_type, uint32_t protect) {
+  const bool same_probe_shape = duplicate_fixed_reserve_log_.active &&
+                                duplicate_fixed_reserve_log_.requested_size == requested_size &&
+                                duplicate_fixed_reserve_log_.size == size &&
+                                duplicate_fixed_reserve_log_.allocation_type == allocation_type &&
+                                duplicate_fixed_reserve_log_.protect == protect;
+  if (!same_probe_shape) {
+    duplicate_fixed_reserve_log_ = {};
+    duplicate_fixed_reserve_log_.active = true;
+    duplicate_fixed_reserve_log_.requested_size = requested_size;
+    duplicate_fixed_reserve_log_.size = size;
+    duplicate_fixed_reserve_log_.allocation_type = allocation_type;
+    duplicate_fixed_reserve_log_.protect = protect;
+  }
+
+  if (duplicate_fixed_reserve_log_.detail_count < kDuplicateReserveDetailLogLimit) {
+    ++duplicate_fixed_reserve_log_.detail_count;
+    REXSYS_DEBUG(
+        "BaseHeap::AllocFixed duplicate reserve rejected: requested_base={:08X} "
+        "requested_size={:08X} base={:08X} size={:08X}",
+        requested_base_address, requested_size, base_address, size);
+    return;
+  }
+
+  ++duplicate_fixed_reserve_log_.suppressed_count;
+  if (duplicate_fixed_reserve_log_.suppressed_count == 1) {
+    REXSYS_DEBUG(
+        "BaseHeap::AllocFixed duplicate reserve rejected: suppressing repeated probes: "
+        "requested_size={:08X} size={:08X} latest_requested_base={:08X} latest_base={:08X} "
+        "allocation_type={:08X} protect={:08X}",
+        requested_size, size, requested_base_address, base_address, allocation_type, protect);
+    return;
+  }
+
+  if ((duplicate_fixed_reserve_log_.suppressed_count % kDuplicateReserveSummaryLogInterval) == 0) {
+    REXSYS_DEBUG(
+        "BaseHeap::AllocFixed duplicate reserve rejected: suppressed {} repeated probes: "
+        "requested_size={:08X} size={:08X} latest_requested_base={:08X} latest_base={:08X}",
+        duplicate_fixed_reserve_log_.suppressed_count, requested_size, size, requested_base_address,
+        base_address);
+  }
 }
 
 /**
@@ -844,6 +897,7 @@ void BaseHeap::Initialize(memory::Memory* memory, uint8_t* membase, HeapType hea
   host_address_offset_ = host_address_offset;
   page_table_.resize(heap_size / page_size);
   unreserved_page_count_ = uint32_t(page_table_.size());
+  duplicate_fixed_reserve_log_ = {};
 }
 
 void BaseHeap::Dispose() {
@@ -1008,6 +1062,7 @@ bool BaseHeap::Restore(stream::ByteStream* stream) {
 }
 
 void BaseHeap::Reset() {
+  duplicate_fixed_reserve_log_ = {};
   // TODO(DrChat): protect pages.
   std::memset(page_table_.data(), 0, sizeof(PageEntry) * page_table_.size());
   // TODO(Triang3l): Remove access callbacks from pages if this is a physical
@@ -1133,10 +1188,8 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
       // whether the coarse heap page has already been reserved.
       allocation_type &= ~memory::kMemoryAllocationReserve;
     } else {
-      REXSYS_DEBUG(
-          "BaseHeap::AllocFixed duplicate reserve rejected: requested_base={:08X} "
-          "requested_size={:08X} base={:08X} size={:08X}",
-          requested_base_address, requested_size, base_address, size);
+      LogDuplicateFixedReserveRejected(requested_base_address, requested_size, base_address, size,
+                                       allocation_type, protect);
       return false;
     }
   }
@@ -1149,10 +1202,8 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
     uint32_t state = page_table_[page_number].state;
     if ((allocation_type == memory::kMemoryAllocationReserve) && state) {
       // Already reserved.
-      REXSYS_DEBUG(
-          "BaseHeap::AllocFixed duplicate reserve rejected: requested_base={:08X} "
-          "requested_size={:08X} base={:08X} size={:08X}",
-          requested_base_address, requested_size, base_address, size);
+      LogDuplicateFixedReserveRejected(requested_base_address, requested_size, base_address, size,
+                                       allocation_type, protect);
       return false;
     }
     if ((allocation_type == memory::kMemoryAllocationCommit) &&

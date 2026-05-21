@@ -226,6 +226,20 @@ class BaseHeap {
   void Initialize(memory::Memory* memory, uint8_t* membase, HeapType heap_type, uint32_t heap_base,
                   uint32_t heap_size, uint32_t page_size, uint32_t host_address_offset = 0);
 
+  void LogDuplicateFixedReserveRejected(uint32_t requested_base_address, uint32_t requested_size,
+                                        uint32_t base_address, uint32_t size,
+                                        uint32_t allocation_type, uint32_t protect);
+
+  struct DuplicateFixedReserveLogState {
+    bool active = false;
+    uint32_t requested_size = 0;
+    uint32_t size = 0;
+    uint32_t allocation_type = 0;
+    uint32_t protect = 0;
+    uint32_t detail_count = 0;
+    uint64_t suppressed_count = 0;
+  };
+
   memory::Memory* memory_;
   uint8_t* membase_;
   HeapType heap_type_;
@@ -238,6 +252,7 @@ class BaseHeap {
   rex::thread::global_critical_region global_critical_region_;
   std::recursive_mutex heap_mutex_;
   std::vector<PageEntry> page_table_;
+  DuplicateFixedReserveLogState duplicate_fixed_reserve_log_;
 };
 
 // Normal heap allowing allocations from guest virtual address ranges.

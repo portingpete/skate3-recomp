@@ -134,6 +134,7 @@ catch_discover_tests(unit_tests
 )
 
 add_executable(runtime_unit_tests
+    memory/heap_logging_runtime_test.cpp
     audio/sdl_audio_driver_test.cpp
     audio/xma_decoder_runtime_test.cpp
     graphics/graphics_system_test.cpp
