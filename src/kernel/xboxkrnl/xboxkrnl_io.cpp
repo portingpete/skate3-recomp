@@ -167,16 +167,20 @@ void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 reque
 
   const auto buffer_head = TryReadGuestDwordHead(buffer_address);
   if (buffer_head.readable) {
+    const bool buffer_head_all_zero = buffer_head.words[0] == 0 && buffer_head.words[1] == 0 &&
+                                      buffer_head.words[2] == 0;
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
-        "buffer_head={:#010x},{:#010x},{:#010x} buffer_head_status={} file_size={} "
-        "requested={:#x} bytes={}",
+        "buffer_head={:#010x},{:#010x},{:#010x} buffer_head_status={} "
+        "buffer_head_all_zero={} file_size={} requested={:#x} bytes={}",
         file.path(), buffer_address, buffer_head.words[0], buffer_head.words[1],
-        buffer_head.words[2], buffer_head.status, entry->size(), requested_bytes, bytes_read);
+        buffer_head.words[2], buffer_head.status, buffer_head_all_zero, entry->size(),
+        requested_bytes, bytes_read);
   } else {
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
-        "buffer_head=unreadable buffer_head_status={} file_size={} requested={:#x} bytes={}",
+        "buffer_head=unreadable buffer_head_status={} buffer_head_all_zero=unknown file_size={} "
+        "requested={:#x} bytes={}",
         file.path(), buffer_address, buffer_head.status, entry->size(), requested_bytes, bytes_read);
   }
 }

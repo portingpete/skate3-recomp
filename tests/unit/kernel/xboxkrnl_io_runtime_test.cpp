@@ -176,17 +176,30 @@ bool IsZeroByteShaderDiagnostic(std::string_view text) {
          text.find("buffer=0x") != std::string_view::npos &&
          text.find("buffer_head=0x11223344,0x55667788,0x99aabbcc") != std::string_view::npos &&
          text.find("buffer_head_status=readable") != std::string_view::npos &&
+         text.find("buffer_head_all_zero=false") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
 }
 
+bool IsAllZeroByteShaderDiagnostic(std::string_view text) {
+  return text.find("zero-byte shader resource") != std::string_view::npos &&
+         text.find("GenericVS.xvu") != std::string_view::npos &&
+         text.find("buffer=0x") != std::string_view::npos &&
+         text.find("buffer_head=0x00000000,0x00000000,0x00000000") != std::string_view::npos &&
+         text.find("buffer_head_status=readable") != std::string_view::npos &&
+         text.find("buffer_head_all_zero=true") != std::string_view::npos &&
+         text.find("file_size=0") != std::string_view::npos &&
+         text.find("requested=0x0") != std::string_view::npos &&
+         text.find("bytes=0") != std::string_view::npos;
+}
 bool IsUnreadableZeroByteShaderDiagnostic(std::string_view text) {
   return text.find("zero-byte shader resource") != std::string_view::npos &&
          text.find("GenericVS.xvu") != std::string_view::npos &&
          text.find("buffer=0x7f000000") != std::string_view::npos &&
          text.find("buffer_head=unreadable") != std::string_view::npos &&
          text.find("buffer_head_status=unmapped") != std::string_view::npos &&
+         text.find("buffer_head_all_zero=unknown") != std::string_view::npos &&
          text.find("file_size=0") != std::string_view::npos &&
          text.find("requested=0x0") != std::string_view::npos &&
          text.find("bytes=0") != std::string_view::npos;
@@ -338,6 +351,18 @@ TEST_CASE("NtReadFile logs zero-byte shader resources without noisy tracing",
   CHECK(static_cast<u32>(read_iosb.status) == X_STATUS_SUCCESS);
   CHECK(static_cast<u32>(read_iosb.information) == 0);
 
+  const u32 zero_buffer_guest = memory->SystemHeapAlloc(0x20);
+  auto* zero_buffer = memory->TranslateVirtual<u8*>(zero_buffer_guest);
+  std::memset(zero_buffer, 0, 0x20);
+
+  rex::system::X_IO_STATUS_BLOCK zero_read_iosb{};
+  CHECK(rex::kernel::xboxkrnl::NtReadFile_entry(
+            static_cast<u32>(handle), 0, mapped_void(nullptr), mapped_void(nullptr),
+            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&zero_read_iosb, 0x40006000),
+            mapped_void(zero_buffer, zero_buffer_guest), 0, mapped_u64(nullptr)) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(zero_read_iosb.status) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(zero_read_iosb.information) == 0);
+
   std::vector<rex::LogEntry> krnl_entries;
   krnl_sink->CopyEntries(krnl_entries);
   rex::RemoveSink(rex::log::krnl(), krnl_sink);
@@ -347,11 +372,18 @@ TEST_CASE("NtReadFile logs zero-byte shader resources without noisy tracing",
       std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
         return entry.level == spdlog::level::debug && IsZeroByteShaderDiagnostic(entry.text);
       });
+  const auto all_zero_diagnostic_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level == spdlog::level::debug && IsAllZeroByteShaderDiagnostic(entry.text);
+      });
   const auto warning_count =
       std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
-        return entry.level >= spdlog::level::warn && IsZeroByteShaderDiagnostic(entry.text);
+        return entry.level >= spdlog::level::warn &&
+               (IsZeroByteShaderDiagnostic(entry.text) ||
+                IsAllZeroByteShaderDiagnostic(entry.text));
       });
   CHECK(diagnostic_count == 1);
+  CHECK(all_zero_diagnostic_count == 1);
   CHECK(warning_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
