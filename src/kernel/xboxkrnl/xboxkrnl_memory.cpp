@@ -406,7 +406,8 @@ u32 MmAllocatePhysicalMemoryEx_entry(u32 flags, u32 region_size, u32 protect_bit
     // Failed - assume no memory available.
     return 0;
   }
-  REXKRNL_IMPORT_RESULT("MmAllocatePhysicalMemoryEx", "addr={:#x}", base_address);
+  REXKRNL_IMPORT_RESULT("MmAllocatePhysicalMemoryEx", "addr={:#x} size={:#x}", base_address,
+                        adjusted_size);
 
   return base_address;
 }
