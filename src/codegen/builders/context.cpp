@@ -60,6 +60,27 @@ bool IsRegisterSaveRestoreHelper(std::string_view name) {
   return name.starts_with("__save") || name.starts_with("__rest");
 }
 
+std::string GuestMemoryDFormAddressExpression(BuilderContext& ctx) {
+  const auto displacement = static_cast<int32_t>(ctx.insn.operands[1]);
+  if (ctx.insn.operands[2] == 0) {
+    return fmt::format("{}", displacement);
+  }
+  return fmt::format("{}.u32 + {}", ctx.r(ctx.insn.operands[2]), displacement);
+}
+
+std::string GuestMemoryXFormAddressExpression(BuilderContext& ctx) {
+  if (ctx.insn.operands[1] == 0) {
+    return fmt::format("{}.u32", ctx.r(ctx.insn.operands[2]));
+  }
+  return fmt::format("{}.u32 + {}.u32", ctx.r(ctx.insn.operands[1]), ctx.r(ctx.insn.operands[2]));
+}
+
+void EmitGuestMemoryEffectiveAddressBreadcrumb(BuilderContext& ctx, std::string_view address) {
+  if (ctx.config().generateExceptionHandlers) {
+    ctx.println("\tctx.last_guest_memory_effective_address = {};", address);
+  }
+}
+
 std::string SanitizeImportFunctionName(std::string name) {
   std::replace(name.begin(), name.end(), '@', '_');
   std::replace(name.begin(), name.end(), '.', '_');
@@ -646,10 +667,9 @@ void BuilderContext::emit_load_d_form(const char* load_macro, const char* dest_t
     }
   }
 
-  print("\t{}.{} = {}(", r(insn.operands[0]), dest_type, macro);
-  if (insn.operands[2] != 0)
-    print("{}.u32 + ", r(insn.operands[2]));
-  println("{});", static_cast<int32_t>(insn.operands[1]));
+  const auto address = GuestMemoryDFormAddressExpression(*this);
+  EmitGuestMemoryEffectiveAddressBreadcrumb(*this, address);
+  println("\t{}.{} = {}({});", r(insn.operands[0]), dest_type, macro, address);
 }
 
 void BuilderContext::emit_load_x_form(const char* load_macro, const char* dest_type,
@@ -666,10 +686,9 @@ void BuilderContext::emit_load_x_form(const char* load_macro, const char* dest_t
     }
   }
 
-  print("\t{}.{} = {}(", r(insn.operands[0]), dest_type, macro);
-  if (insn.operands[1] != 0)
-    print("{}.u32 + ", r(insn.operands[1]));
-  println("{}.u32);", r(insn.operands[2]));
+  const auto address = GuestMemoryXFormAddressExpression(*this);
+  EmitGuestMemoryEffectiveAddressBreadcrumb(*this, address);
+  println("\t{}.{} = {}({});", r(insn.operands[0]), dest_type, macro, address);
 }
 
 void BuilderContext::emit_store_d_form(const char* store_macro, const char* src_type,
@@ -686,10 +705,9 @@ void BuilderContext::emit_store_d_form(const char* store_macro, const char* src_
     }
   }
 
-  print("\t{}(", macro);
-  if (insn.operands[2] != 0)
-    print("{}.u32 + ", r(insn.operands[2]));
-  println("{}, {}.{});", static_cast<int32_t>(insn.operands[1]), r(insn.operands[0]), src_type);
+  const auto address = GuestMemoryDFormAddressExpression(*this);
+  EmitGuestMemoryEffectiveAddressBreadcrumb(*this, address);
+  println("\t{}({}, {}.{});", macro, address, r(insn.operands[0]), src_type);
 }
 
 void BuilderContext::emit_store_x_form(const char* store_macro, const char* src_type,
@@ -706,10 +724,9 @@ void BuilderContext::emit_store_x_form(const char* store_macro, const char* src_
     }
   }
 
-  print("\t{}(", macro);
-  if (insn.operands[1] != 0)
-    print("{}.u32 + ", r(insn.operands[1]));
-  println("{}.u32, {}.{});", r(insn.operands[2]), r(insn.operands[0]), src_type);
+  const auto address = GuestMemoryXFormAddressExpression(*this);
+  EmitGuestMemoryEffectiveAddressBreadcrumb(*this, address);
+  println("\t{}({}, {}.{});", macro, address, r(insn.operands[0]), src_type);
 }
 
 }  // namespace rex::codegen

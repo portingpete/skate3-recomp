@@ -831,6 +831,7 @@ bool DispatchInstruction(int id, BuilderContext& ctx) {
       const char* operation = ctx.insn.opcode != nullptr ? ctx.insn.opcode->name : "unknown";
       ctx.println("\tctx.last_guest_memory_instruction = 0x{:08X};", ctx.base);
       ctx.println("\tctx.last_guest_memory_operation = \"{}\";", operation);
+      ctx.println("\tctx.last_guest_memory_effective_address = 0;");
     }
     return it->second(ctx);
   }

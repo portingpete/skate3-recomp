@@ -861,15 +861,17 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
   CHECK(cpp.find("!seh_state.raised_by_runtime") != std::string::npos);
   CHECK(cpp.find("seh_state.code == 0xC0000005u") != std::string::npos);
   CHECK(cpp.find("::rex::platform::seh_record_guest_memory_fault("
-                 "ctx.last_guest_memory_instruction, ctx.last_guest_memory_operation);") !=
+                 "ctx.last_guest_memory_instruction, ctx.last_guest_memory_operation, "
+                 "ctx.last_guest_memory_effective_address);") !=
         std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH exception caught in sub_00001000: code=0x{:08X}") !=
         std::string::npos);
   CHECK(cpp.find("fault=0x{:X}") != std::string::npos);
-  CHECK(cpp.find("last_mem=0x{:08X} last_mem_op={}") != std::string::npos);
-  CHECK(cpp.find("fault_mem=0x{:08X} fault_mem_op={}") != std::string::npos);
+  CHECK(cpp.find("last_mem=0x{:08X} last_mem_op={} last_mem_ea=0x{:08X}") != std::string::npos);
+  CHECK(cpp.find("fault_mem=0x{:08X} fault_mem_op={} fault_mem_ea=0x{:08X}") != std::string::npos);
   CHECK(cpp.find("seh_state.guest_fault_instruction") != std::string::npos);
   CHECK(cpp.find("seh_state.guest_fault_operation != nullptr") != std::string::npos);
+  CHECK(cpp.find("seh_state.guest_fault_effective_address") != std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH guest regs in sub_00001000: r7=0x{:08X}") !=
         std::string::npos);
   CHECK(cpp.find("const uint32_t seh_saved_r1 = ctx.r1.u32;") != std::string::npos);
@@ -961,9 +963,13 @@ TEST_CASE("FunctionNode records last guest memory instruction for SEH diagnostic
   const std::string cpp = node->emitCpp(ctx);
   CHECK(cpp.find("ctx.last_guest_memory_instruction = 0x00001000;") != std::string::npos);
   CHECK(cpp.find("ctx.last_guest_memory_operation = \"lwz\";") != std::string::npos);
+  CHECK(cpp.find("ctx.last_guest_memory_effective_address = ctx.r4.u32 + 0;") !=
+        std::string::npos);
   RequireTokenOrder(cpp, "ctx.last_guest_memory_instruction = 0x00001000;",
                     "ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);");
   RequireTokenOrder(cpp, "ctx.last_guest_memory_operation = \"lwz\";",
+                    "ctx.last_guest_memory_effective_address = ctx.r4.u32 + 0;");
+  RequireTokenOrder(cpp, "ctx.last_guest_memory_effective_address = ctx.r4.u32 + 0;",
                     "ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);");
 }
 TEST_CASE("FunctionNode SEH dispatch calls discovered out-of-block handler entries",

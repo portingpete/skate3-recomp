@@ -108,6 +108,7 @@ bool IsShaderBytecodeResourcePath(std::string_view path) {
 
 struct GuestDwordHead {
   bool readable = false;
+  std::string_view status = "unmapped";
   u32 words[3]{};
 };
 
@@ -126,15 +127,24 @@ bool IsReadableAccess(rex::memory::PageAccess access) {
 GuestDwordHead TryReadGuestDwordHead(u32 guest_address) {
   GuestDwordHead head;
   constexpr u32 kHeadByteCount = 3 * sizeof(u32);
-  if (!guest_address || UINT32_MAX - guest_address < kHeadByteCount - 1) {
+  if (!guest_address) {
+    head.status = "null";
+    return head;
+  }
+  if (UINT32_MAX - guest_address < kHeadByteCount - 1) {
+    head.status = "overflow";
     return head;
   }
 
   auto* memory = REX_KERNEL_MEMORY();
   const u32 high_address = guest_address + kHeadByteCount - 1;
   auto* start_heap = memory->LookupHeap(guest_address);
-  if (!start_heap || start_heap != memory->LookupHeap(high_address) ||
-      !IsReadableAccess(start_heap->QueryRangeAccess(guest_address, high_address))) {
+  auto* end_heap = memory->LookupHeap(high_address);
+  if (!start_heap || start_heap != end_heap) {
+    return head;
+  }
+  if (!IsReadableAccess(start_heap->QueryRangeAccess(guest_address, high_address))) {
+    head.status = "not_readable";
     return head;
   }
 
@@ -143,6 +153,7 @@ GuestDwordHead TryReadGuestDwordHead(u32 guest_address) {
   head.words[1] = rex::memory::load_and_swap<u32>(host + 4);
   head.words[2] = rex::memory::load_and_swap<u32>(host + 8);
   head.readable = true;
+  head.status = "readable";
   return head;
 }
 
@@ -158,14 +169,15 @@ void LogZeroByteShaderResourceRead(const XFile& file, X_STATUS result, u32 reque
   if (buffer_head.readable) {
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
-        "buffer_head={:#010x},{:#010x},{:#010x} file_size={} requested={:#x} bytes={}",
+        "buffer_head={:#010x},{:#010x},{:#010x} buffer_head_status={} file_size={} "
+        "requested={:#x} bytes={}",
         file.path(), buffer_address, buffer_head.words[0], buffer_head.words[1],
-        buffer_head.words[2], entry->size(), requested_bytes, bytes_read);
+        buffer_head.words[2], buffer_head.status, entry->size(), requested_bytes, bytes_read);
   } else {
     REXKRNL_DEBUG(
         "[NtReadFile] zero-byte shader resource observed path='{}' buffer={:#x} "
-        "buffer_head=unreadable file_size={} requested={:#x} bytes={}",
-        file.path(), buffer_address, entry->size(), requested_bytes, bytes_read);
+        "buffer_head=unreadable buffer_head_status={} file_size={} requested={:#x} bytes={}",
+        file.path(), buffer_address, buffer_head.status, entry->size(), requested_bytes, bytes_read);
   }
 }
 

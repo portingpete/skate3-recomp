@@ -101,16 +101,18 @@ TEST_CASE("Platform SEH guest memory breadcrumb keeps the first faulting op",
   rex::platform::seh_clear_guest_memory_fault();
   auto& seh_state = rex::platform::seh_thread_state();
 
-  rex::platform::seh_record_guest_memory_fault(0x00001000u, "lwz");
-  rex::platform::seh_record_guest_memory_fault(0x00002000u, "stw");
+  rex::platform::seh_record_guest_memory_fault(0x00001000u, "lwz", 0x00000000u);
+  rex::platform::seh_record_guest_memory_fault(0x00002000u, "stw", 0x40001234u);
 
   CHECK(seh_state.guest_fault_instruction == 0x00001000u);
   REQUIRE(seh_state.guest_fault_operation != nullptr);
   CHECK(std::string_view(seh_state.guest_fault_operation) == "lwz");
+  CHECK(seh_state.guest_fault_effective_address == 0x00000000u);
 
   rex::platform::seh_clear_guest_memory_fault();
   CHECK(seh_state.guest_fault_instruction == 0u);
   CHECK(seh_state.guest_fault_operation == nullptr);
+  CHECK(seh_state.guest_fault_effective_address == 0u);
 }
 
 #if REX_PLATFORM_WIN32

@@ -73,14 +73,17 @@ std::string DescribeUnhandledGuestThreadException(uint32_t thread_id, uint32_t e
                                                   uint32_t exception_code,
                                                   uintptr_t exception_address,
                                                   uint32_t guest_fault_instruction,
-                                                  const char* guest_fault_operation) {
+                                                  const char* guest_fault_operation,
+                                                  uint32_t guest_fault_effective_address) {
   auto description = fmt::format("thid={}, {}, code=0x{:08X}, fault=0x{:016X}", thread_id,
                                  DescribeGuestThreadStart(entry_address, start_address,
                                                           start_context, xapi_thread_startup),
                                  exception_code, static_cast<uint64_t>(exception_address));
   if (guest_fault_instruction != 0 || guest_fault_operation != nullptr) {
-    description += fmt::format(", fault_mem=0x{:08X} fault_mem_op={}", guest_fault_instruction,
-                               guest_fault_operation != nullptr ? guest_fault_operation : "");
+    description += fmt::format(", fault_mem=0x{:08X} fault_mem_op={} fault_mem_ea=0x{:08X}",
+                               guest_fault_instruction,
+                               guest_fault_operation != nullptr ? guest_fault_operation : "",
+                               guest_fault_effective_address);
   }
   return description;
 }
@@ -94,6 +97,7 @@ struct GuestThreadEntryResult {
   uintptr_t exception_address = 0;
   uint32_t guest_fault_instruction = 0;
   const char* guest_fault_operation = nullptr;
+  uint32_t guest_fault_effective_address = 0;
 };
 
 GuestThreadEntryResult RunGuestThreadEntry(PPCFunc* func, PPCContext* ctx, uint8_t* base) {
@@ -111,6 +115,7 @@ GuestThreadEntryResult RunGuestThreadEntry(PPCFunc* func, PPCContext* ctx, uint8
     result.exception_address = seh_state.info[1];
     result.guest_fault_instruction = seh_state.guest_fault_instruction;
     result.guest_fault_operation = seh_state.guest_fault_operation;
+    result.guest_fault_effective_address = seh_state.guest_fault_effective_address;
     result.exit_code = static_cast<int>(seh_state.code);
   }
 #else
@@ -128,6 +133,7 @@ GuestThreadEntryResult RunGuestThreadEntry(PPCFunc* func, PPCContext* ctx, uint8
     result.exception_address = seh_state.info[1];
     result.guest_fault_instruction = seh_state.guest_fault_instruction;
     result.guest_fault_operation = seh_state.guest_fault_operation;
+    result.guest_fault_effective_address = seh_state.guest_fault_effective_address;
     result.exit_code = static_cast<int>(seh_state.code);
   }
 #endif
@@ -720,7 +726,8 @@ void XThread::Execute() {
                     creation_params_.start_context, creation_params_.xapi_thread_startup,
                     entry_result.exception_code, entry_result.exception_address,
                     entry_result.guest_fault_instruction,
-                    entry_result.guest_fault_operation));
+                    entry_result.guest_fault_operation,
+                    entry_result.guest_fault_effective_address));
     Exit(entry_result.exit_code);
     return;
   }

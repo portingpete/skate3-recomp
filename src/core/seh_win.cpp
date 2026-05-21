@@ -73,9 +73,10 @@ SehThreadState& seh_thread_state() {
 void seh_clear_guest_memory_fault() {
   tls_seh_state.guest_fault_instruction = 0;
   tls_seh_state.guest_fault_operation = nullptr;
+  tls_seh_state.guest_fault_effective_address = 0;
 }
 
-void seh_record_guest_memory_fault(u32 instruction, const char* operation) {
+void seh_record_guest_memory_fault(u32 instruction, const char* operation, u32 effective_address) {
   if (tls_seh_state.guest_fault_instruction != 0 ||
       tls_seh_state.guest_fault_operation != nullptr) {
     return;
@@ -85,6 +86,7 @@ void seh_record_guest_memory_fault(u32 instruction, const char* operation) {
   }
   tls_seh_state.guest_fault_instruction = instruction;
   tls_seh_state.guest_fault_operation = operation;
+  tls_seh_state.guest_fault_effective_address = effective_address;
 }
 
 int seh_filter(uint32_t code, void* ep) {
