@@ -431,7 +431,9 @@ u32 NtQueryVolumeInformationFile_entry(u32 file_handle,
     }
     case XFileFsDeviceInformation: {
       auto info = info_ptr.as<X_FILE_FS_DEVICE_INFORMATION*>();
-      REXKRNL_WARN("Stub XFileFsDeviceInformation!");
+      REXKRNL_DEBUG(
+          "XFileFsDeviceInformation compatibility response: device_type=unknown "
+          "characteristics=0");
       info->device_type = FILE_DEVICE_UNKNOWN;
       info->characteristics = 0;
       out_length = sizeof(X_FILE_FS_DEVICE_INFORMATION);

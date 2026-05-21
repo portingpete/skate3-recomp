@@ -17,6 +17,7 @@
 #include <rex/memory.h>
 #include <rex/runtime.h>
 #include <rex/system/info/file.h>
+#include <rex/system/info/volume.h>
 #include <rex/system/xtypes.h>
 #include <rex/system/xio.h>
 #include <rex/types.h>
@@ -39,6 +40,9 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
 u32 NtQueryFullAttributesFile_entry(
     ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES> object_attrs,
     ppc_ptr_t<rex::system::X_FILE_NETWORK_OPEN_INFORMATION> file_info);
+u32 NtQueryVolumeInformationFile_entry(
+    u32 file_handle, ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
+    mapped_void info_ptr, u32 info_length, u32 info_class);
 u32 NtQueryInformationFile_entry(u32 file_handle,
                                  ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK> io_status_block,
                                  mapped_void info_ptr, u32 info_length, u32 info_class);
@@ -100,6 +104,10 @@ bool IsCacheBigProbeLog(std::string_view text) {
 
 bool IsFileSectorInformationStubLog(std::string_view text) {
   return text.find("Stub XFileSectorInformation") != std::string_view::npos;
+}
+
+bool IsFileFsDeviceInformationStubLog(std::string_view text) {
+  return text.find("Stub XFileFsDeviceInformation") != std::string_view::npos;
 }
 
 bool IsOptionalStorageRootProbeLog(std::string_view text) {
@@ -506,6 +514,77 @@ TEST_CASE("XFileSectorInformation returns a stable token without stub noise",
         return entry.level == spdlog::level::debug && IsFileSectorInformationStubLog(entry.text);
       });
   CHECK(stub_debug_count == 0);
+
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
+TEST_CASE("XFileFsDeviceInformation returns compatibility data without stub noise",
+          "[runtime][kernel][xboxkrnl][io]") {
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("rex_file_fs_device_info_log_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+  std::filesystem::create_directories(root / "data");
+  {
+    std::ofstream file(root / "data" / "volume.bin", std::ios::binary);
+    REQUIRE(file.good());
+    file << "volume-info";
+  }
+
+  rex::Runtime runtime(root, {}, {}, {});
+  rex::RuntimeConfig config;
+  config.tool_mode = true;
+  config.kernel_init = rex::kernel::InitializeKernel;
+  REQUIRE(runtime.Setup(std::move(config)) == X_STATUS_SUCCESS);
+
+  rex::InitLogging(nullptr, spdlog::level::trace);
+  rex::SetCategoryLevel(rex::log::krnl(), spdlog::level::trace);
+
+  auto krnl_sink = std::make_shared<rex::LogCaptureSink>();
+  rex::AddSink(rex::log::krnl(), krnl_sink);
+
+  auto* memory = runtime.kernel_state()->memory();
+  const u32 path_guest = StoreAnsiString(memory, "game:\\data\\volume.bin");
+
+  rex::system::X_OBJECT_ATTRIBUTES attrs{};
+  attrs.root_directory = 0;
+  attrs.name_ptr = path_guest;
+  attrs.attributes = 0x40;
+
+  rex::system::X_IO_STATUS_BLOCK create_iosb{};
+  rex::be_u32 handle = X_INVALID_HANDLE_VALUE;
+  REQUIRE(rex::kernel::xboxkrnl::NtCreateFile_entry(
+              mapped_u32(&handle, 0x40001000), rex::filesystem::FileAccess::kGenericRead,
+              ppc_ptr_t<rex::system::X_OBJECT_ATTRIBUTES>(&attrs, 0x40002000),
+              ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&create_iosb, 0x40003000),
+              mapped_u64(nullptr), rex::system::X_FILE_ATTRIBUTE_NORMAL, 1,
+              static_cast<u32>(rex::filesystem::FileDisposition::kOpen), 0) ==
+          X_STATUS_SUCCESS);
+
+  rex::system::X_IO_STATUS_BLOCK query_iosb{};
+  rex::system::X_FILE_FS_DEVICE_INFORMATION device_info{};
+  CHECK(rex::kernel::xboxkrnl::NtQueryVolumeInformationFile_entry(
+            static_cast<u32>(handle),
+            ppc_ptr_t<rex::system::X_IO_STATUS_BLOCK>(&query_iosb, 0x40004000),
+            mapped_void(&device_info, 0x40005000), sizeof(device_info),
+            rex::system::XFileFsDeviceInformation) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(query_iosb.status) == X_STATUS_SUCCESS);
+  CHECK(static_cast<u32>(query_iosb.information) == sizeof(device_info));
+  CHECK(static_cast<rex::system::X_FILE_DEVICE_TYPE>(device_info.device_type) ==
+        rex::system::FILE_DEVICE_UNKNOWN);
+  CHECK(static_cast<u32>(device_info.characteristics) == 0);
+
+  std::vector<rex::LogEntry> krnl_entries;
+  krnl_sink->CopyEntries(krnl_entries);
+  rex::RemoveSink(rex::log::krnl(), krnl_sink);
+
+  const auto stub_warning_count =
+      std::count_if(krnl_entries.begin(), krnl_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.level >= spdlog::level::warn && IsFileFsDeviceInformationStubLog(entry.text);
+      });
+  CHECK(stub_warning_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
 }
