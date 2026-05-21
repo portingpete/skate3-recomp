@@ -28,7 +28,7 @@ class DebugOverlayDialog : public ImGuiDialog {
   using FrameStatsProvider = std::function<FrameStats()>;
 
   explicit DebugOverlayDialog(ImGuiDrawer* imgui_drawer, FrameStatsProvider stats_provider = {});
-  ~DebugOverlayDialog();
+  ~DebugOverlayDialog() override;
 
   void SetStatsProvider(FrameStatsProvider provider) { stats_provider_ = std::move(provider); }
 

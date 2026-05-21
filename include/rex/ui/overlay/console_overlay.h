@@ -25,7 +25,7 @@ namespace rex::ui {
 class ConsoleDialog : public ImGuiDialog {
  public:
   ConsoleDialog(ImGuiDrawer* imgui_drawer, std::shared_ptr<rex::LogCaptureSink> sink);
-  ~ConsoleDialog();
+  ~ConsoleDialog() override;
 
  protected:
   void OnDraw(ImGuiIO& io) override;

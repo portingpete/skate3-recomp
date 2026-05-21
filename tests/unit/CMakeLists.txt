@@ -57,6 +57,7 @@ add_executable(unit_tests
     system/xobject_test.cpp
     system/xthread_test.cpp
     ui/d3d12_messages_test.cpp
+    ui/imgui_dialog_test.cpp
     codegen/manifest_test.cpp
     rexglue/codegen_command_test.cpp
     rexglue/cmake_version_test.cpp

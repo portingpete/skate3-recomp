@@ -97,10 +97,10 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   // --- Virtual hooks for customization ---
 
   /// Called before Runtime::Setup(). Override to modify backend config.
-  virtual void OnPreSetup(RuntimeConfig& config) {}
+  virtual void OnPreSetup(RuntimeConfig& config) { (void)config; }
 
   /// Called before Runtime::LoadXexImage(). Override to modify xex image.
-  virtual void OnLoadXexImage(std::string& xex_image) {}
+  virtual void OnLoadXexImage(std::string& xex_image) { (void)xex_image; }
 
   /// Called after runtime is fully initialized, before window creation.
   virtual void OnPostSetup() {}

@@ -1619,6 +1619,7 @@ enum Type3Opcode {
 // clang-format on
 
 inline uint32_t MakePacketType0(uint16_t index, uint16_t count, bool one_reg = false) {
+  (void)one_reg;
   // ttcccccc cccccccc oiiiiiii iiiiiiii
   assert(index <= 0x7FFF);
   assert(count >= 1 && count <= 0x4000);

@@ -57,7 +57,7 @@ class MessageBoxDialog final : public ImGuiDialog {
   MessageBoxDialog(ImGuiDrawer* imgui_drawer, std::string title, std::string body)
       : ImGuiDialog(imgui_drawer), title_(std::move(title)), body_(std::move(body)) {}
 
-  void OnDraw(ImGuiIO& io) override {
+  void OnDraw(ImGuiIO& /*io*/) override {
     if (!has_opened_) {
       ImGui::OpenPopup(title_.c_str());
       has_opened_ = true;

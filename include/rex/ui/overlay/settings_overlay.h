@@ -20,7 +20,7 @@ class SettingsDialog : public ImGuiDialog {
  public:
   // config_path: where "Save to config" writes (e.g. exe_dir / "app.toml")
   SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path);
-  ~SettingsDialog();
+  ~SettingsDialog() override;
 
  protected:
   void OnDraw(ImGuiIO& io) override;
