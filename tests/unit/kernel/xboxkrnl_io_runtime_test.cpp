@@ -1404,7 +1404,10 @@ TEST_CASE("New Vegas update shader package probe misses update device without wa
   auto* fs = runtime.kernel_state()->file_system();
   CHECK(fs->ResolvePath("game:\\Data\\Shaders\\shaderpackage.sdp") != nullptr);
   CHECK(fs->ResolvePath("update:\\Data\\Shaders\\shaderpackage.sdp") == nullptr);
+  CHECK(fs->ResolvePath("D:\\update:\\Data\\Shaders\\shaderpackage.sdp") == nullptr);
+  CHECK(fs->ResolvePath("D:\\DATA\\update:\\Data\\Shaders\\shaderpackage.sdp") == nullptr);
   CHECK(fs->ResolvePath("update:\\Data\\Shaders\\other.sdp") == nullptr);
+  CHECK(fs->ResolvePath("D:\\update:\\Data\\Shaders\\other.sdp") == nullptr);
 
   std::vector<rex::LogEntry> fs_entries;
   fs_sink->CopyEntries(fs_entries);
@@ -1426,10 +1429,16 @@ TEST_CASE("New Vegas update shader package probe misses update device without wa
         return entry.level >= spdlog::level::warn &&
                entry.text.find("update:\\Data\\Shaders\\other.sdp") != std::string_view::npos;
       });
+  const auto other_update_label_count =
+      std::count_if(fs_entries.begin(), fs_entries.end(), [](const rex::LogEntry& entry) {
+        return entry.text.find("other.sdp") != std::string_view::npos &&
+               entry.text.find("optional update shader package probe") != std::string_view::npos;
+      });
 
-  CHECK(shader_debug_count == 1);
+  CHECK(shader_debug_count == 3);
   CHECK(shader_warning_count == 0);
   CHECK(other_update_warning_count >= 1);
+  CHECK(other_update_label_count == 0);
 
   std::filesystem::remove_all(root, cleanup_error);
 }

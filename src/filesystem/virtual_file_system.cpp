@@ -60,7 +60,11 @@ bool IsOptionalStorageRootProbePath(const std::string_view path) {
 }
 
 bool IsOptionalUpdateShaderPackageProbePath(const std::string_view path) {
-  return rex::string::utf8_equal_case(path, "update:\\data\\shaders\\shaderpackage.sdp");
+  constexpr std::string_view kUpdateShaderPackage = "update:\\data\\shaders\\shaderpackage.sdp";
+  constexpr std::string_view kEmbeddedUpdateShaderPackage =
+      "\\update:\\data\\shaders\\shaderpackage.sdp";
+  return rex::string::utf8_equal_case(path, kUpdateShaderPackage) ||
+         rex::string::utf8_ends_with_case(path, kEmbeddedUpdateShaderPackage);
 }
 
 bool IsOptionalXexPatchProbePath(const std::string_view path) {
@@ -100,6 +104,10 @@ std::string_view ClassifyNoDeviceProbePath(const std::string_view request_path,
 
 std::string_view ClassifyEntryNotFoundProbePath(const std::string_view request_path,
                                                 const std::string_view lookup_path) {
+  if (IsOptionalUpdateShaderPackageProbePath(request_path) ||
+      IsOptionalUpdateShaderPackageProbePath(lookup_path)) {
+    return "optional update shader package probe";
+  }
   if (IsOptionalXexPatchProbePath(request_path) || IsOptionalXexPatchProbePath(lookup_path)) {
     return "optional XEX patch probe";
   }
