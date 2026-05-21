@@ -26,6 +26,105 @@ namespace rex::codegen {
 using Builder = bool (*)(BuilderContext&);
 
 // Static dispatch table
+static bool IsGuestMemoryInstruction(int id) {
+  switch (id) {
+    case PPC_INST_LBZ:
+    case PPC_INST_LBZU:
+    case PPC_INST_LBZX:
+    case PPC_INST_LBZUX:
+    case PPC_INST_LHA:
+    case PPC_INST_LHAU:
+    case PPC_INST_LHAUX:
+    case PPC_INST_LHAX:
+    case PPC_INST_LHBRX:
+    case PPC_INST_LHZ:
+    case PPC_INST_LHZU:
+    case PPC_INST_LHZUX:
+    case PPC_INST_LHZX:
+    case PPC_INST_LWA:
+    case PPC_INST_LWAUX:
+    case PPC_INST_LWAX:
+    case PPC_INST_LWZ:
+    case PPC_INST_LWZU:
+    case PPC_INST_LWZUX:
+    case PPC_INST_LWZX:
+    case PPC_INST_LWBRX:
+    case PPC_INST_LD:
+    case PPC_INST_LDU:
+    case PPC_INST_LDX:
+    case PPC_INST_LDUX:
+    case PPC_INST_LWARX:
+    case PPC_INST_LDARX:
+    case PPC_INST_LFD:
+    case PPC_INST_LFDU:
+    case PPC_INST_LFDUX:
+    case PPC_INST_LFDX:
+    case PPC_INST_LFS:
+    case PPC_INST_LFSU:
+    case PPC_INST_LFSUX:
+    case PPC_INST_LFSX:
+    case PPC_INST_STB:
+    case PPC_INST_STBU:
+    case PPC_INST_STBX:
+    case PPC_INST_STBUX:
+    case PPC_INST_STH:
+    case PPC_INST_STHBRX:
+    case PPC_INST_STHU:
+    case PPC_INST_STHUX:
+    case PPC_INST_STHX:
+    case PPC_INST_STW:
+    case PPC_INST_STWU:
+    case PPC_INST_STWUX:
+    case PPC_INST_STWX:
+    case PPC_INST_STWBRX:
+    case PPC_INST_STMW:
+    case PPC_INST_STWCX:
+    case PPC_INST_STDCX:
+    case PPC_INST_STD:
+    case PPC_INST_STDU:
+    case PPC_INST_STDX:
+    case PPC_INST_STDUX:
+    case PPC_INST_STFD:
+    case PPC_INST_STFDU:
+    case PPC_INST_STFDUX:
+    case PPC_INST_STFDX:
+    case PPC_INST_STFIWX:
+    case PPC_INST_STFS:
+    case PPC_INST_STFSU:
+    case PPC_INST_STFSUX:
+    case PPC_INST_STFSX:
+    case PPC_INST_LVX:
+    case PPC_INST_LVX128:
+    case PPC_INST_LVXL:
+    case PPC_INST_LVXL128:
+    case PPC_INST_LVLX:
+    case PPC_INST_LVLX128:
+    case PPC_INST_LVRX:
+    case PPC_INST_LVRX128:
+    case PPC_INST_LVSL:
+    case PPC_INST_LVSR:
+    case PPC_INST_LVEBX:
+    case PPC_INST_LVEHX:
+    case PPC_INST_LVEWX:
+    case PPC_INST_LVEWX128:
+    case PPC_INST_STVEBX:
+    case PPC_INST_STVEHX:
+    case PPC_INST_STVEWX:
+    case PPC_INST_STVEWX128:
+    case PPC_INST_STVLX:
+    case PPC_INST_STVLX128:
+    case PPC_INST_STVLXL128:
+    case PPC_INST_STVRX:
+    case PPC_INST_STVRX128:
+    case PPC_INST_STVX:
+    case PPC_INST_STVX128:
+    case PPC_INST_STVXL:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static const std::unordered_map<int, Builder>& GetDispatchTable() {
   static const std::unordered_map<int, Builder> table = {
       //=====================================================================
@@ -728,6 +827,11 @@ bool DispatchInstruction(int id, BuilderContext& ctx) {
   const auto& table = GetDispatchTable();
   auto it = table.find(id);
   if (it != table.end()) {
+    if (ctx.config().generateExceptionHandlers && IsGuestMemoryInstruction(id)) {
+      const char* operation = ctx.insn.opcode != nullptr ? ctx.insn.opcode->name : "unknown";
+      ctx.println("\tctx.last_guest_memory_instruction = 0x{:08X};", ctx.base);
+      ctx.println("\tctx.last_guest_memory_operation = \"{}\";", operation);
+    }
     return it->second(ctx);
   }
 

@@ -820,12 +820,15 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
     emit_println(body, "\t\t\tconst auto& seh_state = ::rex::platform::seh_thread_state();");
     emit_println(body,
                  "\t\t\tREXLOG_DEBUG(\"SEH exception caught in sub_{:08X}: code=0x{{:08X}} "
-                 "info0=0x{{:X}} info1=0x{{:X}} lr=0x{{:08X}} r1=0x{{:08X}} "
+                 "info0=0x{{:X}} info1=0x{{:X}} fault=0x{{:X}} lr=0x{{:08X}} "
+                 "last_mem=0x{{:08X}} last_mem_op={{}} r1=0x{{:08X}} "
                  "r3=0x{{:08X}} r4=0x{{:08X}} r5=0x{{:08X}} r6=0x{{:08X}} "
                  "r28=0x{{:08X}} r29=0x{{:08X}} r30=0x{{:08X}} r31=0x{{:08X}}\", "
-                 "seh_state.code, seh_state.info[0], seh_state.info[1], ctx.lr, ctx.r1.u32, "
-                 "ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r28.u32, ctx.r29.u32, "
-                 "ctx.r30.u32, ctx.r31.u32);",
+                 "seh_state.code, seh_state.info[0], seh_state.info[1], seh_state.info[1], ctx.lr, "
+                 "ctx.last_guest_memory_instruction, "
+                 "ctx.last_guest_memory_operation != nullptr ? ctx.last_guest_memory_operation : \"\", "
+                 "ctx.r1.u32, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r28.u32, "
+                 "ctx.r29.u32, ctx.r30.u32, ctx.r31.u32);",
                  base());
     emit_println(body,
                  "\t\t\tREXLOG_DEBUG(\"SEH guest regs in sub_{:08X}: r7=0x{{:08X}} "

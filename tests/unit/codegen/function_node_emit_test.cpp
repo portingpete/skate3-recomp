@@ -860,6 +860,8 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
         std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH exception caught in sub_00001000: code=0x{:08X}") !=
         std::string::npos);
+  CHECK(cpp.find("fault=0x{:X}") != std::string::npos);
+  CHECK(cpp.find("last_mem=0x{:08X} last_mem_op={}") != std::string::npos);
   CHECK(cpp.find("REXLOG_DEBUG(\"SEH guest regs in sub_00001000: r7=0x{:08X}") !=
         std::string::npos);
   CHECK(cpp.find("const uint32_t seh_saved_r1 = ctx.r1.u32;") != std::string::npos);
@@ -911,6 +913,51 @@ TEST_CASE("FunctionNode SEH catch dispatches accepted except handlers",
   RequireTokenOrder(cpp, "if (seh_dispatch_target == 0x00001008) goto loc_1008;", "loc_1008:");
 }
 
+TEST_CASE("FunctionNode records last guest memory instruction for SEH diagnostics",
+          "[codegen][FunctionNode][SEH]") {
+  constexpr std::array<uint8_t, 8> kLoadAndReturn = {
+      0x80, 0x64, 0x00, 0x00,  // lwz r3,0(r4)
+      0x4E, 0x80, 0x00, 0x20,  // blr
+  };
+
+  auto binary = MakeBinaryView(0x1000, kLoadAndReturn);
+  rex::codegen::RecompilerConfig config;
+  config.generateExceptionHandlers = true;
+
+  rex::codegen::FunctionGraph graph;
+  auto* node = graph.addFunction(0x1000, static_cast<uint32_t>(kLoadAndReturn.size()),
+                                 rex::codegen::FunctionAuthority::PDATA, true);
+  REQUIRE(node != nullptr);
+  node->discover({rex::codegen::Block{.base = 0x1000, .size = 8}}, {}, {});
+
+  rex::codegen::SehExceptionInfo seh;
+  seh.scopes.push_back(rex::codegen::SehScope{
+      .tryStart = 0x1000,
+      .tryEnd = 0x1008,
+      .handler = 0x3000,
+      .filter = 0,
+  });
+  rex::codegen::ExceptionInfo exceptionInfo;
+  exceptionInfo.data = std::move(seh);
+  graph.setFunctionExceptionInfo(0x1000, std::move(exceptionInfo));
+  node->seal();
+
+  rex::codegen::EmitContext ctx{
+      .binary = binary,
+      .config = config,
+      .graph = graph,
+      .entryPoint = 0,
+      .resolver = nullptr,
+  };
+
+  const std::string cpp = node->emitCpp(ctx);
+  CHECK(cpp.find("ctx.last_guest_memory_instruction = 0x00001000;") != std::string::npos);
+  CHECK(cpp.find("ctx.last_guest_memory_operation = \"lwz\";") != std::string::npos);
+  RequireTokenOrder(cpp, "ctx.last_guest_memory_instruction = 0x00001000;",
+                    "ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);");
+  RequireTokenOrder(cpp, "ctx.last_guest_memory_operation = \"lwz\";",
+                    "ctx.r3.u64 = REX_LOAD_U32(ctx.r4.u32 + 0);");
+}
 TEST_CASE("FunctionNode SEH dispatch calls discovered out-of-block handler entries",
           "[codegen][FunctionNode][SEH]") {
   constexpr std::array<uint8_t, 4> kTryOnly = {

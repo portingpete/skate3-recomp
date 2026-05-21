@@ -395,6 +395,14 @@ struct alignas(0x40) PPCContext {
    */
   uint32_t last_indirect_target = 0;
 
+  /**
+   * Last guest memory instruction emitted before a generated load/store. SEH
+   * diagnostics use this to identify the faulting guest-side access when the
+   * catch happens in a caller frame.
+   */
+  uint32_t last_guest_memory_instruction = 0;
+  const char* last_guest_memory_operation = nullptr;
+
 #if !defined(REX_CONFIG_NON_ARGUMENT_AS_LOCAL)
   PPCRegister f0;
 #endif
