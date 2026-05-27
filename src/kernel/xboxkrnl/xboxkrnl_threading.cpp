@@ -14,14 +14,18 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <rex/chrono/clock.h>
+#include <rex/cvar.h>
 #include <rex/dbg.h>
 #include <rex/kernel/xboxkrnl/private.h>
 #include <rex/kernel/xboxkrnl/threading.h>
 #include <rex/logging.h>
+#include <rex/memory.h>
 #include <rex/perf/counter.h>
 #include <rex/hook.h>
 #include <rex/types.h>
@@ -39,9 +43,137 @@
 #include <rex/thread/atomic.h>
 #include <rex/thread/mutex.h>
 
+REXCVAR_DEFINE_BOOL(trace_kernel_waits, false, "Kernel",
+                    "Trace Xbox kernel wait/timer calls for frame pacing diagnostics");
+
+REXCVAR_DEFINE_INT32(trace_kernel_wait_min_us, 5000, "Kernel",
+                     "Minimum host duration in microseconds before logging a kernel wait")
+    .range(0, 60000000);
+
+REXCVAR_DEFINE_INT32(trace_kernel_wait_max_events, 200, "Kernel",
+                     "Maximum kernel wait/timer trace events to log; 0 disables the cap")
+    .range(0, 1000000);
+
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
 using rex::runtime::current_ppc_context;
+
+namespace {
+
+struct KernelWaitTraceSample {
+  bool enabled = false;
+  uint32_t guest_lr = 0;
+  uint64_t start_ticks = 0;
+};
+
+struct KernelWaitTraceGuestContext {
+  uint8_t* membase = nullptr;
+  uint32_t guest_lr = 0;
+  uint32_t guest_sp = 0;
+
+  bool TryLoadStackU32(uint32_t offset, uint32_t* out_value) const {
+    *out_value = 0;
+    if (!membase) {
+      return false;
+    }
+
+    const uint64_t guest_address = static_cast<uint64_t>(guest_sp) + offset;
+    if (guest_address > UINT32_MAX) {
+      return false;
+    }
+
+    return rex::ppc::TryLoadU32NoFault(membase, static_cast<uint32_t>(guest_address),
+                                       out_value);
+  }
+};
+
+std::atomic<int32_t> g_kernel_wait_trace_events{0};
+
+uint64_t HostTicksToMicroseconds(uint64_t ticks) {
+  const uint64_t frequency = chrono::Clock::QueryHostTickFrequency();
+  return frequency ? (ticks * 1000000ull) / frequency : 0;
+}
+
+uint32_t CurrentGuestLinkRegister() {
+  auto* thread = XThread::GetCurrentThread();
+  auto* thread_state = thread ? thread->thread_state() : nullptr;
+  auto* context = thread_state ? thread_state->context() : nullptr;
+  return context ? static_cast<uint32_t>(context->lr) : 0;
+}
+
+KernelWaitTraceGuestContext CurrentGuestWaitTraceContext() {
+  KernelWaitTraceGuestContext trace_context;
+  auto* thread = XThread::GetCurrentThread();
+  auto* thread_state = thread ? thread->thread_state() : nullptr;
+  auto* context = thread_state ? thread_state->context() : nullptr;
+  auto* memory = thread_state ? thread_state->memory() : nullptr;
+
+  if (context) {
+    trace_context.guest_lr = static_cast<uint32_t>(context->lr);
+    trace_context.guest_sp = context->r1.u32;
+  }
+  if (memory) {
+    trace_context.membase = memory->virtual_membase();
+  }
+  return trace_context;
+}
+
+KernelWaitTraceSample BeginKernelWaitTrace() {
+  KernelWaitTraceSample sample;
+  sample.enabled = REXCVAR_GET(trace_kernel_waits);
+  if (sample.enabled) {
+    sample.guest_lr = CurrentGuestLinkRegister();
+    sample.start_ticks = chrono::Clock::QueryHostTickCount();
+  }
+  return sample;
+}
+
+bool ReserveKernelWaitTraceEvent() {
+  const int32_t max_events = REXCVAR_GET(trace_kernel_wait_max_events);
+  if (max_events <= 0) {
+    return true;
+  }
+
+  int32_t observed = g_kernel_wait_trace_events.load(std::memory_order_relaxed);
+  while (observed < max_events) {
+    if (g_kernel_wait_trace_events.compare_exchange_weak(
+            observed, observed + 1, std::memory_order_relaxed, std::memory_order_relaxed)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool ShouldTraceKernelWait(const KernelWaitTraceSample& sample, uint64_t elapsed_us) {
+  if (!sample.enabled) {
+    return false;
+  }
+
+  const int32_t min_us = REXCVAR_GET(trace_kernel_wait_min_us);
+  if (min_us > 0 && elapsed_us < static_cast<uint64_t>(min_us)) {
+    return false;
+  }
+
+  return ReserveKernelWaitTraceEvent();
+}
+
+std::optional<uint64_t> EndKernelWaitTrace(const KernelWaitTraceSample& sample) {
+  if (!sample.enabled) {
+    return std::nullopt;
+  }
+
+  uint64_t elapsed_us =
+      HostTicksToMicroseconds(chrono::Clock::QueryHostTickCount() - sample.start_ticks);
+  return ShouldTraceKernelWait(sample, elapsed_us) ? std::optional<uint64_t>(elapsed_us)
+                                                  : std::nullopt;
+}
+
+bool ShouldTraceKernelWaitEvent() {
+  return REXCVAR_GET(trace_kernel_waits) && ReserveKernelWaitTraceEvent();
+}
+
+}  // namespace
 
 // r13 + 0x100: pointer to thread local state
 // Thread local state:
@@ -375,6 +507,8 @@ u32 KeQueryPerformanceFrequency_entry() {
 
 u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 interval_ptr) {
   XThread* thread = XThread::GetCurrentThread();
+  const uint64_t interval = *interval_ptr;
+  const auto wait_trace = BeginKernelWaitTrace();
 
   if (alertable) {
     thread->DeliverAPCs();
@@ -383,7 +517,15 @@ u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 i
   X_STATUS result = X_STATUS_SUCCESS;
   {
     PROFILE_GUEST_KERNEL_WAIT_SCOPE();
-    result = thread->Delay(processor_mode, alertable, *interval_ptr);
+    result = thread->Delay(processor_mode, alertable, interval);
+  }
+
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] KeDelayExecutionThread lr={:08X} elapsed_us={} result={:08X} "
+        "interval={:016X} mode={} alertable={}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result), interval,
+        static_cast<uint32_t>(processor_mode), static_cast<uint32_t>(alertable));
   }
 
   if (alertable && result == X_STATUS_USER_APC) {
@@ -795,6 +937,19 @@ u32 NtSetTimerEx_entry(u32 timer_handle, mapped_u64 due_time_ptr,
   assert_true(unk_zero == 0);
 
   uint64_t due_time = *due_time_ptr;
+  const bool trace_event = ShouldTraceKernelWaitEvent();
+  const auto trace_context =
+      trace_event ? CurrentGuestWaitTraceContext() : KernelWaitTraceGuestContext{};
+  uint32_t stack80 = 0;
+  uint32_t stack88 = 0;
+  uint32_t stack104 = 0;
+  uint32_t stack120 = 0;
+  if (trace_event) {
+    trace_context.TryLoadStackU32(80, &stack80);
+    trace_context.TryLoadStackU32(88, &stack88);
+    trace_context.TryLoadStackU32(104, &stack104);
+    trace_context.TryLoadStackU32(120, &stack120);
+  }
 
   X_STATUS result = X_STATUS_SUCCESS;
 
@@ -804,6 +959,17 @@ u32 NtSetTimerEx_entry(u32 timer_handle, mapped_u64 due_time_ptr,
                              routine_arg.guest_address(), resume ? true : false);
   } else {
     result = X_STATUS_INVALID_HANDLE;
+  }
+
+  if (trace_event) {
+    REXKRNL_INFO(
+        "[kernel-wait] NtSetTimerEx lr={:08X} result={:08X} handle={:08X} due_time={:016X} "
+        "period_ms={} routine={:08X} routine_arg={:08X} resume={} sp={:08X} stack80={:08X} "
+        "stack88={:08X} stack104={:08X} stack120={:08X}",
+        trace_context.guest_lr, static_cast<uint32_t>(result),
+        static_cast<uint32_t>(timer_handle), due_time, static_cast<uint32_t>(period_ms),
+        routine_ptr.guest_address(), routine_arg.guest_address(), static_cast<uint32_t>(resume),
+        trace_context.guest_sp, stack80, stack88, stack104, stack120);
   }
 
   return result;
@@ -851,6 +1017,7 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason, uint32_
 u32 KeWaitForSingleObject_entry(mapped_void object_ptr, u32 wait_reason, u32 processor_mode,
                                 u32 alertable, mapped_u64 timeout_ptr) {
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+  const auto wait_trace = BeginKernelWaitTrace();
   // REXKRNL_IMPORT_TRACE("KeWaitForSingleObject", "obj={:#x} reason={} mode={} alertable={}
   // timeout={}",
   // object_ptr.guest_address(), (uint32_t)wait_reason,
@@ -858,6 +1025,15 @@ u32 KeWaitForSingleObject_entry(mapped_void object_ptr, u32 wait_reason, u32 pro
   // timeout_ptr ? (int64_t)timeout : -1);
   auto result = xeKeWaitForSingleObject(object_ptr, wait_reason, processor_mode, alertable,
                                         timeout_ptr ? &timeout : nullptr);
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] KeWaitForSingleObject lr={:08X} elapsed_us={} result={:08X} obj={:08X} "
+        "reason={} mode={} alertable={} timeout_set={} timeout={:016X}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result),
+        object_ptr.guest_address(), static_cast<uint32_t>(wait_reason),
+        static_cast<uint32_t>(processor_mode), static_cast<uint32_t>(alertable),
+        timeout_ptr ? 1 : 0, timeout);
+  }
   // REXKRNL_IMPORT_RESULT("KeWaitForSingleObject", "{:#x}", result);
   return result;
 }
@@ -865,19 +1041,31 @@ u32 KeWaitForSingleObject_entry(mapped_void object_ptr, u32 wait_reason, u32 pro
 u32 NtWaitForSingleObjectEx_entry(u32 object_handle, u32 wait_mode, u32 alertable,
                                   mapped_u64 timeout_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
+  uint64_t timeout = 0;
+  const auto wait_trace = BeginKernelWaitTrace();
 
   auto object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(object_handle);
   if (object) {
-    uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+    timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+    uint64_t wait_timeout = timeout;
     {
       PROFILE_GUEST_KERNEL_WAIT_SCOPE();
-      result = object->Wait(3, wait_mode, alertable, timeout_ptr ? &timeout : nullptr);
+      result = object->Wait(3, wait_mode, alertable, timeout_ptr ? &wait_timeout : nullptr);
     }
     if (alertable && result == X_STATUS_USER_APC) {
       XThread::GetCurrentThread()->DeliverAPCs();
     }
   } else {
     result = X_STATUS_INVALID_HANDLE;
+  }
+
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] NtWaitForSingleObjectEx lr={:08X} elapsed_us={} result={:08X} "
+        "handle={:08X} mode={} alertable={} timeout_set={} timeout={:016X}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result),
+        static_cast<uint32_t>(object_handle), static_cast<uint32_t>(wait_mode),
+        static_cast<uint32_t>(alertable), timeout_ptr ? 1 : 0, timeout);
   }
 
   return result;
@@ -900,6 +1088,7 @@ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_t
   }
 
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+  const auto wait_trace = BeginKernelWaitTrace();
   X_STATUS result = X_STATUS_SUCCESS;
   {
     PROFILE_GUEST_KERNEL_WAIT_SCOPE();
@@ -907,6 +1096,45 @@ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_t
                                    reinterpret_cast<XObject**>(objects.data()), wait_type,
                                    wait_reason, processor_mode, alertable,
                                    timeout_ptr ? &timeout : nullptr);
+  }
+  if (alertable && result == X_STATUS_USER_APC) {
+    XThread::GetCurrentThread()->DeliverAPCs();
+  }
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] KeWaitForMultipleObjects lr={:08X} elapsed_us={} result={:08X} "
+        "count={} objects={:08X} wait_type={} reason={} mode={} alertable={} timeout_set={} "
+        "timeout={:016X}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result),
+        static_cast<uint32_t>(count), objects_ptr.guest_address(), static_cast<uint32_t>(wait_type),
+        static_cast<uint32_t>(wait_reason), static_cast<uint32_t>(processor_mode),
+        static_cast<uint32_t>(alertable), timeout_ptr ? 1 : 0, timeout);
+  }
+  return result;
+}
+
+static bool ResolveWaitHandles(uint32_t count, rex::be<uint32_t>* handles,
+                               std::vector<object_ref<XObject>>& objects) {
+  for (uint32_t n = 0; n < count; n++) {
+    uint32_t object_handle = handles[n];
+    auto object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(object_handle);
+    if (!object) {
+      return false;
+    }
+    objects.push_back(std::move(object));
+  }
+  return true;
+}
+
+static uint32_t WaitForResolvedObjectsEx(uint32_t count,
+                                         std::vector<object_ref<XObject>>& objects,
+                                         uint32_t wait_type, uint32_t wait_mode,
+                                         uint32_t alertable, uint64_t* timeout_ptr) {
+  X_STATUS result = X_STATUS_SUCCESS;
+  {
+    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
+    result = XObject::WaitMultiple(count, reinterpret_cast<XObject**>(objects.data()), wait_type, 6,
+                                   wait_mode, alertable, timeout_ptr);
   }
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
@@ -920,46 +1148,69 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, rex::be<uint32_t>* handles
   assert_true(wait_type <= 1);
 
   std::vector<object_ref<XObject>> objects;
-  for (uint32_t n = 0; n < count; n++) {
-    uint32_t object_handle = handles[n];
-    auto object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(object_handle);
-    if (!object) {
-      return X_STATUS_INVALID_PARAMETER;
-    }
-    objects.push_back(std::move(object));
+  if (!ResolveWaitHandles(count, handles, objects)) {
+    return X_STATUS_INVALID_PARAMETER;
   }
 
-  X_STATUS result = X_STATUS_SUCCESS;
-  {
-    PROFILE_GUEST_KERNEL_WAIT_SCOPE();
-    result = XObject::WaitMultiple(count, reinterpret_cast<XObject**>(objects.data()), wait_type, 6,
-                                   wait_mode, alertable, timeout_ptr);
+  return WaitForResolvedObjectsEx(count, objects, wait_type, wait_mode, alertable, timeout_ptr);
+}
+
+static uint32_t xeNtWaitForMultipleObjectsExMappedTimeout(uint32_t count,
+                                                          rex::be<uint32_t>* handles,
+                                                          uint32_t wait_type, uint32_t wait_mode,
+                                                          uint32_t alertable,
+                                                          mapped_u64 timeout_ptr,
+                                                          uint64_t* out_timeout) {
+  assert_true(wait_type <= 1);
+
+  std::vector<object_ref<XObject>> objects;
+  if (!ResolveWaitHandles(count, handles, objects)) {
+    return X_STATUS_INVALID_PARAMETER;
   }
-  if (alertable && result == X_STATUS_USER_APC) {
-    XThread::GetCurrentThread()->DeliverAPCs();
+
+  uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+  if (out_timeout) {
+    *out_timeout = timeout;
   }
-  return result;
+
+  return WaitForResolvedObjectsEx(count, objects, wait_type, wait_mode, alertable,
+                                  timeout_ptr ? &timeout : nullptr);
 }
 
 u32 NtWaitForMultipleObjectsEx_entry(u32 count, mapped_u32 handles, u32 wait_type, u32 wait_mode,
                                      u32 alertable, mapped_u64 timeout_ptr) {
-  uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-  return xeNtWaitForMultipleObjectsEx(count, handles, wait_type, wait_mode, alertable,
-                                      timeout_ptr ? &timeout : nullptr);
+  uint64_t timeout = 0;
+  const auto wait_trace = BeginKernelWaitTrace();
+  auto result = xeNtWaitForMultipleObjectsExMappedTimeout(
+      count, handles, wait_type, wait_mode, alertable, timeout_ptr, &timeout);
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] NtWaitForMultipleObjectsEx lr={:08X} elapsed_us={} result={:08X} "
+        "count={} handles={:08X} wait_type={} mode={} alertable={} timeout_set={} "
+        "timeout={:016X}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result),
+        static_cast<uint32_t>(count), handles.guest_address(), static_cast<uint32_t>(wait_type),
+        static_cast<uint32_t>(wait_mode), static_cast<uint32_t>(alertable), timeout_ptr ? 1 : 0,
+        timeout);
+  }
+  return result;
 }
 
 u32 NtSignalAndWaitForSingleObjectEx_entry(u32 signal_handle, u32 wait_handle, u32 alertable,
                                            u32 r6, mapped_u64 timeout_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
+  uint64_t timeout = 0;
+  const auto wait_trace = BeginKernelWaitTrace();
 
   auto signal_object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(signal_handle);
   auto wait_object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(wait_handle);
   if (signal_object && wait_object) {
-    uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+    timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
+    uint64_t wait_timeout = timeout;
     {
       PROFILE_GUEST_KERNEL_WAIT_SCOPE();
       result = XObject::SignalAndWait(signal_object.get(), wait_object.get(), 3, 1, alertable,
-                                      timeout_ptr ? &timeout : nullptr);
+                                      timeout_ptr ? &wait_timeout : nullptr);
     }
   } else {
     result = X_STATUS_INVALID_HANDLE;
@@ -967,6 +1218,15 @@ u32 NtSignalAndWaitForSingleObjectEx_entry(u32 signal_handle, u32 wait_handle, u
 
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
+  }
+
+  if (auto elapsed_us = EndKernelWaitTrace(wait_trace)) {
+    REXKRNL_INFO(
+        "[kernel-wait] NtSignalAndWaitForSingleObjectEx lr={:08X} elapsed_us={} result={:08X} "
+        "signal_handle={:08X} wait_handle={:08X} alertable={} timeout_set={} timeout={:016X}",
+        wait_trace.guest_lr, *elapsed_us, static_cast<uint32_t>(result),
+        static_cast<uint32_t>(signal_handle), static_cast<uint32_t>(wait_handle),
+        static_cast<uint32_t>(alertable), timeout_ptr ? 1 : 0, timeout);
   }
 
   return result;
@@ -1394,8 +1654,8 @@ u32 InterlockedPopEntrySList_entry(ppc_ptr_t<X_SLIST_HEADER> plist_ptr) {
   assert_not_null(plist_ptr);
 
   uint32_t popped = 0;
-  alignas(8) X_SLIST_HEADER old_hdr = {0};
-  alignas(8) X_SLIST_HEADER new_hdr = {0};
+  alignas(8) X_SLIST_HEADER old_hdr = {};
+  alignas(8) X_SLIST_HEADER new_hdr = {};
   do {
     old_hdr = *plist_ptr;
     auto next = REX_KERNEL_MEMORY()->TranslateVirtual<X_SINGLE_LIST_ENTRY*>(old_hdr.next.next);
@@ -1417,7 +1677,7 @@ u32 InterlockedFlushSList_entry(ppc_ptr_t<X_SLIST_HEADER> plist_ptr) {
   assert_not_null(plist_ptr);
 
   alignas(8) X_SLIST_HEADER old_hdr = *plist_ptr;
-  alignas(8) X_SLIST_HEADER new_hdr = {0};
+  alignas(8) X_SLIST_HEADER new_hdr = {};
   uint32_t first = 0;
   do {
     old_hdr = *plist_ptr;

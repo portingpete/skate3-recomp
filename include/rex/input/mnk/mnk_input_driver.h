@@ -11,8 +11,11 @@
 #pragma once
 
 #include <rex/input/input_driver.h>
+#include <rex/ui/virtual_key.h>
 #include <rex/ui/window_listener.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <queue>
@@ -51,17 +54,92 @@ class MnkInputDriver final : public InputDriver,
   void OnGotFocus(rex::ui::UISetupEvent& e) override;
 
  private:
+  enum class Binding : size_t {
+    kA,
+    kB,
+    kX,
+    kY,
+    kLeftTrigger,
+    kRightTrigger,
+    kLeftShoulder,
+    kRightShoulder,
+    kLeftStickUp,
+    kLeftStickDown,
+    kLeftStickLeft,
+    kLeftStickRight,
+    kLeftStickPress,
+    kRightStickPress,
+    kDpadUp,
+    kDpadDown,
+    kDpadLeft,
+    kDpadRight,
+    kBack,
+    kStart,
+    kGuide,
+    kCount,
+  };
+  static constexpr size_t kBindingCount = static_cast<size_t>(Binding::kCount);
+
+  struct KeystrokeBinding {
+    Binding binding;
+    uint16_t pad_key;
+  };
+
+  static constexpr std::array<KeystrokeBinding, 20> kKeystrokeBindings = {{
+      {Binding::kA, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadA)},
+      {Binding::kB, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadB)},
+      {Binding::kX, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadX)},
+      {Binding::kY, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadY)},
+      {Binding::kLeftTrigger,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLTrigger)},
+      {Binding::kRightTrigger,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRTrigger)},
+      {Binding::kLeftShoulder,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLShoulder)},
+      {Binding::kRightShoulder,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRShoulder)},
+      {Binding::kLeftStickPress,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbPress)},
+      {Binding::kRightStickPress,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRThumbPress)},
+      {Binding::kDpadUp, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadUp)},
+      {Binding::kDpadDown, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadDown)},
+      {Binding::kDpadLeft, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadLeft)},
+      {Binding::kDpadRight,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadRight)},
+      {Binding::kBack, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadBack)},
+      {Binding::kStart, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadStart)},
+      {Binding::kLeftStickUp,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbUp)},
+      {Binding::kLeftStickDown,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbDown)},
+      {Binding::kLeftStickLeft,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbLeft)},
+      {Binding::kLeftStickRight,
+       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbRight)},
+  }};
+  static_assert(kKeystrokeBindings.size() <= 32);
+
   uint32_t UserIndex() const;
   bool IsEnabled() const;
-  void CenterCursor();
-  void UpdateMouseCapture();
-  void SetKeyState(uint16_t vk, bool down);
+  const std::string& BindingCvarValue(Binding binding) const;
+  void RefreshBindingsLocked();
+  void RebuildKeystrokeLookupLocked();
+  bool IsBindingPressed(Binding binding) const;
+  void CenterCursor(rex::ui::Window* window, int32_t x, int32_t y);
+  void UpdateMouseCapture(bool active);
+  bool SetKeyState(uint16_t vk, bool down);
+  void EnqueueBoundKeystrokes(uint16_t vk, bool down);
   void EnqueueKeystroke(uint16_t vk_pad, bool down);
 
   rex::ui::Window* attached_window_ = nullptr;
 
   std::mutex state_mutex_;
   bool key_down_[256] = {};
+  bool bindings_initialized_ = false;
+  std::array<std::string, kBindingCount> binding_values_;
+  std::array<uint16_t, kBindingCount> binding_keys_ = {};
+  std::array<uint32_t, 256> keystroke_masks_by_host_key_ = {};
 
   // Mouse delta tracking
   int32_t mouse_dx_ = 0;
@@ -74,7 +152,7 @@ class MnkInputDriver final : public InputDriver,
   // Keystroke queue
   std::queue<X_INPUT_KEYSTROKE> keystroke_queue_;
 
-  // Packet number incremented on state change
+  // Packet number incremented for each state poll.
   uint32_t packet_number_ = 0;
 };
 

@@ -23,6 +23,9 @@
 #include <rex/system/function_dispatcher.h>
 #include <rex/system/thread_state.h>
 
+#include <algorithm>
+#include <limits>
+
 namespace rex::runtime {
 
 namespace detail {
@@ -40,6 +43,40 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
 
 void BumpIndirectDispatchGeneration() noexcept {
   detail::g_indirect_dispatch_generation.fetch_add(1, std::memory_order_acq_rel);
+}
+
+uint64_t ModuleCodeSizeWithThunks(uint32_t code_size) {
+  return uint64_t(code_size) + FunctionDispatcher::kThunkReserveSize;
+}
+
+uint64_t GuestRangeEnd(uint32_t base, uint64_t size) {
+  return uint64_t(base) + size;
+}
+
+uint64_t ModuleCodeEnd(uint32_t code_base, uint32_t code_size) {
+  return GuestRangeEnd(code_base, ModuleCodeSizeWithThunks(code_size));
+}
+
+uint64_t ModuleImageEnd(uint32_t image_base, uint32_t image_size) {
+  return GuestRangeEnd(image_base, image_size);
+}
+
+uint64_t ModuleTableEnd(uint32_t image_base, uint32_t image_size, uint32_t code_size) {
+  return GuestRangeEnd(image_base, uint64_t(image_size) + ModuleCodeSizeWithThunks(code_size) * 2);
+}
+
+uint32_t ClampGuestAddressForLog(uint64_t address) {
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(address, std::numeric_limits<uint32_t>::max()));
+}
+
+bool GuestRangeContains(uint32_t start, uint64_t end, uint32_t address) {
+  return address >= start && uint64_t(address) < end;
+}
+
+bool GuestRangesOverlap(uint32_t first_start, uint64_t first_end, uint32_t second_start,
+                        uint64_t second_end) {
+  return uint64_t(first_start) < second_end && first_end > uint64_t(second_start);
 }
 
 }  // namespace
@@ -73,7 +110,42 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
 
   PPCFunc* fn = GetFunction(address);
   if (!fn) {
-    REXCPU_ERROR("Execute({:08X}): function not in function table", address);
+    struct RangeDescription {
+      const char* kind = "outside registered image/code ranges";
+      uint32_t start = 0;
+      uint32_t end = 0;
+    };
+
+    auto describe_range = [&]() {
+      std::lock_guard<std::recursive_mutex> lock(dispatch_mutex_);
+      for (const auto& module : module_tables_) {
+        uint64_t code_end = ModuleCodeEnd(module.code_base, module.code_size);
+        uint64_t image_end = ModuleImageEnd(module.image_base, module.image_size);
+        if (GuestRangeContains(module.code_base, code_end, address)) {
+          return RangeDescription{"inside registered code/thunk range", module.code_base,
+                                  ClampGuestAddressForLog(code_end)};
+        }
+        if (GuestRangeContains(module.image_base, image_end, address)) {
+          return RangeDescription{"inside registered image range", module.image_base,
+                                  ClampGuestAddressForLog(image_end)};
+        }
+      }
+      return RangeDescription{};
+    };
+    const RangeDescription range = describe_range();
+
+    auto* ctx = thread_state ? thread_state->context() : nullptr;
+    const char* last_mem_op =
+        (ctx && ctx->last_guest_memory_operation) ? ctx->last_guest_memory_operation : "";
+    REXCPU_ERROR(
+        "Execute({:08X}): function not in function table; guest_thread={} active_guest_thread={} "
+        "lr={:08X} ctr={:08X} r1={:08X} r3={:08X} r4={:08X} last_mem={:08X}/{} ea={:08X}; "
+        "{} {:08X}-{:08X}",
+        address, thread_state ? thread_state->thread_id() : 0, ThreadState::GetThreadID(),
+        ctx ? static_cast<uint32_t>(ctx->lr) : 0, ctx ? ctx->ctr.u32 : 0,
+        ctx ? ctx->r1.u32 : 0, ctx ? ctx->r3.u32 : 0, ctx ? ctx->r4.u32 : 0,
+        ctx ? ctx->last_guest_memory_instruction : 0, last_mem_op,
+        ctx ? ctx->last_guest_memory_effective_address : 0, range.kind, range.start, range.end);
     return false;
   }
 
@@ -191,20 +263,22 @@ bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t co
     return false;
   }
 
-  uint32_t new_table_end = image_base + image_size + (code_size + kThunkReserveSize) * 2;
-  uint32_t new_code_end = code_base + code_size + kThunkReserveSize;
+  uint64_t new_table_end = ModuleTableEnd(image_base, image_size, code_size);
+  uint64_t new_code_end = ModuleCodeEnd(code_base, code_size);
   for (const auto& existing : module_tables_) {
-    uint32_t existing_table_end =
-        existing.image_base + existing.image_size + (existing.code_size + kThunkReserveSize) * 2;
-    uint32_t existing_code_end = existing.code_base + existing.code_size + kThunkReserveSize;
-    if (image_base < existing_table_end && new_table_end > existing.image_base) {
+    uint64_t existing_table_end =
+        ModuleTableEnd(existing.image_base, existing.image_size, existing.code_size);
+    uint64_t existing_code_end = ModuleCodeEnd(existing.code_base, existing.code_size);
+    if (GuestRangesOverlap(image_base, new_table_end, existing.image_base, existing_table_end)) {
       REXLOG_ERROR("Module image range [{:08X}, {:08X}) overlaps existing [{:08X}, {:08X})",
-                   image_base, new_table_end, existing.image_base, existing_table_end);
+                   image_base, ClampGuestAddressForLog(new_table_end), existing.image_base,
+                   ClampGuestAddressForLog(existing_table_end));
       return false;
     }
-    if (code_base < existing_code_end && new_code_end > existing.code_base) {
+    if (GuestRangesOverlap(code_base, new_code_end, existing.code_base, existing_code_end)) {
       REXLOG_ERROR("Module code range [{:08X}, {:08X}) overlaps existing [{:08X}, {:08X})",
-                   code_base, new_code_end, existing.code_base, existing_code_end);
+                   code_base, ClampGuestAddressForLog(new_code_end), existing.code_base,
+                   ClampGuestAddressForLog(existing_code_end));
       return false;
     }
   }
@@ -228,14 +302,16 @@ bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t co
   }
 
   REXLOG_INFO("Function table initialized for module: code={:08X}-{:08X}, image={:08X}-{:08X}",
-              code_base, code_base + code_size, image_base, image_base + image_size);
+              code_base, ClampGuestAddressForLog(GuestRangeEnd(code_base, code_size)), image_base,
+              ClampGuestAddressForLog(ModuleImageEnd(image_base, image_size)));
   return true;
 }
 
 FunctionDispatcher::ModuleTableInfo* FunctionDispatcher::FindModuleByAddress(
     uint32_t guest_address) {
   for (auto& mod : module_tables_) {
-    if (guest_address >= mod.code_base && guest_address < mod.thunk_limit) {
+    if (GuestRangeContains(mod.code_base, ModuleCodeEnd(mod.code_base, mod.code_size),
+                           guest_address)) {
       return &mod;
     }
   }

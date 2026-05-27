@@ -38,19 +38,25 @@
 
 namespace {
 
+constexpr int32_t kMaxWindowDimension = 8192;
+
+uint32_t ClampWindowDimension(int32_t value) {
+  return uint32_t(std::clamp(value, 1, kMaxWindowDimension));
+}
+
 uint32_t ResolveWindowWidth(uint32_t requested_width) {
   if (REXCVAR_GET(window_width) > 0) {
     return uint32_t(REXCVAR_GET(window_width));
   }
   if (!rex::cvar::HasNonDefaultValue("window_width")) {
     if (rex::cvar::HasNonDefaultValue("video_mode_width") && REXCVAR_GET(video_mode_width) > 0) {
-      return uint32_t(std::clamp(REXCVAR_GET(video_mode_width), 1, 8192));
+      return ClampWindowDimension(REXCVAR_GET(video_mode_width));
     }
     int32_t preset_width = 0;
     int32_t preset_height = 0;
     if (rex::graphics::video_mode_util::TryGetResolutionPresetFromCVar(preset_width,
                                                                        preset_height)) {
-      return uint32_t(std::clamp(preset_width, 1, 8192));
+      return ClampWindowDimension(preset_width);
     }
   }
   return requested_width;
@@ -62,13 +68,13 @@ uint32_t ResolveWindowHeight(uint32_t requested_height) {
   }
   if (!rex::cvar::HasNonDefaultValue("window_height")) {
     if (rex::cvar::HasNonDefaultValue("video_mode_height") && REXCVAR_GET(video_mode_height) > 0) {
-      return uint32_t(std::clamp(REXCVAR_GET(video_mode_height), 1, 8192));
+      return ClampWindowDimension(REXCVAR_GET(video_mode_height));
     }
     int32_t preset_width = 0;
     int32_t preset_height = 0;
     if (rex::graphics::video_mode_util::TryGetResolutionPresetFromCVar(preset_width,
                                                                        preset_height)) {
-      return uint32_t(std::clamp(preset_height, 1, 8192));
+      return ClampWindowDimension(preset_height);
     }
   }
   return requested_height;
@@ -184,15 +190,19 @@ bool Win32Window::OpenImpl() {
   dpi_ = GetCurrentSystemDpi();
   DWORD window_style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
   DWORD window_ex_style = WS_EX_APPWINDOW | WS_EX_CONTROLPARENT;
+  auto build_initial_window_rect = [&](UINT dpi, RECT& rect) {
+    rect = {
+        0,
+        0,
+        LONG(ConvertSizeDpi(initial_desired_logical_width, dpi, USER_DEFAULT_SCREEN_DPI)),
+        LONG(ConvertSizeDpi(initial_desired_logical_height, dpi, USER_DEFAULT_SCREEN_DPI)),
+    };
+    return AdjustWindowRectangle(rect, window_style, BOOL(main_menu != nullptr), window_ex_style,
+                                 dpi);
+  };
+
   RECT window_size_rect;
-  window_size_rect.left = 0;
-  window_size_rect.top = 0;
-  window_size_rect.right =
-      LONG(ConvertSizeDpi(initial_desired_logical_width, dpi_, USER_DEFAULT_SCREEN_DPI));
-  window_size_rect.bottom =
-      LONG(ConvertSizeDpi(initial_desired_logical_height, dpi_, USER_DEFAULT_SCREEN_DPI));
-  AdjustWindowRectangle(window_size_rect, window_style, BOOL(main_menu != nullptr), window_ex_style,
-                        dpi_);
+  build_initial_window_rect(dpi_, window_size_rect);
   // Create the window. Though WM_NCCREATE will assign to `hwnd_` too, still do
   // the assignment here to handle the case of a failure after WM_NCCREATE, for
   // instance.
@@ -230,14 +240,7 @@ bool Win32Window::OpenImpl() {
     // GetWindowRect.
     initial_dpi_placement.length = sizeof(initial_dpi_placement);
     if (GetWindowPlacement(hwnd_, &initial_dpi_placement)) {
-      window_size_rect.left = 0;
-      window_size_rect.top = 0;
-      window_size_rect.right =
-          LONG(ConvertSizeDpi(initial_desired_logical_width, dpi_, USER_DEFAULT_SCREEN_DPI));
-      window_size_rect.bottom =
-          LONG(ConvertSizeDpi(initial_desired_logical_height, dpi_, USER_DEFAULT_SCREEN_DPI));
-      AdjustWindowRectangle(window_size_rect, window_style, BOOL(main_menu != nullptr),
-                            window_ex_style, dpi_);
+      build_initial_window_rect(dpi_, window_size_rect);
       initial_dpi_placement.rcNormalPosition.right =
           initial_dpi_placement.rcNormalPosition.left +
           (window_size_rect.right - window_size_rect.left);
@@ -312,6 +315,18 @@ bool Win32Window::OpenImpl() {
   } else {
     if (main_menu) {
       SetMenu(hwnd_, main_menu->handle());
+    }
+
+    RECT enforced_size_rect;
+    if (build_initial_window_rect(dpi_, enforced_size_rect)) {
+      int enforced_width = enforced_size_rect.right - enforced_size_rect.left;
+      int enforced_height = enforced_size_rect.bottom - enforced_size_rect.top;
+      if (SetWindowPos(hwnd_, nullptr, 0, 0, enforced_width, enforced_height,
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE)) {
+        REXLOG_INFO("Requested initial window client size {}x{} (window {}x{})",
+                    initial_desired_logical_width, initial_desired_logical_height, enforced_width,
+                    enforced_height);
+      }
     }
   }
 
@@ -502,6 +517,8 @@ void Win32Window::ApplyNewTitle() {
 
 void Win32Window::LoadAndApplyIcon(const void* buffer, size_t size,
                                    bool can_apply_state_in_current_phase) {
+  (void)can_apply_state_in_current_phase;
+
   bool reset = !buffer || !size;
 
   HICON new_icon, new_icon_small;
@@ -549,6 +566,8 @@ void Win32Window::LoadAndApplyIcon(const void* buffer, size_t size,
 }
 
 void Win32Window::ApplyNewMainMenu(MenuItem* old_main_menu) {
+  (void)old_main_menu;
+
   if (IsFullscreen()) {
     // The menu will be set when exiting fullscreen.
     return;
@@ -1116,6 +1135,17 @@ LRESULT Win32Window::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
       }
     } break;
 
+    case WM_GETMINMAXINFO: {
+      auto* minmax = reinterpret_cast<MINMAXINFO*>(lParam);
+      if (minmax) {
+        minmax->ptMaxTrackSize.x =
+            std::max<LONG>(minmax->ptMaxTrackSize.x, kMaxWindowDimension);
+        minmax->ptMaxTrackSize.y =
+            std::max<LONG>(minmax->ptMaxTrackSize.y, kMaxWindowDimension);
+      }
+      return 0;
+    } break;
+
     case WM_PAINT: {
       if (batched_size_update_depth_) {
         // Avoid painting an outdated surface during a batched size update when
@@ -1389,7 +1419,9 @@ void Win32MenuItem::OnChildAdded(MenuItem* generic_child_item) {
   }
 }
 
-void Win32MenuItem::OnChildRemoved(MenuItem* generic_child_item) {}
+void Win32MenuItem::OnChildRemoved(MenuItem* generic_child_item) {
+  (void)generic_child_item;
+}
 
 }  // namespace ui
 }  // namespace rex

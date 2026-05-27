@@ -7,6 +7,7 @@
  */
 
 #include <rex/platform.h>
+#include <rex/cvar.h>
 #include <rex/thread.h>
 
 static_assert(REX_PLATFORM_WIN32, "This file is Windows-only");
@@ -18,12 +19,72 @@ static_assert(REX_PLATFORM_WIN32, "This file is Windows-only");
 #include <rex/assert.h>
 #include <rex/chrono/chrono_steady_cast.h>
 
+REXCVAR_DEFINE_BOOL(host_high_resolution_timers, true, "Kernel",
+                    "Request 1 ms Windows timer resolution for guest wait accuracy")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
 #define LOG_LASTERROR() \
   { spdlog::error("Win32 Error 0x{:08X} in {}(...)", GetLastError(), __FUNCTION__); }
 
 typedef HANDLE (*SetThreadDescriptionFn)(HANDLE hThread, PCWSTR lpThreadDescription);
 
 namespace rex::thread {
+
+namespace {
+
+class HighResolutionTimerPeriod {
+ public:
+  HighResolutionTimerPeriod() {
+    winmm_ = LoadLibraryW(L"winmm.dll");
+    if (!winmm_) {
+      return;
+    }
+
+    time_begin_period_ =
+        reinterpret_cast<TimePeriodFn>(GetProcAddress(winmm_, "timeBeginPeriod"));
+    time_end_period_ = reinterpret_cast<TimePeriodFn>(GetProcAddress(winmm_, "timeEndPeriod"));
+    if (!time_begin_period_ || !time_end_period_) {
+      FreeLibrary(winmm_);
+      winmm_ = nullptr;
+      return;
+    }
+
+    enabled_ = time_begin_period_(1) == 0;
+    if (enabled_) {
+      spdlog::info("Requested 1 ms Windows timer resolution");
+    }
+  }
+
+  ~HighResolutionTimerPeriod() {
+    if (enabled_ && time_end_period_) {
+      time_end_period_(1);
+    }
+    if (winmm_) {
+      FreeLibrary(winmm_);
+    }
+  }
+
+ private:
+  using TimePeriodFn = UINT(WINAPI*)(UINT);
+
+  HMODULE winmm_ = nullptr;
+  TimePeriodFn time_begin_period_ = nullptr;
+  TimePeriodFn time_end_period_ = nullptr;
+  bool enabled_ = false;
+};
+
+void EnsureHighResolutionTimerPeriodRequested() {
+  // timeBeginPeriod is a process-wide request that stays active until teardown.
+  // Treat the cvar as startup policy; changing it at runtime requires restart.
+  static const bool should_request_period = REXCVAR_GET(host_high_resolution_timers);
+  if (!should_request_period) {
+    return;
+  }
+
+  static HighResolutionTimerPeriod timer_period;
+}
+
+}  // namespace
 
 void EnableAffinityConfiguration() {
   HANDLE process_handle = GetCurrentProcess();
@@ -94,6 +155,7 @@ void SyncMemory() {
 }
 
 void Sleep(std::chrono::microseconds duration) {
+  EnsureHighResolutionTimerPeriodRequested();
   if (duration.count() < 100) {
     MaybeYield();
   } else {
@@ -102,6 +164,7 @@ void Sleep(std::chrono::microseconds duration) {
 }
 
 SleepResult AlertableSleep(std::chrono::microseconds duration) {
+  EnsureHighResolutionTimerPeriodRequested();
   if (SleepEx(static_cast<DWORD>(duration.count() / 1000), TRUE) == WAIT_IO_COMPLETION) {
     return SleepResult::kAlerted;
   }
@@ -140,6 +203,7 @@ class Win32Handle : public T {
 };
 
 WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::milliseconds timeout) {
+  EnsureHighResolutionTimerPeriodRequested();
   HANDLE handle = wait_handle->native_handle();
   DWORD result = WaitForSingleObjectEx(handle, DWORD(timeout.count()), is_alertable ? TRUE : FALSE);
   switch (result) {
@@ -159,6 +223,7 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::millise
 
 WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_handle_to_wait_on,
                          bool is_alertable, std::chrono::milliseconds timeout) {
+  EnsureHighResolutionTimerPeriodRequested();
   HANDLE handle_to_signal = wait_handle_to_signal->native_handle();
   HANDLE handle_to_wait_on = wait_handle_to_wait_on->native_handle();
   DWORD result = SignalObjectAndWait(handle_to_signal, handle_to_wait_on, DWORD(timeout.count()),
@@ -181,6 +246,7 @@ WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_han
 std::pair<WaitResult, size_t> WaitMultiple(WaitHandle* wait_handles[], size_t wait_handle_count,
                                            bool wait_all, bool is_alertable,
                                            std::chrono::milliseconds timeout) {
+  EnsureHighResolutionTimerPeriodRequested();
   std::vector<HANDLE> handles(wait_handle_count);
   for (size_t i = 0; i < wait_handle_count; ++i) {
     handles[i] = wait_handles[i]->native_handle();
@@ -287,6 +353,7 @@ class Win32Timer : public Win32Handle<Timer> {
     return SetOnceAt(std::chrono::clock_cast<WClock_>(due_time), std::move(opt_callback));
   }
   bool SetOnceAt(WClock_::time_point due_time, std::function<void()> opt_callback) override {
+    EnsureHighResolutionTimerPeriodRequested();
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = std::move(opt_callback);
     LARGE_INTEGER due_time_li;
@@ -302,12 +369,13 @@ class Win32Timer : public Win32Handle<Timer> {
     return SetRepeatingAt(WClock_::now() + rel_time, period, std::move(opt_callback));
   }
   bool SetRepeatingAt(GClock_::time_point due_time, std::chrono::milliseconds period,
-                      std::function<void()> opt_callback = nullptr) {
+                      std::function<void()> opt_callback = nullptr) override {
     return SetRepeatingAt(std::chrono::clock_cast<WClock_>(due_time), period,
                           std::move(opt_callback));
   }
   bool SetRepeatingAt(WClock_::time_point due_time, std::chrono::milliseconds period,
                       std::function<void()> opt_callback) override {
+    EnsureHighResolutionTimerPeriodRequested();
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = std::move(opt_callback);
     LARGE_INTEGER due_time_li;
@@ -329,6 +397,9 @@ class Win32Timer : public Win32Handle<Timer> {
 
  private:
   static void CompletionRoutine(Win32Timer* timer, DWORD timer_low, DWORD timer_high) {
+    (void)timer_low;
+    (void)timer_high;
+
     // As the callback may reset the timer, store local.
     std::function<void()> callback;
     {
