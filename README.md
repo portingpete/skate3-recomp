@@ -20,9 +20,13 @@ ReXGlue converts Xbox 360 PowerPC code into portable C++ that runs natively on m
 
 ## Skate 3 Recomp
 
-Skate 3 Recomp tracks local Skate 3 bring-up work using ReXGlue. It does not include
-Skate 3 game files, generated game output, decrypted executables, cache data, or
-captures. Users must provide their own legally obtained Xbox 360 game dump.
+Skate 3 Recomp is a custom build of ReXGlue focused on local Skate 3 bring-up,
+runtime diagnostics, and 1080p/120fps experimentation. It is not an official
+upstream ReXGlue release.
+
+This repository does not include Skate 3 game files, generated game output,
+decrypted executables, cache data, or captures. Users must provide their own
+legally obtained Xbox 360 game dump.
 
 For Skate 3 Recomp setup notes, see [SKATE3_SETUP.md](SKATE3_SETUP.md).
 For attribution covering Skate 3 Recomp and its dependencies, see

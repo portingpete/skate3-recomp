@@ -1,7 +1,8 @@
 # Credits And Attribution
 
-Skate 3 Recomp builds on ReXGlue and a large body of Xbox 360 emulation,
-recompilation, graphics, audio, and reverse-engineering work.
+Skate 3 Recomp is a custom build of ReXGlue for local Skate 3 bring-up work. It
+builds on ReXGlue and a large body of Xbox 360 emulation, recompilation,
+graphics, audio, and reverse-engineering work.
 
 ## ReXGlue
 

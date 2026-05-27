@@ -1,8 +1,12 @@
 # Skate 3 Recomp Setup Notes
 
-Skate 3 Recomp contains ReXGlue source work and local Skate 3 bring-up notes.
-It does not contain Skate 3 assets, decrypted executables, generated game code,
-runtime caches, captures, or any other copyrighted game data.
+Skate 3 Recomp is a custom build of ReXGlue for local Skate 3 bring-up,
+runtime diagnostics, and 1080p/120fps experimentation. It is not an official
+upstream ReXGlue release.
+
+This repository does not contain Skate 3 assets, decrypted executables,
+generated game code, runtime caches, captures, or any other copyrighted game
+data.
 
 Use only game files you own and are legally allowed to dump. Do not ask this
 project for game files.
