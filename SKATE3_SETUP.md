@@ -1,6 +1,6 @@
-# Skate 3 Setup Notes
+# Skate 3 Recomp Setup Notes
 
-This repository contains ReXGlue source work and local Skate 3 bring-up notes.
+Skate 3 Recomp contains ReXGlue source work and local Skate 3 bring-up notes.
 It does not contain Skate 3 assets, decrypted executables, generated game code,
 runtime caches, captures, or any other copyrighted game data.
 
@@ -17,15 +17,15 @@ project for game files.
 - A legally obtained Skate 3 Xbox 360 dump containing `default.xex` and a
   decrypted `default.xex_uncrypted.xex`.
 
-The local bring-up that produced the notes in this fork used a Visual Studio
+The local bring-up that produced these notes used a Visual Studio
 developer shell, the `win-amd64-relwithdebinfo` ReXGlue preset, and a working
 directory outside the source tree.
 
 ## Clone And Build ReXGlue
 
 ```powershell
-git clone --recurse-submodules https://github.com/portingpete/skate3-rexglue.git
-Set-Location .\skate3-rexglue
+git clone --recurse-submodules https://github.com/portingpete/skate3-recomp.git
+Set-Location .\skate3-recomp
 $repoRoot = (Get-Location).Path
 
 cmake --preset win-amd64

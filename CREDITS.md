@@ -1,6 +1,6 @@
 # Credits And Attribution
 
-This fork builds on ReXGlue and a large body of Xbox 360 emulation,
+Skate 3 Recomp builds on ReXGlue and a large body of Xbox 360 emulation,
 recompilation, graphics, audio, and reverse-engineering work.
 
 ## ReXGlue
@@ -84,8 +84,8 @@ third-party source. See each dependency's own license files for exact terms.
 - Ghidra and IDA Pro are available in the local reverse-engineering workflow.
 - Local automation posted keyboard window messages to drive the generated app.
 
-## Fork-Specific Work
+## Skate 3 Recomp Work
 
-This fork's local Skate 3 bring-up notes include runtime/input/diagnostic work,
+Skate 3 Recomp's local Skate 3 bring-up notes include runtime/input/diagnostic work,
 keyboard-message automation notes, and setup guidance for users who provide
 their own legally obtained game dump.

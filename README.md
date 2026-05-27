@@ -18,14 +18,14 @@
 
 ReXGlue converts Xbox 360 PowerPC code into portable C++ that runs natively on modern platforms.
 
-## Skate 3 Bring-Up Fork
+## Skate 3 Recomp
 
-This fork tracks local Skate 3 bring-up work using ReXGlue. It does not include
+Skate 3 Recomp tracks local Skate 3 bring-up work using ReXGlue. It does not include
 Skate 3 game files, generated game output, decrypted executables, cache data, or
 captures. Users must provide their own legally obtained Xbox 360 game dump.
 
-For this fork's Skate 3 setup notes, see [SKATE3_SETUP.md](SKATE3_SETUP.md).
-For attribution covering this fork and its dependencies, see
+For Skate 3 Recomp setup notes, see [SKATE3_SETUP.md](SKATE3_SETUP.md).
+For attribution covering Skate 3 Recomp and its dependencies, see
 [CREDITS.md](CREDITS.md).
 
 ReXGlue is heavily rooted on the foundations of [Xenia](https://github.com/xenia-project), the Xbox 360 emulator. Rather than interpreting or JIT-compiling PPC instructions at runtime, ReXGlue takes a different path: it generates C++ source code ahead of time, an approach inspired by [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) and [rexdex's recompiler](https://github.com/rexdex/recompiler).
