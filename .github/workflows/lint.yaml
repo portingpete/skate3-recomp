@@ -1,6 +1,20 @@
 name: Lint & Format Check
 
-on: [pull_request, push]
+on:
+  pull_request:
+    paths:
+      - "include/**"
+      - "src/**"
+      - "tests/**"
+      - ".clang-format"
+  push:
+    branches:
+      - "**"
+    paths:
+      - "include/**"
+      - "src/**"
+      - "tests/**"
+      - ".clang-format"
 
 jobs:
   format-check:
@@ -25,4 +39,3 @@ jobs:
           find include src tests \
             -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' \) \
             | xargs clang-format-20 --dry-run --Werror
-

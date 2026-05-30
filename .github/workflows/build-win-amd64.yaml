@@ -3,7 +3,7 @@ name: Build rexglue-sdk win-amd64
 on:
   push:
     tags:
-      - "v*"
+      - "rexglue-sdk-v*"
 
 permissions:
   contents: write
