@@ -19,7 +19,7 @@ If you want to support the work, donations are welcome:
 Use this flow if you downloaded the Windows zip from
 [GitHub Releases](https://github.com/portingpete/skate3-recomp/releases/latest).
 
-1. Download `Skate3Recomp-Windows-v0.1.0-alpha.zip` from the latest Release.
+1. Download `Skate3Recomp-Windows-v0.1.1-alpha.zip` from the latest Release.
 2. Extract the zip somewhere easy to find.
 3. Open the folder named `Skate 3 Files`.
 4. Put your Skate 3 dump in that folder.

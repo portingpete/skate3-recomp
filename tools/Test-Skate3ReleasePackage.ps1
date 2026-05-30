@@ -57,6 +57,12 @@ Require-Contains $setupPs1 "Start-Skate3SetupGui"
 Require-Contains $setupPs1 "Invoke-Skate3Setup"
 Require-Contains $setupPs1 "default.xex_uncrypted.xex"
 Require-Contains $setupPs1 "Launch Skate 3 Recomp.cmd"
+Require-Contains $setupPs1 ".add_DoWork("
+Require-Contains $setupPs1 ".add_ProgressChanged("
+Require-Contains $setupPs1 ".add_RunWorkerCompleted("
+Require-NotContains $setupPs1 '$worker.DoWork +='
+Require-NotContains $setupPs1 '$worker.ProgressChanged +='
+Require-NotContains $setupPs1 '$worker.RunWorkerCompleted +='
 Require-Contains $readme "Setup Skate 3 Recomp.cmd"
 Require-Contains $readme "Skate 3 Files"
 Require-Contains $readme "default.xex_uncrypted.xex"

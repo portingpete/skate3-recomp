@@ -356,19 +356,22 @@ function Start-Skate3SetupGui {
 
   $worker = New-Object System.ComponentModel.BackgroundWorker
   $worker.WorkerReportsProgress = $true
-  $worker.DoWork += {
+
+  $worker.add_DoWork({
     param($sender, $eventArgs)
     $result = Invoke-Skate3Setup -StartGame:$false -StatusCallback {
       param($message)
       $sender.ReportProgress(0, $message)
     }
     $eventArgs.Result = $result
-  }
-  $worker.ProgressChanged += {
+  })
+
+  $worker.add_ProgressChanged({
     param($sender, $eventArgs)
     $statusBox.AppendText([Environment]::NewLine + [string]$eventArgs.UserState)
-  }
-  $worker.RunWorkerCompleted += {
+  })
+
+  $worker.add_RunWorkerCompleted({
     param($sender, $eventArgs)
     $progress.MarqueeAnimationSpeed = 0
     $setupButton.Enabled = $true
@@ -383,7 +386,7 @@ function Start-Skate3SetupGui {
     if ($launchAfter.Checked) {
       Start-Process -FilePath $paths.LauncherPath | Out-Null
     }
-  }
+  })
 
   $setupButton.Add_Click({
     $setupButton.Enabled = $false
