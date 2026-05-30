@@ -19,8 +19,7 @@ The setup button looks for:
 default.xex_uncrypted.xex is required unless default.xex is already decrypted.
 
 After setup, use "Launch Skate 3 Recomp.cmd" to play. The launcher shows the PC
-settings screen before the game starts, including 1440p, 4K, and ultrawide
-display choices.
+settings screen before the game starts.
 
 If setup fails, check that the files were not placed inside an extra nested
 folder and that default.xex_uncrypted.xex is present.

@@ -14,8 +14,7 @@ if /I "%~1"=="--dry-run" (
   echo Game data: "%GAME_ROOT%"
   echo User data: "%USER_ROOT%"
   echo Cache: "%CACHE_ROOT%"
-  echo Display default: 1920x1080 120Hz fullscreen
-  echo PC settings include: 1440p, 4K, and ultrawide modes
+  echo Display: 1920x1080 120Hz fullscreen
   echo Physics timing: target_16_7ms
   echo PC settings: shown before game start
   echo Controls: MnK enabled, Start=P
