@@ -2,7 +2,7 @@ param(
   [string]$AppDir = "",
   [string]$OutputDir = "",
   [string]$PackageRootName = "Skate3Recomp-Windows",
-  [string]$ZipName = "Skate3Recomp-Windows-v0.1.4-alpha.zip"
+  [string]$ZipName = "Skate3Recomp-Windows-v0.1.3-alpha.zip"
 )
 
 $ErrorActionPreference = "Stop"
