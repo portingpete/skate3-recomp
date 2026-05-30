@@ -1,0 +1,7 @@
+Put the Skate 3 game dump in this folder.
+
+The setup button looks for:
+- default.xex
+- default.xex_uncrypted.xex
+- data
+- nxeart

@@ -16,13 +16,15 @@ If you want to support the work, donations are welcome:
 
 ## Easy Setup
 
-Use this flow if you downloaded a packaged Skate 3 Recomp build.
+Use this flow if you downloaded the Windows zip from
+[GitHub Releases](https://github.com/portingpete/skate3-recomp/releases/latest).
 
-1. Extract the Skate 3 Recomp folder somewhere easy to find.
-2. Open the folder named `Skate 3 Files`.
-3. Put your Skate 3 dump in that folder.
-4. Double-click `Setup Skate 3 Recomp.cmd`.
-5. Press `Set Up Game`.
+1. Download `Skate3Recomp-Windows-v0.1.0-alpha.zip` from the latest Release.
+2. Extract the zip somewhere easy to find.
+3. Open the folder named `Skate 3 Files`.
+4. Put your Skate 3 dump in that folder.
+5. Double-click `Setup Skate 3 Recomp.cmd`.
+6. Press `Set Up Game`.
 
 Leave `Start game when ready` checked if you want the setup tool to launch the
 game automatically when it finishes.
