@@ -1,61 +1,118 @@
-> [!CAUTION]
-> This project is in early development. Expect things to not work quite right and there to be significant changes and breaking public API updates as development progresses. Contributions and feedback are welcome, but please be aware that the codebase is still evolving rapidly.
+# Skate 3 Recomp
 
-<h1 align="center">
-  <br>
-  <a href="https://github.com/rexglue/rexglue-sdk">
-    <img src="https://github.com/rexglue/rexglue-media/blob/main/ReX_Banner.png" alt="ReXGlue banner">
-  </a>
-  <br>
-  <br>
-  <a href="https://discord.gg/CNTxwSNZfT">
-    <img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord">
-  </a>
-  <a href="https://github.com/rexglue/rexglue-sdk/stargazers">
-    <img src="https://img.shields.io/github/stars/rexglue/rexglue-sdk" alt="rexglue-sdk stargazers">
-  </a>
-</h1>
+Skate 3 Recomp is an early Windows build that brings Skate 3 toward a native PC
+runtime with a simple setup flow, PC settings, keyboard/mouse support, diagnostics,
+and 1080p/60fps+ experimentation.
 
-ReXGlue converts Xbox 360 PowerPC code into portable C++ that runs natively on modern platforms.
+This is still work in progress. Expect bugs, missing polish, and occasional
+breakage while the project is being brought up.
 
-## Skate 3 Recomp
-
-Skate 3 Recomp is a custom build of ReXGlue focused on local Skate 3 bring-up,
-runtime diagnostics, and 1080p/120fps experimentation. It is not an official
-upstream ReXGlue release.
-
-This repository does not include Skate 3 game files, generated game output,
-decrypted executables, cache data, or captures. Users must provide their own
+This repository does not include Skate 3 game files, decrypted executables,
+generated game output, caches, saves, or captures. You must provide your own
 legally obtained Xbox 360 game dump.
 
-For Skate 3 Recomp setup notes, see [SKATE3_SETUP.md](SKATE3_SETUP.md).
+If you want to support the work, donations are welcome:
+[ko-fi.com/portingpete](https://ko-fi.com/portingpete)
+
+## Easy Setup
+
+Use this flow if you downloaded a packaged Skate 3 Recomp build.
+
+1. Extract the Skate 3 Recomp folder somewhere easy to find.
+2. Open the folder named `Skate 3 Files`.
+3. Put your Skate 3 dump in that folder.
+4. Double-click `Setup Skate 3 Recomp.cmd`.
+5. Press `Set Up Game`.
+
+Leave `Start game when ready` checked if you want the setup tool to launch the
+game automatically when it finishes.
+
+## What Goes In `Skate 3 Files`
+
+The setup tool looks for these files and folders:
+
+- `default.xex`
+- `default.xex_uncrypted.xex`
+- `data`
+- `nxeart`
+
+`default.xex_uncrypted.xex` is the decrypted game executable. If it is missing,
+setup will stop and ask you to add it.
+
+## What The Setup Button Does
+
+The setup tool keeps your original dump untouched. It copies the files into a
+working folder, prepares the runtime folder used by the launcher, creates the
+needed save/cache folders, and then starts the normal game launcher if the
+auto-start box is checked.
+
+After setup, use:
+
+```text
+Launch Skate 3 Recomp.cmd
+```
+
+That launcher opens the PC settings screen first, so you can choose resolution,
+fullscreen, FPS counter, and other options before the game starts.
+
+## If Setup Fails
+
+Check the `Skate 3 Files` folder first. Most setup problems are caused by one of
+these:
+
+- The files were placed inside an extra nested folder.
+- `data` is missing.
+- `default.xex_uncrypted.xex` is missing.
+- The dump is incomplete.
+
+For developer/source-build setup notes, see [SKATE3_SETUP.md](SKATE3_SETUP.md).
 For attribution covering Skate 3 Recomp and its dependencies, see
 [CREDITS.md](CREDITS.md).
 
-ReXGlue is heavily rooted on the foundations of [Xenia](https://github.com/xenia-project), the Xbox 360 emulator. Rather than interpreting or JIT-compiling PPC instructions at runtime, ReXGlue takes a different path: it generates C++ source code ahead of time, an approach inspired by [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) and [rexdex's recompiler](https://github.com/rexdex/recompiler).
+## Current Status
 
-Latest SDK builds and releases are published on [GitHub Releases](https://github.com/rexglue/rexglue-sdk/releases). Join the [Discord server](https://discord.gg/CNTxwSNZfT) for updates and share what you have created.
+- The normal launcher shows PC settings before the game starts.
+- The game has an optional readable FPS counter.
+- The setup GUI prepares the working/runtime folders automatically.
+- Gameplay bring-up is still under active investigation, including known physics
+  and collision issues.
 
-## Builds
+## Disclaimer
 
-| Channel | CI | Download |
-| --- | --- | --- |
-| Release | [![win-amd64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-win-amd64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-win-amd64.yaml) [![linux-amd64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-amd64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-amd64.yaml) [![linux-arm64](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-aarch64.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/build-linux-aarch64.yaml) | [Latest stable](https://github.com/rexglue/rexglue-sdk/releases/latest) |
-| Nightly | [![nightly](https://github.com/rexglue/rexglue-sdk/actions/workflows/nightly.yaml/badge.svg)](https://github.com/rexglue/rexglue-sdk/actions/workflows/nightly.yaml) | [Latest pre-release](https://github.com/rexglue/rexglue-sdk/releases?q=prerelease%3Atrue) |
+Skate 3 Recomp is not affiliated with nor endorsed by Electronic Arts, Microsoft,
+Xbox, or the upstream ReXGlue project. All trademarks and copyrights belong to
+their respective owners.
 
-## Quickstart
+This project is not intended to promote piracy or unauthorized use of copyrighted
+material. Do not ask this project for game files.
 
-For quick start guide, full CLI reference, and config file options, see the [wiki](https://github.com/rexglue/rexglue-sdk/wiki).
+## About ReXGlue
 
-# **Disclaimer**
-ReXGlue is not affiliated with nor endorsed by Microsoft or Xbox. It is an independent project created for educational and development purposes. All trademarks and copyrights belong to their respective owners. 
+<p align="center">
+  <a href="https://github.com/rexglue/rexglue-sdk">
+    <img src="https://github.com/rexglue/rexglue-media/blob/main/ReX_Banner.png" alt="ReXGlue banner">
+  </a>
+</p>
 
-This project is not intended to promote piracy nor unauthorized use of copyrighted material. Any misuse of this software to endorse or enable this type of activity is strictly prohibited.
+Skate 3 Recomp is built from a custom ReXGlue branch. It is not an official
+upstream ReXGlue release.
 
+ReXGlue converts Xbox 360 PowerPC code into portable C++ that runs natively on
+modern platforms. It is heavily rooted in the foundations of
+[Xenia](https://github.com/xenia-project), and its ahead-of-time C++ generation
+approach is inspired by [XenonRecomp](https://github.com/hedge-dev/XenonRecomp)
+and [rexdex's recompiler](https://github.com/rexdex/recompiler).
 
-# Credits
+Upstream ReXGlue links:
 
-## ReXGlue
+- [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)
+- [ReXGlue releases](https://github.com/rexglue/rexglue-sdk/releases)
+- [ReXGlue Discord](https://discord.gg/CNTxwSNZfT)
+
+## Credits
+
+### ReXGlue
+
 - [Tom (crack)](https://github.com/tomcl7) - Project Founder
 - [Loreaxe](https://github.com/Loreaxe) - Linux Contributor
 - [mystixor](https://github.com/Mystixor) - Windows Contributor
@@ -65,10 +122,16 @@ This project is not intended to promote piracy nor unauthorized use of copyright
 - [Toby](https://github.com/TbyDtch) - Project Support
 - [Roxxsen](https://github.com/Roxxsen) - CI/CD Contributor
 
-The list above is not exhaustive. Thanks to everyone in the ReXGlue community who contributes code, files issues, tests builds, and keeps the project moving.
+The list above is not exhaustive. Thanks to everyone in the ReXGlue community who
+contributes code, reports issues, tests builds, and keeps the project moving.
 
-## Very Special Thank You:
-- [Project Xenia](https://github.com/xenia-project/xenia/tree/master/src/xenia) - Their invaluable work on Xbox 360 emulation laid the groundwork for ReXGlue's development. This project (and numerous others) would not exist without their hard work and dedication.
-- [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) - For pioneering the modern static recompilation approach for Xbox 360. A lot of the codegen analysis logic and instruction translations are based on their work. Thank you!
-- [rexdex's recompiler](https://github.com/rexdex/recompiler) - The OG static recompiler for Xbox 360. 
-- Many others in the Xbox 360 homebrew and modding communities whose work and research have contributed to the collective knowledge that makes projects like this possible.
+### Special Thanks
+
+- [Project Xenia](https://github.com/xenia-project/xenia/tree/master/src/xenia) -
+  their Xbox 360 emulation work laid the groundwork for ReXGlue.
+- [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) - for pioneering the
+  modern static recompilation approach for Xbox 360.
+- [rexdex's recompiler](https://github.com/rexdex/recompiler) - the original
+  static recompiler for Xbox 360.
+- The Xbox 360 homebrew and modding communities whose research makes projects
+  like this possible.
