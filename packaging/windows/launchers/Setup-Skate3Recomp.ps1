@@ -282,6 +282,54 @@ function Invoke-SetupSelfTest {
   }
 }
 
+function Quote-ProcessArgument([string]$Argument) {
+  '"' + $Argument.Replace('"', '\"') + '"'
+}
+
+function Read-SharedTextFile([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return ""
+  }
+
+  $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+  try {
+    $reader = New-Object System.IO.StreamReader($stream)
+    try {
+      return $reader.ReadToEnd()
+    } finally {
+      $reader.Dispose()
+    }
+  } finally {
+    $stream.Dispose()
+  }
+}
+
+function Start-Skate3SetupChildProcess([string]$OutputPath, [string]$ErrorPath) {
+  $scriptPath = $PSCommandPath.Replace("'", "''")
+  $outputFile = $OutputPath.Replace("'", "''")
+  $errorFile = $ErrorPath.Replace("'", "''")
+  $command = "& '$scriptPath' -SetupOnly"
+  if (-not [string]::IsNullOrWhiteSpace($SourceRoot)) {
+    $source = $SourceRoot.Replace("'", "''")
+    $command += " -SourceRoot '$source'"
+  }
+  $command += " > '$outputFile' 2> '$errorFile'"
+
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = "powershell.exe"
+  $startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command " + (Quote-ProcessArgument $command)
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) {
+    throw "Could not start setup process."
+  }
+  return $process
+}
+
 function Start-Skate3SetupGui {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
@@ -354,34 +402,57 @@ function Start-Skate3SetupGui {
   $statusBox.Text = "Ready. Folder created if it was missing."
   $form.Controls.Add($statusBox)
 
-  $worker = New-Object System.ComponentModel.BackgroundWorker
-  $worker.WorkerReportsProgress = $true
+  $setupState = [pscustomobject]@{
+    Process = $null
+    OutputPath = ""
+    ErrorPath = ""
+    LastStatusText = ""
+  }
 
-  $worker.add_DoWork({
-    param($sender, $eventArgs)
-    $result = Invoke-Skate3Setup -StartGame:$false -StatusCallback {
-      param($message)
-      $sender.ReportProgress(0, $message)
+  $timer = New-Object System.Windows.Forms.Timer
+  $timer.Interval = 400
+  $timer.add_Tick({
+    if (-not [string]::IsNullOrWhiteSpace($setupState.OutputPath)) {
+      $outputText = Read-SharedTextFile $setupState.OutputPath
+      $errorText = Read-SharedTextFile $setupState.ErrorPath
+      $displayText = $outputText
+      if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+        $displayText = ($displayText.TrimEnd() + [Environment]::NewLine + $errorText).Trim()
+      }
+      if (-not [string]::IsNullOrWhiteSpace($displayText) -and $displayText -ne $setupState.LastStatusText) {
+        $statusBox.Text = $displayText
+        $statusBox.SelectionStart = $statusBox.TextLength
+        $statusBox.ScrollToCaret()
+        $setupState.LastStatusText = $displayText
+      }
     }
-    $eventArgs.Result = $result
-  })
 
-  $worker.add_ProgressChanged({
-    param($sender, $eventArgs)
-    $statusBox.AppendText([Environment]::NewLine + [string]$eventArgs.UserState)
-  })
+    if ($null -eq $setupState.Process -or -not $setupState.Process.HasExited) {
+      return
+    }
 
-  $worker.add_RunWorkerCompleted({
-    param($sender, $eventArgs)
+    $exitCode = $setupState.Process.ExitCode
+    $setupState.Process.Dispose()
+    $setupState.Process = $null
+    $timer.Stop()
     $progress.MarqueeAnimationSpeed = 0
     $setupButton.Enabled = $true
     $openFolder.Enabled = $true
     $launchAfter.Enabled = $true
-    if ($eventArgs.Error) {
-      $statusBox.AppendText([Environment]::NewLine + "Setup failed: " + $eventArgs.Error.Message)
-      [System.Windows.Forms.MessageBox]::Show($form, $eventArgs.Error.Message, "Setup failed", "OK", "Error") | Out-Null
+
+    if ($exitCode -ne 0) {
+      $message = (Read-SharedTextFile $setupState.ErrorPath).Trim()
+      if ([string]::IsNullOrWhiteSpace($message)) {
+        $message = (Read-SharedTextFile $setupState.OutputPath).Trim()
+      }
+      if ([string]::IsNullOrWhiteSpace($message)) {
+        $message = "Setup exited with code $exitCode."
+      }
+      $statusBox.AppendText([Environment]::NewLine + "Setup failed: " + $message)
+      [System.Windows.Forms.MessageBox]::Show($form, $message, "Setup failed", "OK", "Error") | Out-Null
       return
     }
+
     $statusBox.AppendText([Environment]::NewLine + "Done.")
     if ($launchAfter.Checked) {
       Start-Process -FilePath $paths.LauncherPath | Out-Null
@@ -389,12 +460,36 @@ function Start-Skate3SetupGui {
   })
 
   $setupButton.Add_Click({
+    if ($null -ne $setupState.Process -and -not $setupState.Process.HasExited) {
+      return
+    }
     $setupButton.Enabled = $false
     $openFolder.Enabled = $false
     $launchAfter.Enabled = $false
     $progress.MarqueeAnimationSpeed = 30
     $statusBox.Text = "Starting setup..."
-    $worker.RunWorkerAsync()
+    $setupState.LastStatusText = ""
+    $setupState.OutputPath = Join-Path ([System.IO.Path]::GetTempPath()) ("skate3-setup-gui-" + [guid]::NewGuid().ToString("N") + ".out.log")
+    $setupState.ErrorPath = Join-Path ([System.IO.Path]::GetTempPath()) ("skate3-setup-gui-" + [guid]::NewGuid().ToString("N") + ".err.log")
+    try {
+      $setupState.Process = Start-Skate3SetupChildProcess $setupState.OutputPath $setupState.ErrorPath
+      $timer.Start()
+    } catch {
+      $progress.MarqueeAnimationSpeed = 0
+      $setupButton.Enabled = $true
+      $openFolder.Enabled = $true
+      $launchAfter.Enabled = $true
+      $statusBox.AppendText([Environment]::NewLine + "Setup failed: " + $_.Exception.Message)
+      [System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, "Setup failed", "OK", "Error") | Out-Null
+    }
+  })
+
+  $form.add_FormClosing({
+    if ($null -ne $setupState.Process -and -not $setupState.Process.HasExited) {
+      $setupState.Process.Kill()
+      $setupState.Process.Dispose()
+      $setupState.Process = $null
+    }
   })
 
   [void]$form.ShowDialog()
@@ -406,7 +501,10 @@ if ($SelfTest) {
 }
 
 if ($SetupOnly) {
-  Invoke-Skate3Setup -SourceRoot $SourceRoot -StartGame:$false | Format-List
+  Invoke-Skate3Setup -SourceRoot $SourceRoot -StartGame:$false -StatusCallback {
+    param($message)
+    Write-Output $message
+  } | Format-List
   exit 0
 }
 
