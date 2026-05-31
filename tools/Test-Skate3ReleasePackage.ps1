@@ -73,6 +73,8 @@ Require-NotContains $setupPs1 '$worker.RunWorkerCompleted +='
 Require-Contains $readme "Setup Skate 3 Recomp.cmd"
 Require-Contains $readme "Skate 3 Files"
 Require-Contains $readme "default.xex_uncrypted.xex"
+Require-Contains $readme "xextool -e d -c b -o default.xex_uncrypted.xex default.xex"
+Require-Contains $dropNote "xextool -e d -c b -o default.xex_uncrypted.xex default.xex"
 Require-Contains $packager "Compress-Archive"
 Require-Contains $packager "Assert-NoGameFiles"
 

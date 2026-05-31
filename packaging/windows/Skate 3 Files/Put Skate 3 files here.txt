@@ -5,3 +5,10 @@ The setup button looks for:
 - default.xex_uncrypted.xex
 - data
 - nxeart
+
+To create default.xex_uncrypted.xex with XexTool, use your own legally obtained
+Skate 3 dump and run this in the folder with default.xex:
+
+xextool -e d -c b -o default.xex_uncrypted.xex default.xex
+
+Keep the original default.xex. The setup tool needs both files.

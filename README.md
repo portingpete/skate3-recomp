@@ -19,7 +19,7 @@ If you want to support the work, donations are welcome:
 Use this flow if you downloaded the Windows zip from
 [GitHub Releases](https://github.com/portingpete/skate3-recomp/releases/latest).
 
-1. Download `Skate3Recomp-Windows-v0.1.1-alpha.zip` from the latest Release.
+1. Download `Skate3Recomp-Windows-v0.1.3-alpha.zip` from the latest Release.
 2. Extract the zip somewhere easy to find.
 3. Open the folder named `Skate 3 Files`.
 4. Put your Skate 3 dump in that folder.
@@ -40,6 +40,18 @@ The setup tool looks for these files and folders:
 
 `default.xex_uncrypted.xex` is the decrypted game executable. If it is missing,
 setup will stop and ask you to add it.
+
+### Decrypting `default.xex` With XexTool
+
+Use this only with your own legally obtained Skate 3 dump. Keep the original
+`default.xex` in place and create a separate decrypted copy:
+
+```text
+xextool -e d -c b -o default.xex_uncrypted.xex default.xex
+```
+
+After running the command, `Skate 3 Files` should contain both `default.xex` and
+`default.xex_uncrypted.xex`, plus the `data` folder.
 
 ## What The Setup Button Does
 
