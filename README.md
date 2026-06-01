@@ -11,9 +11,6 @@ This repository does not include Skate 3 game files, decrypted executables,
 generated game output, caches, saves, or captures. You must provide your own
 legally obtained Xbox 360 game dump.
 
-If you want to support the work, donations are welcome:
-[ko-fi.com/portingpete](https://ko-fi.com/portingpete)
-
 ## Easy Setup
 
 Use this flow if you downloaded the Windows zip from
