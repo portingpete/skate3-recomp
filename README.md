@@ -84,6 +84,10 @@ For attribution covering Skate 3 Recomp and its dependencies, see
 
 - The normal launcher shows PC settings before the game starts.
 - The game has an optional readable FPS counter.
+- Experimental ultrawide Hor+ support is available for testing. Gameplay uses a
+  wider projection while startup, menus, and videos use a separate non-stretched
+  presentation path. Treat this as experimental.
+- The windowed-mode startup crash/launch stall is fixed in current builds.
 - The setup GUI prepares the working/runtime folders automatically.
 - Gameplay bring-up is still under active investigation, including known physics
   and collision issues.

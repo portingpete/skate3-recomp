@@ -61,6 +61,95 @@ using rex::ui::VirtualKey;
 namespace {
 
 constexpr uint16_t kNoHostKey = static_cast<uint16_t>(VirtualKey::kNone);
+constexpr uint16_t kNoPadKey = 0;
+
+const std::string& KeybindA() {
+  return REXCVAR_GET(keybind_a);
+}
+
+const std::string& KeybindB() {
+  return REXCVAR_GET(keybind_b);
+}
+
+const std::string& KeybindX() {
+  return REXCVAR_GET(keybind_x);
+}
+
+const std::string& KeybindY() {
+  return REXCVAR_GET(keybind_y);
+}
+
+const std::string& KeybindLeftTrigger() {
+  return REXCVAR_GET(keybind_left_trigger);
+}
+
+const std::string& KeybindRightTrigger() {
+  return REXCVAR_GET(keybind_right_trigger);
+}
+
+const std::string& KeybindLeftShoulder() {
+  return REXCVAR_GET(keybind_left_shoulder);
+}
+
+const std::string& KeybindRightShoulder() {
+  return REXCVAR_GET(keybind_right_shoulder);
+}
+
+const std::string& KeybindLeftStickUp() {
+  return REXCVAR_GET(keybind_lstick_up);
+}
+
+const std::string& KeybindLeftStickDown() {
+  return REXCVAR_GET(keybind_lstick_down);
+}
+
+const std::string& KeybindLeftStickLeft() {
+  return REXCVAR_GET(keybind_lstick_left);
+}
+
+const std::string& KeybindLeftStickRight() {
+  return REXCVAR_GET(keybind_lstick_right);
+}
+
+const std::string& KeybindLeftStickPress() {
+  return REXCVAR_GET(keybind_lstick_press);
+}
+
+const std::string& KeybindRightStickPress() {
+  return REXCVAR_GET(keybind_rstick_press);
+}
+
+const std::string& KeybindDpadUp() {
+  return REXCVAR_GET(keybind_dpad_up);
+}
+
+const std::string& KeybindDpadDown() {
+  return REXCVAR_GET(keybind_dpad_down);
+}
+
+const std::string& KeybindDpadLeft() {
+  return REXCVAR_GET(keybind_dpad_left);
+}
+
+const std::string& KeybindDpadRight() {
+  return REXCVAR_GET(keybind_dpad_right);
+}
+
+const std::string& KeybindBack() {
+  return REXCVAR_GET(keybind_back);
+}
+
+const std::string& KeybindStart() {
+  return REXCVAR_GET(keybind_start);
+}
+
+const std::string& KeybindGuide() {
+  return REXCVAR_GET(keybind_guide);
+}
+
+constexpr uint16_t PadKey(VirtualKey key) {
+  return static_cast<uint16_t>(key);
+}
 
 uint16_t ParseHostBinding(const std::string& cvar_val) {
   VirtualKey vk = rex::ui::ParseVirtualKey(cvar_val);
@@ -95,6 +184,7 @@ MnkInputDriver::~MnkInputDriver() {
     window = attached_window_;
     release_mouse = mouse_captured_;
     mouse_captured_ = false;
+    mouse_position_initialized_ = false;
     attached_window_ = nullptr;
   }
 
@@ -132,6 +222,7 @@ void MnkInputDriver::OnClosing(rex::ui::UIEvent&) {
     window = attached_window_;
     release_mouse = mouse_captured_;
     mouse_captured_ = false;
+    mouse_position_initialized_ = false;
     attached_window_ = nullptr;
   }
 
@@ -153,60 +244,55 @@ bool MnkInputDriver::IsEnabled() const {
   return REXCVAR_GET(mnk_mode);
 }
 
-const std::string& MnkInputDriver::BindingCvarValue(Binding binding) const {
-  switch (binding) {
-    case Binding::kA:
-      return REXCVAR_GET(keybind_a);
-    case Binding::kB:
-      return REXCVAR_GET(keybind_b);
-    case Binding::kX:
-      return REXCVAR_GET(keybind_x);
-    case Binding::kY:
-      return REXCVAR_GET(keybind_y);
-    case Binding::kLeftTrigger:
-      return REXCVAR_GET(keybind_left_trigger);
-    case Binding::kRightTrigger:
-      return REXCVAR_GET(keybind_right_trigger);
-    case Binding::kLeftShoulder:
-      return REXCVAR_GET(keybind_left_shoulder);
-    case Binding::kRightShoulder:
-      return REXCVAR_GET(keybind_right_shoulder);
-    case Binding::kLeftStickUp:
-      return REXCVAR_GET(keybind_lstick_up);
-    case Binding::kLeftStickDown:
-      return REXCVAR_GET(keybind_lstick_down);
-    case Binding::kLeftStickLeft:
-      return REXCVAR_GET(keybind_lstick_left);
-    case Binding::kLeftStickRight:
-      return REXCVAR_GET(keybind_lstick_right);
-    case Binding::kLeftStickPress:
-      return REXCVAR_GET(keybind_lstick_press);
-    case Binding::kRightStickPress:
-      return REXCVAR_GET(keybind_rstick_press);
-    case Binding::kDpadUp:
-      return REXCVAR_GET(keybind_dpad_up);
-    case Binding::kDpadDown:
-      return REXCVAR_GET(keybind_dpad_down);
-    case Binding::kDpadLeft:
-      return REXCVAR_GET(keybind_dpad_left);
-    case Binding::kDpadRight:
-      return REXCVAR_GET(keybind_dpad_right);
-    case Binding::kBack:
-      return REXCVAR_GET(keybind_back);
-    case Binding::kStart:
-      return REXCVAR_GET(keybind_start);
-    case Binding::kGuide:
-    case Binding::kCount:
-      return REXCVAR_GET(keybind_guide);
-  }
-  return REXCVAR_GET(keybind_guide);
+auto MnkInputDriver::BindingMetadataTable()
+    -> const std::array<BindingMetadata, kBindingCount>& {
+  static const std::array<BindingMetadata, kBindingCount> kBindings = {{
+      {KeybindA, X_INPUT_GAMEPAD_A, PadKey(VirtualKey::kXInputPadA), AnalogTarget::kNone, 0},
+      {KeybindB, X_INPUT_GAMEPAD_B, PadKey(VirtualKey::kXInputPadB), AnalogTarget::kNone, 0},
+      {KeybindX, X_INPUT_GAMEPAD_X, PadKey(VirtualKey::kXInputPadX), AnalogTarget::kNone, 0},
+      {KeybindY, X_INPUT_GAMEPAD_Y, PadKey(VirtualKey::kXInputPadY), AnalogTarget::kNone, 0},
+      {KeybindLeftTrigger, 0, PadKey(VirtualKey::kXInputPadLTrigger),
+       AnalogTarget::kLeftTrigger, 0xFF},
+      {KeybindRightTrigger, 0, PadKey(VirtualKey::kXInputPadRTrigger),
+       AnalogTarget::kRightTrigger, 0xFF},
+      {KeybindLeftShoulder, X_INPUT_GAMEPAD_LEFT_SHOULDER,
+       PadKey(VirtualKey::kXInputPadLShoulder), AnalogTarget::kNone, 0},
+      {KeybindRightShoulder, X_INPUT_GAMEPAD_RIGHT_SHOULDER,
+       PadKey(VirtualKey::kXInputPadRShoulder), AnalogTarget::kNone, 0},
+      {KeybindLeftStickUp, 0, PadKey(VirtualKey::kXInputPadLThumbUp),
+       AnalogTarget::kLeftStickY, INT16_MAX},
+      {KeybindLeftStickDown, 0, PadKey(VirtualKey::kXInputPadLThumbDown),
+       AnalogTarget::kLeftStickY, -INT16_MAX},
+      {KeybindLeftStickLeft, 0, PadKey(VirtualKey::kXInputPadLThumbLeft),
+       AnalogTarget::kLeftStickX, -INT16_MAX},
+      {KeybindLeftStickRight, 0, PadKey(VirtualKey::kXInputPadLThumbRight),
+       AnalogTarget::kLeftStickX, INT16_MAX},
+      {KeybindLeftStickPress, X_INPUT_GAMEPAD_LEFT_THUMB,
+       PadKey(VirtualKey::kXInputPadLThumbPress), AnalogTarget::kNone, 0},
+      {KeybindRightStickPress, X_INPUT_GAMEPAD_RIGHT_THUMB,
+       PadKey(VirtualKey::kXInputPadRThumbPress), AnalogTarget::kNone, 0},
+      {KeybindDpadUp, X_INPUT_GAMEPAD_DPAD_UP, PadKey(VirtualKey::kXInputPadDpadUp),
+       AnalogTarget::kNone, 0},
+      {KeybindDpadDown, X_INPUT_GAMEPAD_DPAD_DOWN, PadKey(VirtualKey::kXInputPadDpadDown),
+       AnalogTarget::kNone, 0},
+      {KeybindDpadLeft, X_INPUT_GAMEPAD_DPAD_LEFT, PadKey(VirtualKey::kXInputPadDpadLeft),
+       AnalogTarget::kNone, 0},
+      {KeybindDpadRight, X_INPUT_GAMEPAD_DPAD_RIGHT,
+       PadKey(VirtualKey::kXInputPadDpadRight), AnalogTarget::kNone, 0},
+      {KeybindBack, X_INPUT_GAMEPAD_BACK, PadKey(VirtualKey::kXInputPadBack),
+       AnalogTarget::kNone, 0},
+      {KeybindStart, X_INPUT_GAMEPAD_START, PadKey(VirtualKey::kXInputPadStart),
+       AnalogTarget::kNone, 0},
+      {KeybindGuide, X_INPUT_GAMEPAD_GUIDE, kNoPadKey, AnalogTarget::kNone, 0},
+  }};
+  return kBindings;
 }
 
 void MnkInputDriver::RefreshBindingsLocked() {
   bool bindings_changed = !bindings_initialized_;
+  const auto& bindings = BindingMetadataTable();
   for (size_t i = 0; i < kBindingCount; ++i) {
-    Binding binding = static_cast<Binding>(i);
-    const std::string& cvar_value = BindingCvarValue(binding);
+    const std::string& cvar_value = bindings[i].cvar_value();
     if (!bindings_initialized_ || binding_values_[i] != cvar_value) {
       binding_values_[i] = cvar_value;
       binding_keys_[i] = ParseHostBinding(cvar_value);
@@ -221,9 +307,12 @@ void MnkInputDriver::RefreshBindingsLocked() {
 
 void MnkInputDriver::RebuildKeystrokeLookupLocked() {
   keystroke_masks_by_host_key_.fill(0);
-  for (size_t i = 0; i < kKeystrokeBindings.size(); ++i) {
-    const auto& entry = kKeystrokeBindings[i];
-    const uint16_t host_key = binding_keys_[static_cast<size_t>(entry.binding)];
+  const auto& bindings = BindingMetadataTable();
+  for (size_t i = 0; i < bindings.size(); ++i) {
+    if (bindings[i].pad_key == kNoPadKey) {
+      continue;
+    }
+    const uint16_t host_key = binding_keys_[i];
     if (host_key != kNoHostKey && host_key < keystroke_masks_by_host_key_.size()) {
       keystroke_masks_by_host_key_[host_key] |= uint32_t{1} << i;
     }
@@ -279,43 +368,34 @@ X_RESULT MnkInputDriver::GetState(uint32_t user_index, X_INPUT_STATE* out_state)
   RefreshBindingsLocked();
 
   uint16_t buttons = 0;
-  auto add_button_if_pressed = [&](Binding binding, uint16_t mask) {
-    if (IsBindingPressed(binding)) {
-      buttons |= mask;
-    }
-  };
-  add_button_if_pressed(Binding::kA, X_INPUT_GAMEPAD_A);
-  add_button_if_pressed(Binding::kB, X_INPUT_GAMEPAD_B);
-  add_button_if_pressed(Binding::kX, X_INPUT_GAMEPAD_X);
-  add_button_if_pressed(Binding::kY, X_INPUT_GAMEPAD_Y);
-  add_button_if_pressed(Binding::kLeftShoulder, X_INPUT_GAMEPAD_LEFT_SHOULDER);
-  add_button_if_pressed(Binding::kRightShoulder, X_INPUT_GAMEPAD_RIGHT_SHOULDER);
-  add_button_if_pressed(Binding::kLeftStickPress, X_INPUT_GAMEPAD_LEFT_THUMB);
-  add_button_if_pressed(Binding::kRightStickPress, X_INPUT_GAMEPAD_RIGHT_THUMB);
-  add_button_if_pressed(Binding::kBack, X_INPUT_GAMEPAD_BACK);
-  add_button_if_pressed(Binding::kStart, X_INPUT_GAMEPAD_START);
-  add_button_if_pressed(Binding::kGuide, X_INPUT_GAMEPAD_GUIDE);
-  add_button_if_pressed(Binding::kDpadUp, X_INPUT_GAMEPAD_DPAD_UP);
-  add_button_if_pressed(Binding::kDpadDown, X_INPUT_GAMEPAD_DPAD_DOWN);
-  add_button_if_pressed(Binding::kDpadLeft, X_INPUT_GAMEPAD_DPAD_LEFT);
-  add_button_if_pressed(Binding::kDpadRight, X_INPUT_GAMEPAD_DPAD_RIGHT);
-
-  uint8_t lt = IsBindingPressed(Binding::kLeftTrigger) ? 0xFF : 0;
-  uint8_t rt = IsBindingPressed(Binding::kRightTrigger) ? 0xFF : 0;
-
+  uint8_t lt = 0;
+  uint8_t rt = 0;
   int32_t lx = 0;
   int32_t ly = 0;
-  if (IsBindingPressed(Binding::kLeftStickLeft)) {
-    lx -= INT16_MAX;
-  }
-  if (IsBindingPressed(Binding::kLeftStickRight)) {
-    lx += INT16_MAX;
-  }
-  if (IsBindingPressed(Binding::kLeftStickUp)) {
-    ly += INT16_MAX;
-  }
-  if (IsBindingPressed(Binding::kLeftStickDown)) {
-    ly -= INT16_MAX;
+  const auto& bindings = BindingMetadataTable();
+  for (size_t i = 0; i < bindings.size(); ++i) {
+    if (!IsBindingPressed(static_cast<Binding>(i))) {
+      continue;
+    }
+
+    const auto& binding = bindings[i];
+    buttons |= binding.button_mask;
+    switch (binding.analog_target) {
+      case AnalogTarget::kLeftTrigger:
+        lt = std::max(lt, static_cast<uint8_t>(binding.analog_value));
+        break;
+      case AnalogTarget::kRightTrigger:
+        rt = std::max(rt, static_cast<uint8_t>(binding.analog_value));
+        break;
+      case AnalogTarget::kLeftStickX:
+        lx += binding.analog_value;
+        break;
+      case AnalogTarget::kLeftStickY:
+        ly += binding.analog_value;
+        break;
+      case AnalogTarget::kNone:
+        break;
+    }
   }
 
   double sensitivity = REXCVAR_GET(mnk_sensitivity);
@@ -408,17 +488,19 @@ void MnkInputDriver::UpdateMouseCapture(bool active) {
       return;
     }
 
-    const bool should_capture = has_focus_ && active;
+    const bool should_capture = has_focus_ && active && window->IsFullscreen();
     if (should_capture && !mouse_captured_) {
       mouse_captured_ = true;
       hide_cursor = true;
       capture_mouse = true;
       mouse_dx_ = 0;
       mouse_dy_ = 0;
+      mouse_position_initialized_ = false;
     } else if (!should_capture && mouse_captured_) {
       mouse_captured_ = false;
       show_cursor = true;
       release_mouse = true;
+      mouse_position_initialized_ = false;
     }
     center_cursor = mouse_captured_;
   }
@@ -446,6 +528,7 @@ void MnkInputDriver::UpdateMouseCapture(bool active) {
       }
       prev_mouse_x_ = center_x;
       prev_mouse_y_ = center_y;
+      mouse_position_initialized_ = true;
     }
     CenterCursor(window, center_x, center_y);
   }
@@ -467,10 +550,11 @@ void MnkInputDriver::EnqueueBoundKeystrokes(uint16_t vk, bool down) {
   }
 
   uint32_t mask = keystroke_masks_by_host_key_[vk];
-  for (size_t i = 0; mask && i < kKeystrokeBindings.size(); ++i) {
+  const auto& bindings = BindingMetadataTable();
+  for (size_t i = 0; mask && i < bindings.size(); ++i) {
     const uint32_t bit = uint32_t{1} << i;
     if ((mask & bit) != 0) {
-      EnqueueKeystroke(kKeystrokeBindings[i].pad_key, down);
+      EnqueueKeystroke(bindings[i].pad_key, down);
       mask &= ~bit;
     }
   }
@@ -540,6 +624,12 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
   }
   int32_t x = e.x();
   int32_t y = e.y();
+  if (!mouse_position_initialized_) {
+    prev_mouse_x_ = x;
+    prev_mouse_y_ = y;
+    mouse_position_initialized_ = true;
+    return;
+  }
   mouse_dx_ += x - prev_mouse_x_;
   mouse_dy_ += y - prev_mouse_y_;
   prev_mouse_x_ = x;
@@ -556,6 +646,7 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
     keystroke_queue_ = {};
     mouse_dx_ = 0;
     mouse_dy_ = 0;
+    mouse_position_initialized_ = false;
     window = attached_window_;
     release_mouse = mouse_captured_ && window;
     mouse_captured_ = false;

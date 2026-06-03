@@ -31,5 +31,11 @@ default.xex_uncrypted.xex, plus the data folder.
 After setup, use "Launch Skate 3 Recomp.cmd" to play. The launcher shows the PC
 settings screen before the game starts.
 
+Current build notes:
+
+- Experimental ultrawide Hor+ support is available for testing. It is still
+  experimental.
+- The windowed-mode startup crash/launch stall is fixed in current builds.
+
 If setup fails, check that the files were not placed inside an extra nested
 folder and that default.xex_uncrypted.xex is present.

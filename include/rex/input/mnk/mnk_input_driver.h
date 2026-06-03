@@ -11,7 +11,6 @@
 #pragma once
 
 #include <rex/input/input_driver.h>
-#include <rex/ui/virtual_key.h>
 #include <rex/ui/window_listener.h>
 
 #include <array>
@@ -80,49 +79,26 @@ class MnkInputDriver final : public InputDriver,
   };
   static constexpr size_t kBindingCount = static_cast<size_t>(Binding::kCount);
 
-  struct KeystrokeBinding {
-    Binding binding;
-    uint16_t pad_key;
+  enum class AnalogTarget : uint8_t {
+    kNone,
+    kLeftTrigger,
+    kRightTrigger,
+    kLeftStickX,
+    kLeftStickY,
   };
 
-  static constexpr std::array<KeystrokeBinding, 20> kKeystrokeBindings = {{
-      {Binding::kA, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadA)},
-      {Binding::kB, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadB)},
-      {Binding::kX, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadX)},
-      {Binding::kY, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadY)},
-      {Binding::kLeftTrigger,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLTrigger)},
-      {Binding::kRightTrigger,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRTrigger)},
-      {Binding::kLeftShoulder,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLShoulder)},
-      {Binding::kRightShoulder,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRShoulder)},
-      {Binding::kLeftStickPress,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbPress)},
-      {Binding::kRightStickPress,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadRThumbPress)},
-      {Binding::kDpadUp, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadUp)},
-      {Binding::kDpadDown, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadDown)},
-      {Binding::kDpadLeft, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadLeft)},
-      {Binding::kDpadRight,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadDpadRight)},
-      {Binding::kBack, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadBack)},
-      {Binding::kStart, static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadStart)},
-      {Binding::kLeftStickUp,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbUp)},
-      {Binding::kLeftStickDown,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbDown)},
-      {Binding::kLeftStickLeft,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbLeft)},
-      {Binding::kLeftStickRight,
-       static_cast<uint16_t>(rex::ui::VirtualKey::kXInputPadLThumbRight)},
-  }};
-  static_assert(kKeystrokeBindings.size() <= 32);
+  struct BindingMetadata {
+    const std::string& (*cvar_value)();
+    uint16_t button_mask;
+    uint16_t pad_key;
+    AnalogTarget analog_target;
+    int32_t analog_value;
+  };
+
+  static const std::array<BindingMetadata, kBindingCount>& BindingMetadataTable();
 
   uint32_t UserIndex() const;
   bool IsEnabled() const;
-  const std::string& BindingCvarValue(Binding binding) const;
   void RefreshBindingsLocked();
   void RebuildKeystrokeLookupLocked();
   bool IsBindingPressed(Binding binding) const;
@@ -146,6 +122,7 @@ class MnkInputDriver final : public InputDriver,
   int32_t mouse_dy_ = 0;
   int32_t prev_mouse_x_ = 0;
   int32_t prev_mouse_y_ = 0;
+  bool mouse_position_initialized_ = false;
   bool mouse_captured_ = false;
   bool has_focus_ = true;
 

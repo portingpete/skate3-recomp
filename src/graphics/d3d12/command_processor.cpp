@@ -2011,6 +2011,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
   kernel::xboxkrnl::VdQueryVideoMode(&video_mode);
   uint32_t display_width = std::max(uint32_t(1), uint32_t(video_mode.display_width));
   uint32_t display_height = std::max(uint32_t(1), uint32_t(video_mode.display_height));
+  const int32_t present_display_aspect_width =
+      rex::cvar::Query<int32_t>("present_display_aspect_width");
+  const int32_t present_display_aspect_height =
+      rex::cvar::Query<int32_t>("present_display_aspect_height");
+  if (present_display_aspect_width > 0 && present_display_aspect_height > 0) {
+    display_width = uint32_t(present_display_aspect_width);
+    display_height = uint32_t(present_display_aspect_height);
+  }
 
   presenter->RefreshGuestOutput(
       guest_output_width, guest_output_height, display_width, display_height,

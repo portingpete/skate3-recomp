@@ -151,6 +151,18 @@ button injection in this local desktop session. Useful bindings were:
 - `E`: Y.
 - `W`: left stick up.
 
+## Experimental Ultrawide Notes
+
+Current development builds include experimental ultrawide Hor+ work for Skate 3.
+The intended behavior is:
+
+- Gameplay keeps the Hor+ ultrawide path active.
+- Startup, menus, and videos use a separate non-stretched presentation path.
+- Windowed-mode startup/launch crash behavior has been fixed in current builds.
+
+Treat ultrawide Hor+ as experimental while gameplay and visual coverage continue
+to expand.
+
 ## Verification Notes
 
 Known local evidence recorded outside this repository:
