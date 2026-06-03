@@ -23,6 +23,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Install clang-format
         run: |
@@ -35,7 +37,38 @@ jobs:
         # run: pip install cmake-format
 
       - name: Check C/C++ formatting
+        shell: bash
         run: |
-          find include src tests \
-            -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.c' \) \
-            | xargs clang-format-20 --dry-run --Werror
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            mapfile -t changed_files < <(git diff --name-only --diff-filter=ACM "origin/${{ github.base_ref }}"...HEAD)
+          elif [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
+            mapfile -t changed_files < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          else
+            mapfile -t changed_files < <(git diff --name-only --diff-filter=ACM "${{ github.event.before }}" "${{ github.sha }}")
+          fi
+
+          format_files=()
+          for file in "${changed_files[@]}"; do
+            case "$file" in
+              include/*|src/*|tests/*) ;;
+              *) continue ;;
+            esac
+
+            case "$file" in
+              *.cpp|*.h|*.hpp|*.c|*.cc|*.hh|*.cxx|*.hxx)
+                if [[ -f "$file" ]]; then
+                  format_files+=("$file")
+                fi
+                ;;
+            esac
+          done
+
+          if (( ${#format_files[@]} == 0 )); then
+            echo "No changed C/C++ files to check."
+            exit 0
+          fi
+
+          printf '%s\0' "${format_files[@]}" | xargs -0 clang-format-20 --dry-run --Werror

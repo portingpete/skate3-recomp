@@ -36,12 +36,14 @@ REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
 REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
                     "Enable letterboxing for non-native aspect ratios");
 
-REXCVAR_DEFINE_INT32(present_display_aspect_width, 0, "UI/Presenter",
-                     "Override display aspect width for guest presentation; 0 uses the guest video mode")
+REXCVAR_DEFINE_INT32(
+    present_display_aspect_width, 0, "UI/Presenter",
+    "Override display aspect width for guest presentation; 0 uses the guest video mode")
     .range(0, 8192);
 
-REXCVAR_DEFINE_INT32(present_display_aspect_height, 0, "UI/Presenter",
-                     "Override display aspect height for guest presentation; 0 uses the guest video mode")
+REXCVAR_DEFINE_INT32(
+    present_display_aspect_height, 0, "UI/Presenter",
+    "Override display aspect height for guest presentation; 0 uses the guest video mode")
     .range(0, 8192);
 
 REXCVAR_DEFINE_INT32(present_safe_area_x, 90, "UI/Presenter",
