@@ -1,5 +1,7 @@
 # Skate 3 Recomp
 
+Please use https://github.com/mchughalex/skate3recomp it is more up to date than mine
+
 Skate 3 Recomp is an early Windows build that brings Skate 3 toward a native PC
 runtime with a simple setup flow, PC settings, keyboard/mouse support, diagnostics,
 and 1080p/60fps+ experimentation.  It is in-game playable.
